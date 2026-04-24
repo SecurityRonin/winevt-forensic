@@ -25,18 +25,54 @@ pub struct FrequencyAnomaly {
 /// Frequency analysis: events whose group-by key appears at most `cap` times
 /// are returned as anomalies. Port of Events Ripper posh600.pl cap=5 logic.
 pub fn frequency_analysis(
-    _events: &[EvtxEvent],
-    _group_by: FrequencyKey,
-    _cap: usize,
+    events: &[EvtxEvent],
+    group_by: FrequencyKey,
+    cap: usize,
 ) -> Vec<FrequencyAnomaly> {
-    todo!("frequency_analysis not implemented")
+    let data_key = match group_by {
+        FrequencyKey::CommandLine => "CommandLine",
+        FrequencyKey::ProcessImage => "NewProcessName",
+        FrequencyKey::Username => "TargetUserName",
+    };
+
+    // Count occurrences and collect timestamps per key value
+    let mut groups: HashMap<String, Vec<i64>> = HashMap::new();
+    for ev in events {
+        if let Some(val) = ev.data.get(data_key) {
+            if !val.is_empty() {
+                groups
+                    .entry(val.clone())
+                    .or_default()
+                    .push(ev.timestamp_ns);
+            }
+        }
+    }
+
+    groups
+        .into_iter()
+        .filter(|(_, ts)| ts.len() <= cap)
+        .map(|(key, events)| FrequencyAnomaly {
+            count: events.len(),
+            key,
+            events,
+        })
+        .collect()
 }
 
 /// Pivot table: group sessions by source IP for lateral movement analysis.
 pub fn pivot_sessions_by_src_ip<'a>(
-    _sessions: &'a [LogonSession],
+    sessions: &'a [LogonSession],
 ) -> HashMap<String, Vec<&'a LogonSession>> {
-    todo!("pivot_sessions_by_src_ip not implemented")
+    let mut result: HashMap<String, Vec<&'a LogonSession>> = HashMap::new();
+    for s in sessions {
+        let ip = s
+            .src_ip
+            .as_deref()
+            .unwrap_or("(unknown)")
+            .to_string();
+        result.entry(ip).or_default().push(s);
+    }
+    result
 }
 
 #[cfg(test)]
