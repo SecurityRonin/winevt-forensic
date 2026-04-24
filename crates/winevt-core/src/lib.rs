@@ -55,12 +55,51 @@ pub struct ServiceEvent {
 
 /// Return the human-readable name of a Windows logon type code.
 pub fn logon_type_name(t: u8) -> &'static str {
-    todo!("logon_type_name not implemented")
+    match t {
+        0 => "System",
+        2 => "Interactive",
+        3 => "Network",
+        4 => "Batch",
+        5 => "Service",
+        7 => "Unlock",
+        8 => "NetworkCleartext",
+        9 => "NewCredentials",
+        10 => "RemoteInteractive",
+        11 => "CachedInteractive",
+        12 => "CachedRemoteInteractive",
+        13 => "CachedUnlock",
+        _ => "Unknown",
+    }
 }
 
 /// Return the description for a 4625 failure sub-status hex code.
+///
+/// Codes are matched case-insensitively with or without the `0x` prefix.
 pub fn substatus_description(code: &str) -> Option<&'static str> {
-    todo!("substatus_description not implemented")
+    // Normalise: upper-case, strip 0x prefix
+    let upper = code.to_ascii_uppercase();
+    let hex = upper.strip_prefix("0X").unwrap_or(&upper);
+    match hex {
+        "C000005E" => Some("No logon servers available"),
+        "C0000064" => Some("User name does not exist"),
+        "C000006A" => Some("Wrong password"),
+        "C000006D" => Some("Bad username or authentication info"),
+        "C000006E" => Some("Account restriction"),
+        "C000006F" => Some("Logon outside authorized hours"),
+        "C0000070" => Some("Unauthorized workstation"),
+        "C0000071" => Some("Password expired"),
+        "C0000072" => Some("Account disabled"),
+        "C00000DC" => Some("SAM server in wrong state"),
+        "C0000133" => Some("Clocks out of sync"),
+        "C000015B" => Some("User not granted logon type"),
+        "C000018C" => Some("Trust relationship failure"),
+        "C0000192" => Some("Netlogon service not started"),
+        "C0000193" => Some("Account expired"),
+        "C0000224" => Some("Password must change at next logon"),
+        "C0000225" => Some("Windows bug — not a risk"),
+        "C0000234" => Some("Account locked out"),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
