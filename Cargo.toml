@@ -1,0 +1,34 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/winevt-core",
+    "crates/winevt-session",
+    "crates/winevt-handlers",
+    "crates/winevt-analyze",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.75"
+license = "Apache-2.0"
+repository = "https://github.com/SecurityRonin/winevt-forensic"
+
+[workspace.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["alloc", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+
+# Internal
+winevt-core = { path = "crates/winevt-core" }
+winevt-session = { path = "crates/winevt-session" }
+winevt-handlers = { path = "crates/winevt-handlers" }
+winevt-analyze = { path = "crates/winevt-analyze" }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

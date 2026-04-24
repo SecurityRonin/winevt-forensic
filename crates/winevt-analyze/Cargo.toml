@@ -1,0 +1,15 @@
+[package]
+name = "winevt-analyze"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Frequency analysis and aggregation for Windows Event Log forensics"
+
+[dependencies]
+winevt-core.workspace = true
+winevt-session.workspace = true
+
+[lints]
+workspace = true
