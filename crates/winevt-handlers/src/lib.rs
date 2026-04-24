@@ -160,8 +160,7 @@ impl EventHandler for SchedTaskHandler {
 impl EventHandler for PowershellHandler {
     fn handles(&self, event_id: u32, channel: &str) -> bool {
         match event_id {
-            4103 | 4104 => channel.contains("PowerShell"),
-            400 | 600 => channel.contains("PowerShell"),
+            400 | 600 | 4103 | 4104 => channel.contains("PowerShell"),
             _ => false,
         }
     }
@@ -292,7 +291,7 @@ impl EventHandler for LogClearedHandler {
 
 impl EventHandler for BitsHandler {
     fn handles(&self, event_id: u32, channel: &str) -> bool {
-        matches!(event_id, 59 | 60 | 61) && channel.contains("Bits-Client")
+        matches!(event_id, 59..=61) && channel.contains("Bits-Client")
     }
 
     fn summarize(&self, event: &EvtxEvent) -> Option<String> {
@@ -342,7 +341,7 @@ impl EventHandler for AuditChangeHandler {
 
 impl EventHandler for DefenderHandler {
     fn handles(&self, event_id: u32, _channel: &str) -> bool {
-        matches!(event_id, 1116 | 1117 | 1118)
+        matches!(event_id, 1116..=1118)
     }
 
     fn summarize(&self, event: &EvtxEvent) -> Option<String> {

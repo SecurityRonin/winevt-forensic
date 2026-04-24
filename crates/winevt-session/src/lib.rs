@@ -18,7 +18,7 @@ pub struct LateralMovementFinding {
 
 /// Build a map of `LogonId` -> `LogonSession` from a slice of `EvtxEvent`s.
 ///
-/// Matches 4624 (logon) with 4634/4647 (logoff) by logon_id.
+/// Matches 4624 (logon) with 4634/4647 (logoff) by `logon_id`.
 /// Sessions without a matching logoff are marked `is_orphaned = true`.
 pub fn correlate_sessions(events: &[EvtxEvent]) -> HashMap<u64, LogonSession> {
     let mut sessions: HashMap<u64, LogonSession> = HashMap::new();
@@ -89,8 +89,8 @@ pub fn correlate_sessions(events: &[EvtxEvent]) -> HashMap<u64, LogonSession> {
 ///
 /// Mutates sessions in-place: adds PIDs to `LogonSession::processes`.
 /// THIS IS OUR INNOVATION -- Events Ripper's sec4688.pl explicitly does NOT do this.
-pub fn link_processes_to_sessions(
-    sessions: &mut HashMap<u64, LogonSession>,
+pub fn link_processes_to_sessions<S: ::std::hash::BuildHasher>(
+    sessions: &mut HashMap<u64, LogonSession, S>,
     process_events: &[ProcessEvent],
 ) {
     for proc in process_events {
