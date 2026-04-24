@@ -52,3 +52,92 @@ pub struct ServiceEvent {
     pub start_type: Option<String>,
     pub account: Option<String>,
 }
+
+/// Return the human-readable name of a Windows logon type code.
+pub fn logon_type_name(t: u8) -> &'static str {
+    todo!("logon_type_name not implemented")
+}
+
+/// Return the description for a 4625 failure sub-status hex code.
+pub fn substatus_description(code: &str) -> Option<&'static str> {
+    todo!("substatus_description not implemented")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn evtx_event_data_access_by_key() {
+        let mut data = HashMap::new();
+        data.insert("TargetUserName".to_string(), "admin".to_string());
+        data.insert("LogonType".to_string(), "10".to_string());
+        let event = EvtxEvent {
+            event_id: 4624,
+            channel: "Security".into(),
+            timestamp_ns: 1_700_000_000_000_000_000,
+            computer: "DC01".into(),
+            user_sid: Some("S-1-5-21-1234".into()),
+            logon_id: Some(0x456789),
+            process_id: Some(500),
+            thread_id: Some(504),
+            data,
+        };
+        assert_eq!(event.data.get("TargetUserName").unwrap(), "admin");
+        assert_eq!(event.data.get("LogonType").unwrap(), "10");
+        assert!(event.data.get("NonExistent").is_none());
+    }
+
+    #[test]
+    fn logon_session_duration_none_when_no_logoff() {
+        let session = LogonSession {
+            logon_id: 0x123456,
+            logon_type: 10,
+            username: "analyst".into(),
+            domain: "CORP".into(),
+            src_ip: Some("10.0.0.5".into()),
+            logon_time_ns: 1_700_000_000_000_000_000,
+            logoff_time_ns: None,
+            duration_secs: None,
+            processes: vec![],
+            is_orphaned: true,
+        };
+        assert!(session.duration_secs.is_none());
+        assert!(session.logoff_time_ns.is_none());
+        assert!(session.is_orphaned);
+    }
+
+    #[test]
+    fn logon_type_2_is_interactive() {
+        assert_eq!(logon_type_name(2), "Interactive");
+    }
+
+    #[test]
+    fn logon_type_10_is_remote_interactive() {
+        assert_eq!(logon_type_name(10), "RemoteInteractive");
+    }
+
+    #[test]
+    fn substatus_wrong_password_code() {
+        assert_eq!(
+            substatus_description("0xC000006A"),
+            Some("Wrong password")
+        );
+    }
+
+    #[test]
+    fn process_event_has_logon_id() {
+        let pe = ProcessEvent {
+            timestamp_ns: 1_700_000_000_000_000_000,
+            process_id: 1234,
+            parent_pid: Some(456),
+            image_path: r"C:\Windows\System32\cmd.exe".into(),
+            command_line: Some("cmd.exe /c whoami".into()),
+            logon_id: Some(0xABCDEF),
+            user: Some("CORP\\analyst".into()),
+        };
+        assert_eq!(pe.logon_id, Some(0xABCDEF));
+        assert_eq!(pe.process_id, 1234);
+    }
+}
