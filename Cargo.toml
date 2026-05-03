@@ -5,6 +5,7 @@ members = [
     "crates/winevt-session",
     "crates/winevt-handlers",
     "crates/winevt-analyze",
+    "crates/wt-evtx",
 ]
 
 [workspace.package]
