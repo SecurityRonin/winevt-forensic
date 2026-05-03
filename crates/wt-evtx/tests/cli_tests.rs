@@ -1,5 +1,4 @@
 use assert_cmd::Command;
-use std::path::PathBuf;
 
 fn bin() -> Command {
     Command::cargo_bin("wt-evtx").unwrap()
