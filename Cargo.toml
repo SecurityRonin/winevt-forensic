@@ -2,10 +2,6 @@
 resolver = "2"
 members = [
     "crates/winevt-core",
-    "crates/winevt-session",
-    "crates/winevt-handlers",
-    "crates/winevt-analyze",
-    "crates/wt-evtx",
 ]
 
 [workspace.package]
@@ -23,9 +19,6 @@ anyhow = "1"
 
 # Internal
 winevt-core = { path = "crates/winevt-core" }
-winevt-session = { path = "crates/winevt-session" }
-winevt-handlers = { path = "crates/winevt-handlers" }
-winevt-analyze = { path = "crates/winevt-analyze" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
