@@ -1,0 +1,13 @@
+[
+  {
+    "description": "As an analyst I can filter all subcommands to a time window so I only see events from the relevant incident period",
+    "steps": [
+      "wt-evtx timeline -d <dir> --after 2024-03-15T00:00:00Z --before 2024-03-16T00:00:00Z outputs only events in that range",
+      "wt-evtx sessions -d <dir> --after 2024-03-15T00:00:00Z outputs only sessions that overlap the window",
+      "wt-evtx processes -d <dir> --after 2024-03-15T00:00:00Z outputs only process events in range",
+      "wt-evtx frequency -d <dir> --after 2024-03-15T00:00:00Z scopes frequency counts to the window",
+      "passing --after with an RFC3339 timestamp works; invalid timestamps produce a clear error message"
+    ],
+    "passes": false
+  }
+]

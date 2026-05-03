@@ -1,0 +1,14 @@
+[
+  {
+    "description": "As an analyst I can include Sysmon events in the timeline and process view so I get richer process telemetry when Sysmon is deployed",
+    "steps": [
+      "Sysmon Event ID 1 (ProcessCreate) is parsed and included in wt-evtx processes output",
+      "Sysmon Event ID 3 (NetworkConnect) is parsed and included in wt-evtx timeline output with src/dst IP and port",
+      "Sysmon Event ID 11 (FileCreate) is parsed and appears in timeline with TargetFilename",
+      "Sysmon Event ID 13 (RegistryValue set) is parsed and appears in timeline with key path and value",
+      "Sysmon events show channel 'Microsoft-Windows-Sysmon/Operational' in output",
+      "When no Sysmon events exist in the EVTX directory the tool completes without error"
+    ],
+    "passes": false
+  }
+]

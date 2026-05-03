@@ -1,0 +1,13 @@
+[
+  {
+    "description": "As an analyst I can run brute-force detection to surface accounts or IPs with many 4625 failures so I can identify password spray or brute-force attacks",
+    "steps": [
+      "wt-evtx brute-force -d <dir> groups 4625 events by TargetUserName and shows count + unique source IPs",
+      "wt-evtx brute-force -d <dir> --threshold 10 only reports accounts with 10+ failures",
+      "output includes: username, failure count, unique source IPs, first seen, last seen",
+      "wt-evtx brute-force -d <dir> --by-ip groups by source IP instead of username",
+      "output is sortable by count descending"
+    ],
+    "passes": false
+  }
+]
