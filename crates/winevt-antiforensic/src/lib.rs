@@ -1,4 +1,78 @@
-// TODO: implement
+use winevt_core::binary::AntiForensicIndicator;
+
+/// Given (first_record_number, last_record_number) per chunk in order,
+/// detect gaps between adjacent chunks.
+pub fn detect_record_id_gaps(chunks: &[(u64, u64)]) -> Vec<AntiForensicIndicator> {
+    let mut out = Vec::new();
+    for window in chunks.windows(2) {
+        let (_, prev_last) = window[0];
+        let (next_first, _) = window[1];
+        let expected = prev_last + 1;
+        if next_first != expected {
+            out.push(AntiForensicIndicator::RecordIdGap {
+                chunk_offset: 0, // caller fills in real offset
+                expected,
+                found: next_first,
+            });
+        }
+    }
+    out
+}
+
+/// Verify the chunk header CRC32 (bytes 0x00..0x78) against stored value at 0x78.
+/// `buf` must be at least 0x7C bytes. `chunk_offset` is for the indicator.
+pub fn verify_chunk_header_checksum(buf: &[u8], chunk_offset: u64) -> Vec<AntiForensicIndicator> {
+    if buf.len() < 0x7C {
+        return vec![];
+    }
+    let stored = u32::from_le_bytes(buf[0x78..0x7C].try_into().unwrap_or([0; 4]));
+    let computed = crc32fast::hash(&buf[0..0x78]);
+    if stored != computed {
+        vec![AntiForensicIndicator::ChunkChecksumMismatch {
+            chunk_offset,
+            computed,
+            stored,
+        }]
+    } else {
+        vec![]
+    }
+}
+
+/// Check that (record_id, timestamp) pairs are monotonically non-decreasing in timestamp.
+pub fn check_timestamp_monotonicity(
+    records: &[(u64, u64)],
+    chunk_offset: u64,
+) -> Vec<AntiForensicIndicator> {
+    let mut out = Vec::new();
+    let mut prev_ts = 0u64;
+    for &(record_id, ts) in records {
+        if ts < prev_ts {
+            out.push(AntiForensicIndicator::TimestampAnomaly {
+                chunk_offset,
+                record_id,
+                prev_ts,
+                this_ts: ts,
+            });
+        }
+        prev_ts = ts;
+    }
+    out
+}
+
+/// Check file header consistency: next_record_id should be > actual_highest_record_id.
+pub fn check_file_header_consistency(
+    header_next: u64,
+    actual_highest: u64,
+) -> Vec<AntiForensicIndicator> {
+    if header_next <= actual_highest {
+        vec![AntiForensicIndicator::NextRecordIdInconsistency {
+            header_next,
+            actual_highest,
+        }]
+    } else {
+        vec![]
+    }
+}
 
 #[cfg(test)]
 mod tests {
