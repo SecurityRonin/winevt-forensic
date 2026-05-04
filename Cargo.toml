@@ -4,6 +4,7 @@ members = [
     "crates/winevt-core",
     "crates/winevt-integrity",
     "crates/winevt-carver",
+    "crates/winevt-memory",
 ]
 
 [workspace.package]
@@ -23,6 +24,7 @@ anyhow = "1"
 winevt-core = { path = "crates/winevt-core" }
 winevt-integrity = { path = "crates/winevt-integrity" }
 winevt-carver = { path = "crates/winevt-carver" }
+winevt-memory = { path = "crates/winevt-memory" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

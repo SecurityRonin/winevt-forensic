@@ -1,0 +1,18 @@
+[package]
+name = "winevt-memory"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+winevt-core = { workspace = true }
+winevt-integrity = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+crc32fast = "1"
+
+[lints]
+workspace = true
