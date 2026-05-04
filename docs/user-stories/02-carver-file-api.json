@@ -1,0 +1,13 @@
+[
+  {
+    "description": "As a forensic analyst, I can carve EVTX records from a file path and verify structural integrity of a file so I can process evidence on disk without loading it entirely into memory",
+    "steps": [
+      "carve_from_file(path) on a valid EVTX file path returns Ok(CarveResult) with at least one chunk",
+      "carve_from_file(path) on a path that does not exist returns an Err",
+      "verify_integrity(path) on a structurally sound EVTX file returns Ok with an empty Vec<AntiForensicIndicator>",
+      "verify_integrity(path) on an EVTX file with a tampered chunk header checksum returns Ok with at least one ChunkChecksumMismatch indicator",
+      "verify_integrity(path) on a path that does not exist returns an Err"
+    ],
+    "passes": false
+  }
+]

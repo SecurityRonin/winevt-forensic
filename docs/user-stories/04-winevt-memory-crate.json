@@ -1,0 +1,15 @@
+[
+  {
+    "description": "As a memory forensics analyst, winevt-memory provides typed output types and analysis functions for EVTX and ETW data recovered from memory dumps so that memf-windows can populate them without depending on disk-carving logic",
+    "steps": [
+      "MemoryRecoveredChunk can be constructed from vaddr, EvtxChunkHeader, record_count, first/last timestamp, channel, and optional source process metadata",
+      "RecoveredEtwSession can be constructed with logger_id, name, is_running, buffer_count, buffer_size, events_lost, log_mode, and an empty buffer_events vec",
+      "identify_eventlog_sessions returns only sessions whose name starts with 'EventLog-'",
+      "identify_eventlog_sessions on a list with no EventLog- sessions returns an empty vec",
+      "detect_etw_tampering returns an EtwTamperingIndicator for a session with events_lost > 1000",
+      "detect_etw_tampering returns empty for sessions with events_lost <= 1000",
+      "winevt-memory crate has no dependency on memf-core, memf-format, or any memory reader abstraction"
+    ],
+    "passes": false
+  }
+]

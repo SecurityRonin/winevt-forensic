@@ -1,0 +1,13 @@
+[
+  {
+    "description": "As a forensic analyst, the carver falls back to aggressive record scanning on corrupt chunks so I can recover events even when the chunk header is unusable",
+    "steps": [
+      "carve_from_bytes on a chunk whose header_checksum is wrong but contains valid record magic bytes returns records marked Integrity::Carved",
+      "carve_from_bytes aggressive scan finds records that do not start at the expected sequential position in the records area",
+      "records recovered via aggressive scan have valid record_id and timestamp fields parsed from the record header",
+      "CarveStats.records_corrupt is incremented for records found via aggressive scan",
+      "aggressive scan does not duplicate records already found by sequential walk"
+    ],
+    "passes": false
+  }
+]

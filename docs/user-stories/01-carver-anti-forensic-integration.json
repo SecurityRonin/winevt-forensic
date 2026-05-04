@@ -1,0 +1,12 @@
+[
+  {
+    "description": "As a forensic analyst, carve_from_bytes runs post-carve anti-forensic detection so that record ID gaps and file header inconsistencies are surfaced automatically",
+    "steps": [
+      "carve_from_bytes on data with two chunks where record IDs are non-contiguous populates result.anti_forensic with at least one RecordIdGap indicator",
+      "carve_from_bytes on data with a corrupt chunk checksum populates the chunk's anti_forensic field with ChunkChecksumMismatch",
+      "carve_from_bytes on data with a file header where NextRecordId is lower than the highest recovered record ID populates result.anti_forensic with NextRecordIdInconsistency",
+      "carve_from_bytes on clean data with no gaps and valid checksums returns empty result.anti_forensic and empty per-chunk anti_forensic"
+    ],
+    "passes": false
+  }
+]

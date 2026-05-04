@@ -1,0 +1,14 @@
+[
+  {
+    "description": "As a memory forensics analyst, detect_etw_tampering surfaces ETW provider abuse patterns so I can identify process injection, provider disabling, and event dropping in memory dumps",
+    "steps": [
+      "detect_etw_tampering flags a session with events_lost > 1000 as HighEventsLost",
+      "detect_etw_tampering flags a session with log_mode = 0 (no output configured) as SuspiciousLogMode",
+      "detect_etw_tampering returns empty vec for a normal active session with low events_lost and standard log_mode",
+      "identify_eventlog_sessions correctly identifies 'EventLog-Security', 'EventLog-System', 'EventLog-Application' sessions",
+      "MemoryRecoveredChunk implements serde::Serialize so it can be included in JSON triage output",
+      "RecoveredEtwSession implements serde::Serialize"
+    ],
+    "passes": false
+  }
+]

@@ -1,140 +1,96 @@
 <p align="center">
-  <strong>wt-evtx</strong>
+  <strong>winevt-forensic</strong>
 </p>
 
 <p align="center">
-  <a href="https://crates.io/crates/wt-evtx"><img src="https://img.shields.io/crates/v/wt-evtx.svg" alt="Crates.io" /></a>
+  <a href="https://crates.io/crates/winevt-core"><img src="https://img.shields.io/crates/v/winevt-core.svg" alt="Crates.io" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
   <a href="https://github.com/SecurityRonin/winevt-forensic/actions/workflows/ci.yml"><img src="https://github.com/SecurityRonin/winevt-forensic/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://github.com/SecurityRonin/winevt-forensic/releases"><img src="https://github.com/SecurityRonin/winevt-forensic/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
   <a href="https://github.com/sponsors/h4x0r"><img src="https://img.shields.io/badge/sponsor-h4x0r-ea4aaa?logo=github-sponsors" alt="Sponsor" /></a>
 </p>
 
-**Parse. Correlate. Hunt.**
+**Carve. Verify. Detect.**
 
-You're already running hayabusa. `wt-evtx` is what comes after: hayabusa-compatible timelines plus the session correlation and frequency analysis that hayabusa can't do. Feed it an EVTX directory and get a pivot table of every logon session — who, from where, how long, what processes — and a ranked list of command lines that appeared exactly once in 90 days of logs.
+Low-level EVTX forensic library suite. Recovers Windows Event Log records from corrupt files, disk images, and memory dumps. Detects anti-forensic tampering — cleared logs, checksum mismatches, record ID gaps — without trusting the file header.
 
-```bash
-cargo install wt-evtx
+This is not an event viewer. It is what you use when the log file has been tampered with or the EVTX parser fails.
+
+```toml
+[dependencies]
+winevt-core         = "0.1"   # types + binary format
+winevt-antiforensic = "0.1"   # tampering detection
+winevt-carver       = "0.1"   # record carving from raw bytes
 ```
+
+**For event correlation, session analysis, and frequency analysis → use [RapidTriage](https://github.com/SecurityRonin/rapidtriage), which depends on this library.**
 
 ---
 
 ## Three Things You Do With This
 
-### Reconstruct the attacker's session — who, from where, for how long
+### Carve records from a corrupt or cleared EVTX file
 
-```bash
-wt-evtx sessions -d /mnt/evidence/winevt/logs
+```rust
+use winevt_carver::{carve_from_file, Integrity};
+
+let result = carve_from_file("/evidence/Security.evtx")?;
+
+println!("Chunks found: {}", result.stats.chunks_found);
+println!("Records recovered: {}", result.stats.records_recovered);
+
+for chunk in &result.chunks {
+    println!("  Chunk @ 0x{:x}: {:?}", chunk.offset, chunk.integrity);
+    for record in &chunk.records {
+        println!("    Record #{} ts={} [{:?}]",
+            record.header.record_id,
+            record.header.timestamp,
+            record.integrity,
+        );
+    }
+}
 ```
 
-Every 4624 logon is correlated to its matching 4634 logoff. Orphaned sessions (no logoff found) are flagged. Source IP, logon type, duration, and process list all in one table.
+Recovers records even from chunks where the header CRC32 has been tampered with. Falls back to aggressive magic-byte scan when sequential record walk fails.
 
-```
-LogonID     Type   User              SrcIP           Logon                 Duration    Processes
-0x3e7       2      SYSTEM            —               2024-03-15T08:00:01Z  ongoing     —
-0xf6d8b     10     jsmith            192.168.1.45    2024-03-15T09:12:33Z  00:47:22    3
-0x1a2b3c    3      Administrator     10.10.0.200     2024-03-15T09:58:11Z  ORPHANED    1
-```
+### Detect anti-forensic indicators
 
-[Session correlation guide →](docs/sessions.md)
+```rust
+use winevt_carver::verify_integrity;
+use winevt_core::binary::AntiForensicIndicator;
 
-### Build the process tree — linked to the session that spawned it
+let indicators = verify_integrity("/evidence/Security.evtx")?;
 
-```bash
-wt-evtx processes -d /mnt/evidence/winevt/logs --link-sessions
-```
-
-Every 4688 process creation event, parent PID, command line, and the logon session it belongs to. Pivot from a suspicious process straight back to the originating logon.
-
-[Process tree guide →](docs/processes.md)
-
-### Surface the one command that ran once in 90 days
-
-```bash
-wt-evtx frequency -d /mnt/evidence/winevt/logs --cap 5
+for ind in &indicators {
+    match ind {
+        AntiForensicIndicator::RecordIdGap { expected, found, chunk_offset } =>
+            println!("TAMPERED: records {expected}..{} missing at chunk 0x{chunk_offset:x}", found - 1),
+        AntiForensicIndicator::ChunkChecksumMismatch { chunk_offset, .. } =>
+            println!("CORRUPT/TAMPERED: chunk header checksum mismatch at 0x{chunk_offset:x}"),
+        AntiForensicIndicator::TimestampAnomaly { record_id, .. } =>
+            println!("ANOMALY: out-of-order timestamp at record #{record_id}"),
+        AntiForensicIndicator::NextRecordIdInconsistency { header_next, actual_highest } =>
+            println!("INCONSISTENT: header says next={header_next}, highest seen={actual_highest}"),
+        _ => println!("{ind:?}"),
+    }
+}
 ```
 
-Events Ripper-style frequency analysis: all command lines and process images ranked by how rarely they appear. Anything seen 5 times or fewer is flagged. The living-off-the-land binary that ran once stands out immediately.
+### Carve from raw bytes (disk image, memory dump, slack space)
 
-```
-Count  CommandLine
-1      C:\Windows\Temp\svc32.exe -install
-2      powershell -enc JABjAGw...
-3      net user /domain
-5      certutil -decode payload.b64 out.exe
-```
+```rust
+use winevt_carver::carve_from_bytes;
 
-[Frequency analysis guide →](docs/frequency.md)
+// Read raw disk sector, unallocated space, or memory region
+let raw: Vec<u8> = std::fs::read("/dev/sda")?; // or a memory dump slice
 
-### Export a full timeline (hayabusa-compatible)
+let result = carve_from_bytes(&raw);
 
-```bash
-wt-evtx timeline -d /mnt/evidence/winevt/logs -o timeline.csv --format csv
-wt-evtx timeline -d /mnt/evidence/winevt/logs -o timeline.jsonl --format jsonl
-```
-
-Produces the same columns hayabusa emits. Drop it into Timeline Explorer or import into your SIEM without reformatting.
-
----
-
-## What wt-evtx Does That hayabusa Doesn't
-
-Every hayabusa feature it overlaps with, it's compatible. These are the additions:
-
-|                                         | wt-evtx | hayabusa |
-|-----------------------------------------|:-------:|:--------:|
-| Hayabusa-compatible CSV/JSONL timeline  |    Y    |    Y     |
-| Session correlation (4624→4634)         |    Y    |    —     |
-| Session pivot by source IP              |    Y    |    —     |
-| Orphaned session detection              |    Y    |    —     |
-| Process–session linking (4688)          |    Y    |    —     |
-| Frequency analysis (rare cmdlines)      |    Y    |    —     |
-| Events Ripper-style cap threshold       |    Y    |    —     |
-| Pure Rust, single static binary         |    Y    |    —     |
-| Sigma rule detection                    |    —    |    Y     |
-| HTML timeline reports                   |    —    |    Y     |
-
-`wt-evtx` is a complement, not a replacement. Run both.
-
----
-
-## Install
-
-**Cargo (all platforms)**
-```bash
-cargo install wt-evtx
-```
-
-**Build from source**
-```bash
-git clone https://github.com/SecurityRonin/winevt-forensic
-cd winevt-forensic
-cargo build --release
-# binary at target/release/wt-evtx
-```
-
-**Requirements:** Rust 1.75+, a directory of `.evtx` files.
-
----
-
-## Subcommands
-
-```
-wt-evtx <SUBCOMMAND> -d <EVTX_DIRECTORY> [OPTIONS]
-
-SUBCOMMANDS:
-  timeline    Chronological event timeline (CSV / JSONL / text)
-  sessions    Correlate 4624→4634 logon sessions
-  processes   4688 process creation with optional session linking
-  frequency   Rare command-line / process image frequency table
-
-OPTIONS (all subcommands):
-  -d, --directory <DIR>   EVTX directory (searched recursively)
-  -o, --output <FILE>     Output file (default: stdout)
-  -f, --format <FMT>      csv | jsonl | text (default: text)
-      --cap <N>           Frequency cap — flag events seen ≤ N times (default: 5)
-      --link-sessions     Link processes to correlated sessions (processes only)
+// Finds ElfChnk magic at any 8-byte offset — no alignment assumptions
+println!("Scanned {} bytes, found {} chunks, recovered {} records",
+    result.stats.bytes_scanned,
+    result.stats.chunks_found,
+    result.stats.records_recovered,
+);
 ```
 
 ---
@@ -143,42 +99,95 @@ OPTIONS (all subcommands):
 
 ```
 winevt-forensic/
-├── crates/
-│   ├── winevt-core       # EvtxEvent type, logon type names, substatus codes
-│   ├── winevt-session    # 4624/4634 correlation, 4688 process linking
-│   ├── winevt-handlers   # Per-event-ID handler implementations
-│   ├── winevt-analyze    # Frequency analysis, pivot tables
-│   └── wt-evtx           # CLI binary (clap)
+└── crates/
+    ├── winevt-core          Zero external deps. Binary format constants and
+    │                        structs (EvtxFileHeader, EvtxChunkHeader,
+    │                        EvtxRecordHeader). Domain types: EvtxEvent,
+    │                        LogonSession, ProcessEvent. Lookup tables.
+    │                        AntiForensicIndicator enum.
+    │
+    ├── winevt-antiforensic  Detection algorithms over parsed types. No raw
+    │                        bytes, no memory access. Consumed by both
+    │                        winevt-carver (disk) and memf-windows (memory).
+    │
+    ├── winevt-carver        Chunk discovery and record recovery from &[u8],
+    │                        file paths, and Read+Seek readers. Integrates
+    │                        anti-forensic checks post-carve.
+    │
+    └── winevt-memory        (in progress) Typed output for EVTX/ETW data
+                             recovered from memory dumps. No memory-reader
+                             dependency — populated by memf-windows.
 ```
 
-Each crate is independently usable as a library. Embed session correlation or frequency analysis in your own tooling without pulling in the full CLI.
+**Dependency graph:**
+```
+winevt-core  ←  winevt-antiforensic  ←  winevt-carver
+                                     ←  winevt-memory
+```
 
 ---
 
-## Event IDs Processed
+## What This Detects
 
-| Event ID | Source           | Purpose                        |
-|----------|------------------|--------------------------------|
-| 4624     | Security         | Logon (session start)          |
-| 4625     | Security         | Failed logon                   |
-| 4634     | Security         | Logoff (session end)           |
-| 4648     | Security         | Explicit credentials logon     |
-| 4672     | Security         | Special privileges assigned    |
-| 4688     | Security         | Process creation               |
-| 4720     | Security         | User account created           |
-| 4732     | Security         | Member added to local group    |
-| 4768     | Security         | Kerberos TGT request           |
-| 4769     | Security         | Kerberos service ticket        |
-| 4776     | Security         | NTLM authentication            |
-| 7045     | System           | New service installed          |
+| Indicator | Detection Method |
+|-----------|-----------------|
+| Log cleared (EID 1102 / 104) | Event record parsing |
+| Record ID gap between chunks | `detect_record_id_gaps()` |
+| Chunk header CRC32 mismatch | `verify_chunk_header_checksum()` |
+| Records area CRC32 mismatch | `verify_records_checksum()` |
+| Out-of-order timestamps | `check_timestamp_monotonicity()` |
+| File header NextRecordId inconsistency | `check_file_header_consistency()` |
+| Truncated chunks (partial file) | Carved with `Integrity::Truncated` |
+| Corrupt header, valid records | Carved with `Integrity::HeaderCorrupt` |
 
 ---
 
-## Credits
+## EVTX Binary Format Reference
 
-Built on the excellent [evtx](https://github.com/omerbenamram/evtx) crate by Omer Ben-Amram.
-[hayabusa](https://github.com/Yamato-Security/hayabusa) by Yamato Security — the reference implementation for Windows event timeline analysis.
+### File Header (128 bytes at offset 0)
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0x00 | 8 | Magic `ElfFile\0` |
+| 0x08 | 8 | FirstChunkNumber |
+| 0x10 | 8 | LastChunkNumber |
+| 0x18 | 8 | NextRecordId |
+| 0x28 | 2 | HeaderBlockSize (0x1000) |
+| 0x2A | 2 | ChunkCount |
+| 0x78 | 4 | FileFlags (0x1=dirty, 0x2=full) |
+| 0x7C | 4 | Checksum (CRC32 of 0x00..0x78) |
+
+### Chunk Header (128 bytes at chunk start, chunk size = 64 KiB)
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0x00 | 8 | Magic `ElfChnk\0` |
+| 0x08 | 8 | FirstEventRecordNumber |
+| 0x10 | 8 | LastEventRecordNumber |
+| 0x34 | 4 | EventRecordsChecksum (CRC32 of records area) |
+| 0x78 | 4 | HeaderChecksum (CRC32 of 0x00..0x78) |
+
+### Event Record
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0x00 | 4 | Magic `\x2a\x2a\x00\x00` |
+| 0x04 | 4 | Size (total including header + trailer) |
+| 0x08 | 8 | RecordId |
+| 0x10 | 8 | Timestamp (Windows FILETIME) |
+| 0x18 | … | BinXml payload |
+| Size-4 | 4 | CopyOfSize (for backward traversal) |
+
+Records start at chunk offset `0x200`. Each chunk is exactly `0x10000` bytes.
 
 ---
 
-*If this saved you time on a case, consider [sponsoring](https://github.com/sponsors/h4x0r).*
+## Related Projects
+
+- **[RapidTriage](https://github.com/SecurityRonin/rapidtriage)** — uses winevt-forensic for EVTX carving; provides session correlation, frequency analysis, and the `rt` CLI
+- **[evtx](https://github.com/omerbenamram/evtx)** — EVTX parser this library builds on top of for normal (non-corrupt) files
+- **[hayabusa](https://github.com/Yamato-Security/hayabusa)** — Sigma-based EVTX detection; complement to this library
+
+---
+
+*If this helped with a case, consider [sponsoring](https://github.com/sponsors/h4x0r).*
