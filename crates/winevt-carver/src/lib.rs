@@ -1,8 +1,10 @@
 pub use winevt_core::binary::{
-    IntegrityIndicator, EvtxChunkHeader, EvtxFileHeader, EvtxRecordHeader,
-    ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC, CHUNK_SIZE, CHUNK_RECORDS_OFFSET,
+    EvtxChunkHeader, EvtxFileHeader, EvtxRecordHeader, IntegrityIndicator, CHUNK_RECORDS_OFFSET,
+    CHUNK_SIZE, ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC,
 };
-use winevt_integrity::verify_chunk_header_checksum;
+use winevt_integrity::{
+    check_file_header_consistency, detect_record_id_gaps, verify_chunk_header_checksum,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Integrity {
@@ -130,6 +132,35 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
         i += 8;
     }
 
+    // Post-carve: detect record ID gaps across all chunks
+    let chunk_ranges: Vec<(u64, u64)> = result
+        .chunks
+        .iter()
+        .map(|c| {
+            (
+                c.header.first_event_record_number,
+                c.header.last_event_record_number,
+            )
+        })
+        .collect();
+    result
+        .anti_forensic
+        .extend(detect_record_id_gaps(&chunk_ranges));
+
+    // Post-carve: check file header consistency if we have a file header
+    if let Some(ref fh) = result.file_header {
+        let actual_highest = result
+            .chunks
+            .iter()
+            .map(|c| c.header.last_event_record_id)
+            .max()
+            .unwrap_or(0);
+        result.anti_forensic.extend(check_file_header_consistency(
+            fh.next_record_id,
+            actual_highest,
+        ));
+    }
+
     result
 }
 
@@ -156,11 +187,9 @@ fn recover_records_from_slice(
             if pos + 8 > records_area.len() {
                 break;
             }
-            let size = u32::from_le_bytes(
-                records_area[pos + 4..pos + 8]
-                    .try_into()
-                    .unwrap_or([0; 4]),
-            ) as usize;
+            let size =
+                u32::from_le_bytes(records_area[pos + 4..pos + 8].try_into().unwrap_or([0; 4]))
+                    as usize;
             if size < 24 || pos + size > records_area.len() {
                 pos += 8;
                 continue;
@@ -208,7 +237,7 @@ mod tests {
     fn make_minimal_chunk() -> Vec<u8> {
         let mut chunk = vec![0u8; 0x10000];
         chunk[0..8].copy_from_slice(b"ElfChnk\0");
-        chunk[8..16].copy_from_slice(&1u64.to_le_bytes());  // first record number
+        chunk[8..16].copy_from_slice(&1u64.to_le_bytes()); // first record number
         chunk[16..24].copy_from_slice(&1u64.to_le_bytes()); // last record number
         chunk[24..32].copy_from_slice(&1u64.to_le_bytes()); // first record id
         chunk[32..40].copy_from_slice(&1u64.to_le_bytes()); // last record id
@@ -216,7 +245,7 @@ mod tests {
         chunk[44..48].copy_from_slice(&0x200u32.to_le_bytes()); // last_event_record_data_offset
         chunk[48..52].copy_from_slice(&0x200u32.to_le_bytes()); // free_space_offset
         chunk[52..56].copy_from_slice(&0u32.to_le_bytes()); // event_records_checksum
-        // compute header checksum
+                                                            // compute header checksum
         let crc = crc32fast::hash(&chunk[0..0x78]);
         chunk[0x78..0x7C].copy_from_slice(&crc.to_le_bytes());
         chunk
@@ -230,7 +259,7 @@ mod tests {
         chunk[0x204..0x208].copy_from_slice(&record_size.to_le_bytes()); // size
         chunk[0x208..0x210].copy_from_slice(&42u64.to_le_bytes()); // record_id
         chunk[0x210..0x218].copy_from_slice(&133_297_085_160_000_000u64.to_le_bytes()); // timestamp
-        // bxml payload area (0 bytes here — size 28 = 24 header + 4 trailer)
+                                                                                        // bxml payload area (0 bytes here — size 28 = 24 header + 4 trailer)
         let end = 0x200 + record_size as usize;
         chunk[end - 4..end].copy_from_slice(&record_size.to_le_bytes()); // copy-of-size
         chunk
@@ -342,13 +371,13 @@ mod tests {
     fn make_file_header(next_record_id: u64) -> Vec<u8> {
         let mut hdr = vec![0u8; 0x1000];
         hdr[0..8].copy_from_slice(b"ElfFile\0");
-        hdr[8..16].copy_from_slice(&0u64.to_le_bytes());   // first_chunk_number
-        hdr[16..24].copy_from_slice(&0u64.to_le_bytes());  // last_chunk_number
+        hdr[8..16].copy_from_slice(&0u64.to_le_bytes()); // first_chunk_number
+        hdr[16..24].copy_from_slice(&0u64.to_le_bytes()); // last_chunk_number
         hdr[24..32].copy_from_slice(&next_record_id.to_le_bytes()); // next_record_id
-        hdr[36..38].copy_from_slice(&1u16.to_le_bytes());  // minor_version
-        hdr[38..40].copy_from_slice(&3u16.to_le_bytes());  // major_version
-        hdr[40..42].copy_from_slice(&0u16.to_le_bytes());  // HeaderBlockSize padding
-        hdr[42..44].copy_from_slice(&1u16.to_le_bytes());  // chunk_count
+        hdr[36..38].copy_from_slice(&1u16.to_le_bytes()); // minor_version
+        hdr[38..40].copy_from_slice(&3u16.to_le_bytes()); // major_version
+        hdr[40..42].copy_from_slice(&0u16.to_le_bytes()); // HeaderBlockSize padding
+        hdr[42..44].copy_from_slice(&1u16.to_le_bytes()); // chunk_count
         hdr
     }
 
@@ -363,7 +392,11 @@ mod tests {
             matches!(ind, IntegrityIndicator::RecordIdGap { expected, found, .. }
                 if *expected == 11 && *found == 15)
         });
-        assert!(has_gap, "expected RecordIdGap(expected=11, found=15) in result.anti_forensic, got: {:?}", result.anti_forensic);
+        assert!(
+            has_gap,
+            "expected RecordIdGap(expected=11, found=15) in result.anti_forensic, got: {:?}",
+            result.anti_forensic
+        );
     }
 
     #[test]
@@ -373,10 +406,14 @@ mod tests {
         data[0x78..0x7C].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
         let result = carve_from_bytes(&data);
         assert_eq!(result.chunks.len(), 1);
-        let has_mismatch = result.chunks[0].anti_forensic.iter().any(|ind| {
-            matches!(ind, IntegrityIndicator::ChunkChecksumMismatch { .. })
-        });
-        assert!(has_mismatch, "expected ChunkChecksumMismatch in chunk.anti_forensic");
+        let has_mismatch = result.chunks[0]
+            .anti_forensic
+            .iter()
+            .any(|ind| matches!(ind, IntegrityIndicator::ChunkChecksumMismatch { .. }));
+        assert!(
+            has_mismatch,
+            "expected ChunkChecksumMismatch in chunk.anti_forensic"
+        );
     }
 
     #[test]
