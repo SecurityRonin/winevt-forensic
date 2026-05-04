@@ -39,7 +39,7 @@ impl EvtxFileHeader {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct EvtxChunkHeader {
     pub first_event_record_number: u64,
     pub last_event_record_number: u64,

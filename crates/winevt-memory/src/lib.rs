@@ -1,6 +1,87 @@
 // winevt-memory: types and analysis functions for EVTX/ETW data recovered from memory dumps.
 // No dependency on memory readers — provides types that memf-windows populates.
 
+pub use winevt_core::binary::{EvtxChunkHeader, IntegrityIndicator};
+
+/// An ETW event recovered from a session buffer in kernel memory.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecoveredEtwEvent {
+    pub timestamp: u64,
+    pub provider_id: String,
+    pub event_id: u16,
+    pub payload: Vec<u8>,
+}
+
+/// A chunk recovered from process memory (Event Log service VAD scan).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MemoryRecoveredChunk {
+    pub vaddr: u64,
+    pub header: EvtxChunkHeader,
+    pub record_count: u32,
+    pub first_timestamp: u64,
+    pub last_timestamp: u64,
+    pub channel: String,
+    pub source_process: Option<String>,
+    pub source_pid: Option<u32>,
+    pub anti_forensic: Vec<IntegrityIndicator>,
+}
+
+/// An ETW session recovered from kernel memory (`_WMI_LOGGER_CONTEXT` walk).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecoveredEtwSession {
+    pub logger_id: u32,
+    pub name: String,
+    pub is_running: bool,
+    pub buffer_count: u32,
+    pub buffer_size: u32,
+    pub events_lost: u32,
+    pub log_mode: u32,
+    pub buffer_events: Vec<RecoveredEtwEvent>,
+}
+
+/// ETW-level tampering indicators.
+#[derive(Debug, Clone, serde::Serialize)]
+pub enum EtwTamperingIndicator {
+    /// Session has abnormally high `events_lost` count.
+    HighEventsLost {
+        session_name: String,
+        events_lost: u32,
+        threshold: u32,
+    },
+    /// Expected Event Log session missing (e.g., "EventLog-Security" not found).
+    MissingEventLogSession { expected_channel: String },
+    /// Session exists but is not running (stopped ETW session = blind spot).
+    SessionStopped { session_name: String },
+    /// Buffer count is zero for a running session (buffers deallocated).
+    ZeroBuffers { session_name: String },
+}
+
+/// Events-lost threshold above which a session is flagged.
+const HIGH_EVENTS_LOST_THRESHOLD: u32 = 1000;
+
+/// Filter sessions whose name starts with `"EventLog-"`.
+pub fn identify_eventlog_sessions(sessions: &[RecoveredEtwSession]) -> Vec<&RecoveredEtwSession> {
+    sessions
+        .iter()
+        .filter(|s| s.name.starts_with("EventLog-"))
+        .collect()
+}
+
+/// Detect ETW-level tampering indicators across the given sessions.
+pub fn detect_etw_tampering(sessions: &[RecoveredEtwSession]) -> Vec<EtwTamperingIndicator> {
+    let mut indicators = Vec::new();
+    for session in sessions {
+        if session.events_lost > HIGH_EVENTS_LOST_THRESHOLD {
+            indicators.push(EtwTamperingIndicator::HighEventsLost {
+                session_name: session.name.clone(),
+                events_lost: session.events_lost,
+                threshold: HIGH_EVENTS_LOST_THRESHOLD,
+            });
+        }
+    }
+    indicators
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
