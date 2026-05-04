@@ -2,6 +2,7 @@ pub use winevt_core::binary::{
     AntiForensicIndicator, EvtxChunkHeader, EvtxFileHeader, EvtxRecordHeader,
     ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC, CHUNK_SIZE, CHUNK_RECORDS_OFFSET,
 };
+use winevt_antiforensic::verify_chunk_header_checksum;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Integrity {
@@ -48,8 +49,156 @@ pub struct CarveResult {
     pub stats: CarveStats,
 }
 
-pub fn carve_from_bytes(_data: &[u8]) -> CarveResult {
-    todo!()
+pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
+    let mut result = CarveResult {
+        file_header: None,
+        chunks: Vec::new(),
+        anti_forensic: Vec::new(),
+        stats: CarveStats {
+            bytes_scanned: data.len() as u64,
+            ..Default::default()
+        },
+    };
+
+    // Look for file header at start
+    if data.len() >= 128 {
+        result.file_header = EvtxFileHeader::parse(&data[0..128]);
+    }
+
+    // Scan for ElfChnk magic at 8-byte granularity
+    let mut i = 0usize;
+    while i + 8 <= data.len() {
+        if data[i..i + 8] == ELFCHNK_MAGIC {
+            let chunk_end = i + CHUNK_SIZE as usize;
+            if chunk_end > data.len() {
+                // Truncated chunk
+                if let Some(header) = EvtxChunkHeader::parse(&data[i..]) {
+                    let records = recover_records_from_slice(&data[i..], i as u64, true);
+                    let rec_count = records.len();
+                    result.chunks.push(CarvedChunk {
+                        offset: i as u64,
+                        header,
+                        integrity: Integrity::Truncated,
+                        records,
+                        anti_forensic: vec![],
+                    });
+                    result.stats.chunks_found += 1;
+                    result.stats.records_recovered += rec_count;
+                }
+                i += 8;
+                continue;
+            }
+
+            let chunk_data = &data[i..chunk_end];
+            let header = match EvtxChunkHeader::parse(chunk_data) {
+                Some(h) => h,
+                None => {
+                    i += 8;
+                    continue;
+                }
+            };
+
+            let checksum_indicators = verify_chunk_header_checksum(chunk_data, i as u64);
+            let integrity = if checksum_indicators.is_empty() {
+                Integrity::Valid
+            } else {
+                Integrity::HeaderCorrupt
+            };
+
+            let records = recover_records_from_slice(chunk_data, i as u64, false);
+            let rec_count = records.len();
+
+            result.chunks.push(CarvedChunk {
+                offset: i as u64,
+                header,
+                integrity,
+                records,
+                anti_forensic: checksum_indicators,
+            });
+            result.stats.chunks_found += 1;
+            if integrity == Integrity::Valid {
+                result.stats.chunks_valid += 1;
+            } else {
+                result.stats.chunks_corrupt += 1;
+            }
+            result.stats.records_recovered += rec_count;
+
+            // Skip to end of chunk
+            i += CHUNK_SIZE as usize;
+            continue;
+        }
+        i += 8;
+    }
+
+    result
+}
+
+fn recover_records_from_slice(
+    chunk_data: &[u8],
+    _chunk_offset: u64,
+    truncated: bool,
+) -> Vec<RecoveredRecord> {
+    let mut records = Vec::new();
+    let start = CHUNK_RECORDS_OFFSET as usize;
+    let end = if truncated {
+        chunk_data.len()
+    } else {
+        CHUNK_SIZE as usize
+    };
+    if chunk_data.len() < start {
+        return records;
+    }
+    let records_area = &chunk_data[start..chunk_data.len().min(end)];
+
+    let mut pos = 0usize;
+    while pos + 24 <= records_area.len() {
+        if records_area[pos..pos + 4] == RECORD_MAGIC {
+            if pos + 8 > records_area.len() {
+                break;
+            }
+            let size = u32::from_le_bytes(
+                records_area[pos + 4..pos + 8]
+                    .try_into()
+                    .unwrap_or([0; 4]),
+            ) as usize;
+            if size < 24 || pos + size > records_area.len() {
+                pos += 8;
+                continue;
+            }
+            let Some(header) = EvtxRecordHeader::parse(&records_area[pos..]) else {
+                pos += 8;
+                continue;
+            };
+            // Check copy-of-size at record_end - 4
+            let copy_size = u32::from_le_bytes(
+                records_area[pos + size - 4..pos + size]
+                    .try_into()
+                    .unwrap_or([0; 4]),
+            ) as usize;
+            let integrity = if copy_size == size {
+                Integrity::Valid
+            } else {
+                Integrity::SizeMismatch
+            };
+            let payload_start = 24usize;
+            let payload_end = if size > 4 { size - 4 } else { size };
+            let bxml_payload = if payload_end > payload_start {
+                records_area[pos + payload_start..pos + payload_end].to_vec()
+            } else {
+                vec![]
+            };
+            records.push(RecoveredRecord {
+                offset: (start + pos) as u64,
+                header,
+                integrity,
+                bxml_payload,
+            });
+            pos += size;
+        } else {
+            pos += 8;
+        }
+    }
+    records
 }
 
 #[cfg(test)]
