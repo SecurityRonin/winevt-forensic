@@ -567,4 +567,123 @@ mod tests {
         let result = verify_integrity(path);
         assert!(result.is_err(), "expected Err for nonexistent path");
     }
+
+    // ---- US-03: aggressive scan for corrupt chunks ----
+
+    /// Build a corrupt chunk (bad header checksum) with two records placed at
+    /// non-sequential positions — a gap of zeroes exists between them so the
+    /// sequential walker would miss the second one.
+    fn make_corrupt_chunk_with_scattered_records() -> Vec<u8> {
+        let mut chunk = vec![0u8; 0x10000];
+        chunk[0..8].copy_from_slice(b"ElfChnk\0");
+        chunk[8..16].copy_from_slice(&1u64.to_le_bytes());
+        chunk[16..24].copy_from_slice(&2u64.to_le_bytes());
+        chunk[24..32].copy_from_slice(&1u64.to_le_bytes());
+        chunk[32..40].copy_from_slice(&2u64.to_le_bytes());
+        chunk[40..44].copy_from_slice(&0x80u32.to_le_bytes());
+        chunk[44..48].copy_from_slice(&0x200u32.to_le_bytes());
+        chunk[48..52].copy_from_slice(&0x200u32.to_le_bytes());
+        chunk[52..56].copy_from_slice(&0u32.to_le_bytes());
+        // CORRUPT the header checksum intentionally
+        chunk[0x78..0x7C].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+
+        // Record 1 at offset 0x200 (standard position)
+        let rec_size: u32 = 28;
+        chunk[0x200..0x204].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+        chunk[0x204..0x208].copy_from_slice(&rec_size.to_le_bytes());
+        chunk[0x208..0x210].copy_from_slice(&1u64.to_le_bytes()); // record_id = 1
+        chunk[0x210..0x218].copy_from_slice(&100u64.to_le_bytes()); // timestamp
+        let end1 = 0x200 + rec_size as usize;
+        chunk[end1 - 4..end1].copy_from_slice(&rec_size.to_le_bytes());
+
+        // Record 2 at a non-sequential offset (0x300 instead of immediately after rec1)
+        // This means there's a gap from 0x21C to 0x300 filled with zeros
+        chunk[0x300..0x304].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+        chunk[0x304..0x308].copy_from_slice(&rec_size.to_le_bytes());
+        chunk[0x308..0x310].copy_from_slice(&2u64.to_le_bytes()); // record_id = 2
+        chunk[0x310..0x318].copy_from_slice(&200u64.to_le_bytes()); // timestamp
+        let end2 = 0x300 + rec_size as usize;
+        chunk[end2 - 4..end2].copy_from_slice(&rec_size.to_le_bytes());
+
+        chunk
+    }
+
+    #[test]
+    fn aggressive_scan_finds_records_at_non_sequential_offsets() {
+        let data = make_corrupt_chunk_with_scattered_records();
+        let result = carve_from_bytes(&data);
+        assert_eq!(result.chunks.len(), 1, "expected one chunk");
+        let chunk = &result.chunks[0];
+        assert_eq!(
+            chunk.integrity,
+            Integrity::HeaderCorrupt,
+            "chunk should be HeaderCorrupt"
+        );
+        assert_eq!(
+            chunk.records.len(),
+            2,
+            "aggressive scan should find both records, got: {:?}",
+            chunk.records.iter().map(|r| (r.header.record_id, r.integrity)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn aggressive_scan_marks_records_carved() {
+        let data = make_corrupt_chunk_with_scattered_records();
+        let result = carve_from_bytes(&data);
+        let chunk = &result.chunks[0];
+        for rec in &chunk.records {
+            assert_eq!(
+                rec.integrity,
+                Integrity::Carved,
+                "records from aggressive scan should be marked Carved, got {:?} for record_id={}",
+                rec.integrity,
+                rec.header.record_id
+            );
+        }
+    }
+
+    #[test]
+    fn aggressive_scan_records_have_valid_ids_and_timestamps() {
+        let data = make_corrupt_chunk_with_scattered_records();
+        let result = carve_from_bytes(&data);
+        let chunk = &result.chunks[0];
+        let ids: Vec<u64> = chunk.records.iter().map(|r| r.header.record_id).collect();
+        assert!(ids.contains(&1), "expected record_id=1, got {:?}", ids);
+        assert!(ids.contains(&2), "expected record_id=2, got {:?}", ids);
+        let ts: Vec<u64> = chunk.records.iter().map(|r| r.header.timestamp).collect();
+        assert!(ts.contains(&100), "expected timestamp=100, got {:?}", ts);
+        assert!(ts.contains(&200), "expected timestamp=200, got {:?}", ts);
+    }
+
+    #[test]
+    fn aggressive_scan_increments_records_corrupt() {
+        let data = make_corrupt_chunk_with_scattered_records();
+        let result = carve_from_bytes(&data);
+        // The two records from the corrupt chunk should increment records_corrupt
+        assert!(
+            result.stats.records_corrupt >= 2,
+            "expected records_corrupt >= 2, got {}",
+            result.stats.records_corrupt
+        );
+    }
+
+    #[test]
+    fn aggressive_scan_does_not_duplicate_records_from_sequential_walk() {
+        // A corrupt chunk where record 1 IS at offset 0x200 (sequential position)
+        // The aggressive scan should not add it twice.
+        let data = make_corrupt_chunk_with_scattered_records();
+        let result = carve_from_bytes(&data);
+        let chunk = &result.chunks[0];
+        // Record IDs should be unique
+        let mut ids: Vec<u64> = chunk.records.iter().map(|r| r.header.record_id).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(
+            ids.len(),
+            chunk.records.len(),
+            "duplicate records found: {:?}",
+            chunk.records.iter().map(|r| r.header.record_id).collect::<Vec<_>>()
+        );
+    }
 }
