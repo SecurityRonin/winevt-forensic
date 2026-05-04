@@ -237,4 +237,136 @@ mod tests {
             indicators
         );
     }
+
+    // ---- US-05: extended ETW tampering detection ----
+
+    #[test]
+    fn detect_etw_tampering_flags_suspicious_log_mode_zero() {
+        let sessions = vec![RecoveredEtwSession {
+            logger_id: 1,
+            name: "EventLog-Security".to_string(),
+            is_running: true,
+            buffer_count: 4,
+            buffer_size: 64,
+            events_lost: 0,
+            log_mode: 0, // no output configured — suspicious
+            buffer_events: vec![],
+        }];
+        let indicators = detect_etw_tampering(&sessions);
+        let has_suspicious = indicators.iter().any(|ind| {
+            matches!(ind, EtwTamperingIndicator::SuspiciousLogMode { session_name, .. }
+                if session_name == "EventLog-Security")
+        });
+        assert!(
+            has_suspicious,
+            "expected SuspiciousLogMode indicator for log_mode=0, got: {:?}",
+            indicators
+        );
+    }
+
+    #[test]
+    fn detect_etw_tampering_returns_empty_for_normal_active_session() {
+        let sessions = vec![RecoveredEtwSession {
+            logger_id: 1,
+            name: "EventLog-Security".to_string(),
+            is_running: true,
+            buffer_count: 4,
+            buffer_size: 64,
+            events_lost: 5,
+            log_mode: 0x00000101, // standard circular in-memory mode
+            buffer_events: vec![],
+        }];
+        let indicators = detect_etw_tampering(&sessions);
+        assert!(
+            indicators.is_empty(),
+            "expected empty indicators for normal session, got: {:?}",
+            indicators
+        );
+    }
+
+    #[test]
+    fn identify_eventlog_sessions_finds_security_system_application() {
+        let sessions = vec![
+            RecoveredEtwSession {
+                logger_id: 1,
+                name: "EventLog-Security".to_string(),
+                is_running: true,
+                buffer_count: 4,
+                buffer_size: 64,
+                events_lost: 0,
+                log_mode: 0,
+                buffer_events: vec![],
+            },
+            RecoveredEtwSession {
+                logger_id: 2,
+                name: "EventLog-System".to_string(),
+                is_running: true,
+                buffer_count: 4,
+                buffer_size: 64,
+                events_lost: 0,
+                log_mode: 0,
+                buffer_events: vec![],
+            },
+            RecoveredEtwSession {
+                logger_id: 3,
+                name: "EventLog-Application".to_string(),
+                is_running: true,
+                buffer_count: 4,
+                buffer_size: 64,
+                events_lost: 0,
+                log_mode: 0,
+                buffer_events: vec![],
+            },
+            RecoveredEtwSession {
+                logger_id: 4,
+                name: "NT Kernel Logger".to_string(),
+                is_running: true,
+                buffer_count: 4,
+                buffer_size: 64,
+                events_lost: 0,
+                log_mode: 0,
+                buffer_events: vec![],
+            },
+        ];
+        let found = identify_eventlog_sessions(&sessions);
+        assert_eq!(found.len(), 3);
+        let names: Vec<&str> = found.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"EventLog-Security"));
+        assert!(names.contains(&"EventLog-System"));
+        assert!(names.contains(&"EventLog-Application"));
+    }
+
+    #[test]
+    fn memory_recovered_chunk_implements_serialize() {
+        let header = make_chunk_header();
+        let chunk = MemoryRecoveredChunk {
+            vaddr: 0x1000,
+            header,
+            record_count: 1,
+            first_timestamp: 0,
+            last_timestamp: 0,
+            channel: "Security".to_string(),
+            source_process: None,
+            source_pid: None,
+            anti_forensic: vec![],
+        };
+        let json = serde_json::to_string(&chunk).expect("serialize MemoryRecoveredChunk");
+        assert!(json.contains("Security"));
+    }
+
+    #[test]
+    fn recovered_etw_session_implements_serialize() {
+        let session = RecoveredEtwSession {
+            logger_id: 1,
+            name: "EventLog-Security".to_string(),
+            is_running: true,
+            buffer_count: 4,
+            buffer_size: 64,
+            events_lost: 0,
+            log_mode: 0,
+            buffer_events: vec![],
+        };
+        let json = serde_json::to_string(&session).expect("serialize RecoveredEtwSession");
+        assert!(json.contains("EventLog-Security"));
+    }
 }
