@@ -27,7 +27,7 @@ The memory-forensic repo (`memf-windows`) handles memory-specific walkers (`Obje
 
 ## 2. The Anti-Forensic Question: Definitively Answered
 
-**Q: Should winevt-antiforensic belong to RapidTriage?**
+**Q: Should winevt-integrity belong to RapidTriage?**
 
 **A: NO. Anti-forensic detection stays in winevt-forensic.**
 
@@ -35,7 +35,7 @@ The memory-forensic repo (`memf-windows`) handles memory-specific walkers (`Obje
 
 1. **Anti-forensic detection is artifact-layer knowledge.** CRC32 mismatches, record ID gaps, and timestamp anomalies are structural properties of the EVTX binary format. They are not triage decisions. Detecting a `ChunkChecksumMismatch` requires knowing that bytes `0x00..0x78` of a chunk header are CRC32'd and stored at offset `0x78` -- this is EVTX format knowledge, not orchestration logic.
 
-2. **Circular dependency prevention.** `winevt-carver` calls `winevt-antiforensic` functions during carving to populate `CarvedChunk.anti_forensic`. If anti-forensic detection lived in RapidTriage, we'd have: RapidTriage -> winevt-carver -> RapidTriage (circular).
+2. **Circular dependency prevention.** `winevt-carver` calls `winevt-integrity` functions during carving to populate `CarvedChunk.anti_forensic`. If anti-forensic detection lived in RapidTriage, we'd have: RapidTriage -> winevt-carver -> RapidTriage (circular).
 
 3. **Multiple consumers benefit.** Both the disk carver (`winevt-carver`) and the memory scanner (`memf-windows`) can run the same anti-forensic checks on recovered chunks. Placing detection in winevt-forensic makes it available to all consumers without RapidTriage as a dependency.
 
@@ -45,9 +45,9 @@ The memory-forensic repo (`memf-windows`) handles memory-specific walkers (`Obje
 
 | Concern | Owner | Examples |
 |---------|-------|----------|
-| **Detection** (structural anomaly) | `winevt-antiforensic` | `detect_record_id_gaps()`, `verify_chunk_header_checksum()`, `check_timestamp_monotonicity()`, `check_file_header_consistency()` |
-| **Types** (indicator enum) | `winevt-core` | `AntiForensicIndicator` enum with all variants |
-| **Response** (triage action) | RapidTriage `rt-evtx` | Converting `AntiForensicIndicator` into `Evidence` objects, raising correlation findings, escalating via `PivotEngine`, enriching with forensicnomicon lookups |
+| **Detection** (structural anomaly) | `winevt-integrity` | `detect_record_id_gaps()`, `verify_chunk_header_checksum()`, `check_timestamp_monotonicity()`, `check_file_header_consistency()` |
+| **Types** (indicator enum) | `winevt-core` | `IntegrityIndicator` enum with all variants |
+| **Response** (triage action) | RapidTriage `rt-evtx` | Converting `IntegrityIndicator` into `Evidence` objects, raising correlation findings, escalating via `PivotEngine`, enriching with forensicnomicon lookups |
 
 ---
 
@@ -70,7 +70,7 @@ The memory-forensic repo (`memf-windows`) handles memory-specific walkers (`Obje
 | "EVTX chunks start with `ElfChnk\0` at offset 0x00" | `winevt-core` | `pub const ELFCHNK_MAGIC: [u8; 8]` |
 | "Event ID 1102 means the Security log was cleared" | `forensicnomicon` | `eventids.rs` lookup tables |
 | "Attackers clear logs to hide lateral movement" | `forensicnomicon` | `antiforensics_aware.rs` |
-| "This chunk's CRC32 doesn't match stored value" | `winevt-antiforensic` | `verify_chunk_header_checksum()` |
+| "This chunk's CRC32 doesn't match stored value" | `winevt-integrity` | `verify_chunk_header_checksum()` |
 
 ---
 
@@ -80,12 +80,12 @@ The memory-forensic repo (`memf-windows`) handles memory-specific walkers (`Obje
 
 ```
 winevt-forensic/
-  Cargo.toml                    # workspace: winevt-core, winevt-antiforensic, winevt-carver
+  Cargo.toml                    # workspace: winevt-core, winevt-integrity, winevt-carver
   crates/
     winevt-core/src/
       lib.rs                    # EvtxEvent, LogonSession, ProcessEvent, ServiceEvent, lookups
       binary.rs                 # EvtxFileHeader, EvtxChunkHeader, EvtxRecordHeader, constants
-    winevt-antiforensic/src/
+    winevt-integrity/src/
       lib.rs                    # detect_record_id_gaps, verify_chunk_header_checksum,
                                 # check_timestamp_monotonicity, check_file_header_consistency
     winevt-carver/src/
@@ -141,20 +141,20 @@ pub const CHUNK_RECORDS_OFFSET: u64 = 0x200;
 pub struct EvtxFileHeader { /* first/last_chunk_number, next_record_id, versions, chunk_count, file_flags, checksum */ }
 pub struct EvtxChunkHeader { /* first/last event record number/id, header_size, offsets, checksums */ }
 pub struct EvtxRecordHeader { pub size: u32, pub record_id: u64, pub timestamp: u64 }
-pub enum AntiForensicIndicator { LogCleared{..}, RecordIdGap{..}, ChunkChecksumMismatch{..}, RecordChecksumMismatch{..}, NextRecordIdInconsistency{..}, TimestampAnomaly{..} }
+pub enum IntegrityIndicator { LogCleared{..}, RecordIdGap{..}, ChunkChecksumMismatch{..}, RecordChecksumMismatch{..}, NextRecordIdInconsistency{..}, TimestampAnomaly{..} }
 ```
 
 Dependencies: `crc32fast`, `serde`.
 
-### winevt-antiforensic (`crates/winevt-antiforensic`)
+### winevt-integrity (`crates/winevt-integrity`)
 
-Public functions (all return `Vec<AntiForensicIndicator>`):
+Public functions (all return `Vec<IntegrityIndicator>`):
 
 ```rust
-pub fn detect_record_id_gaps(chunks: &[(u64, u64)]) -> Vec<AntiForensicIndicator>;
-pub fn verify_chunk_header_checksum(buf: &[u8], chunk_offset: u64) -> Vec<AntiForensicIndicator>;
-pub fn check_timestamp_monotonicity(records: &[(u64, u64, u64)]) -> Vec<AntiForensicIndicator>;
-pub fn check_file_header_consistency(header_next_record_id: u64, actual_highest_record_id: u64) -> Vec<AntiForensicIndicator>;
+pub fn detect_record_id_gaps(chunks: &[(u64, u64)]) -> Vec<IntegrityIndicator>;
+pub fn verify_chunk_header_checksum(buf: &[u8], chunk_offset: u64) -> Vec<IntegrityIndicator>;
+pub fn check_timestamp_monotonicity(records: &[(u64, u64, u64)]) -> Vec<IntegrityIndicator>;
+pub fn check_file_header_consistency(header_next_record_id: u64, actual_highest_record_id: u64) -> Vec<IntegrityIndicator>;
 ```
 
 Dependencies: `winevt-core`, `crc32fast`.
@@ -168,20 +168,20 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult;
 pub fn recover_records_from_slice(chunk_data: &[u8], chunk_offset: u64) -> Vec<RecoveredRecord>;
 
 pub enum Integrity { Valid, HeaderCorrupt, RecordCorrupt, SizeMismatch, Carved, Truncated }
-pub struct CarvedChunk { pub offset: u64, pub header: EvtxChunkHeader, pub integrity: Integrity, pub records: Vec<RecoveredRecord>, pub anti_forensic: Vec<AntiForensicIndicator> }
+pub struct CarvedChunk { pub offset: u64, pub header: EvtxChunkHeader, pub integrity: Integrity, pub records: Vec<RecoveredRecord>, pub anti_forensic: Vec<IntegrityIndicator> }
 pub struct RecoveredRecord { pub offset: u64, pub header: EvtxRecordHeader, pub integrity: Integrity, pub bxml_payload: Vec<u8> }
-pub struct CarveResult { pub file_header: Option<EvtxFileHeader>, pub chunks: Vec<CarvedChunk>, pub anti_forensic: Vec<AntiForensicIndicator>, pub stats: CarveStats }
+pub struct CarveResult { pub file_header: Option<EvtxFileHeader>, pub chunks: Vec<CarvedChunk>, pub anti_forensic: Vec<IntegrityIndicator>, pub stats: CarveStats }
 pub struct CarveStats { pub bytes_scanned: u64, pub chunks_found/valid/corrupt: usize, pub records_recovered/corrupt: usize }
 ```
 
-Dependencies: `winevt-core`, `winevt-antiforensic`, `crc32fast`, `thiserror`, `anyhow`.
+Dependencies: `winevt-core`, `winevt-integrity`, `crc32fast`, `thiserror`, `anyhow`.
 
 ### TDD Phases Completed
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | Phase 0 | winevt-core binary format module | DONE |
-| Phase 1 | winevt-antiforensic detection algorithms | DONE |
+| Phase 1 | winevt-integrity detection algorithms | DONE |
 | Phase 2 | winevt-carver chunk discovery | DONE |
 | Phase 3 | winevt-carver record recovery | DONE |
 
@@ -206,7 +206,7 @@ Dependencies: `winevt-core`, `winevt-antiforensic`, `crc32fast`, `thiserror`, `a
 
 ```rust
 pub fn carve_from_file(path: &Path) -> Result<CarveResult>;
-pub fn verify_integrity(path: &Path) -> Result<Vec<AntiForensicIndicator>>;
+pub fn verify_integrity(path: &Path) -> Result<Vec<IntegrityIndicator>>;
 ```
 
 | Step | Type | Description |
@@ -249,7 +249,7 @@ pub struct MemoryRecoveredChunk {
     pub channel: String,
     pub source_process: Option<String>,
     pub source_pid: Option<u32>,
-    pub anti_forensic: Vec<AntiForensicIndicator>,
+    pub anti_forensic: Vec<IntegrityIndicator>,
 }
 
 /// An ETW session recovered from kernel memory (_WMI_LOGGER_CONTEXT walk).
@@ -285,7 +285,7 @@ pub fn detect_etw_tampering(sessions: &[RecoveredEtwSession]) -> Vec<EtwTamperin
 | 5 | RED | Test: `MemoryRecoveredChunk` constructible from chunk header fields + metadata |
 | 6 | GREEN | Implement constructor/builder |
 
-**Dependency:** `winevt-core`, `winevt-antiforensic`, `serde`.
+**Dependency:** `winevt-core`, `winevt-integrity`, `serde`.
 
 ### US-05: ETW Tampering Detection in winevt-memory (Phase 5 extension)
 
@@ -320,8 +320,8 @@ pub enum EtwTamperingIndicator {
 ```mermaid
 graph TD
     subgraph "winevt-forensic workspace"
-        WC[winevt-core<br/>types + binary format + AntiForensicIndicator]
-        WAF[winevt-antiforensic<br/>detection algorithms]
+        WC[winevt-core<br/>types + binary format + IntegrityIndicator]
+        WAF[winevt-integrity<br/>detection algorithms]
         WCV[winevt-carver<br/>disk carving + record recovery]
         WM[winevt-memory<br/>memory recovery types + ETW analysis]
 
@@ -360,11 +360,11 @@ graph TD
 ### Dependency Direction Rules
 
 1. `winevt-core` has zero workspace deps (only `crc32fast`, `serde`)
-2. `winevt-antiforensic` depends only on `winevt-core` + `crc32fast`
-3. `winevt-carver` depends on `winevt-core` + `winevt-antiforensic`
-4. `winevt-memory` (future) depends on `winevt-core` + `winevt-antiforensic`
+2. `winevt-integrity` depends only on `winevt-core` + `crc32fast`
+3. `winevt-carver` depends on `winevt-core` + `winevt-integrity`
+4. `winevt-memory` (future) depends on `winevt-core` + `winevt-integrity`
 5. `memf-windows` may depend on `winevt-core` for shared constants (future; currently has its own local constants)
-6. `rt-evtx` depends on `winevt-core` + `evtx` (omerbenamram). Future: also `winevt-carver` + `winevt-antiforensic`
+6. `rt-evtx` depends on `winevt-core` + `evtx` (omerbenamram). Future: also `winevt-carver` + `winevt-integrity`
 7. **No crate in winevt-forensic ever depends on memf-core, memf-format, or RapidTriage**
 
 ---
@@ -401,13 +401,13 @@ pub struct LateralMovementFinding { pub src_ip: String, pub sessions: Vec<u64>, 
 ```toml
 # rt-evtx/Cargo.toml additions
 winevt-carver       = { path = "../../winevt-forensic/crates/winevt-carver" }
-winevt-antiforensic = { path = "../../winevt-forensic/crates/winevt-antiforensic" }
+winevt-integrity = { path = "../../winevt-forensic/crates/winevt-integrity" }
 ```
 
 New capabilities:
 1. **Corrupt file recovery**: When `EvtxParser::from_path` fails, fall back to `winevt_carver::carve_from_file` to salvage records
-2. **Anti-forensic reporting**: Run `winevt_antiforensic` checks post-parse, include `AntiForensicIndicator`s in triage output
-3. **Evidence bridge**: Convert `AntiForensicIndicator` variants into `rt-core::Evidence` objects for the PivotEngine
+2. **Anti-forensic reporting**: Run `winevt_integrity` checks post-parse, include `IntegrityIndicator`s in triage output
+3. **Evidence bridge**: Convert `IntegrityIndicator` variants into `rt-core::Evidence` objects for the PivotEngine
 4. **Log-cleared enrichment**: Existing `LogClearedHandler` (EID 1102/104) enriched with carver-based pre-clear record recovery from file slack
 
 rt-evtx does NOT depend on `winevt-memory`. Memory forensics integration happens in a separate RapidTriage module (`rt-mem`) depending on `memf-windows` directly.
@@ -454,7 +454,7 @@ When `winevt-core` is published or co-located:
 1. `memf-windows` adds `winevt-core` as a dependency
 2. Replace local magic constants with `winevt_core::binary::ELFCHNK_MAGIC`, `RECORD_MAGIC`, etc.
 3. Optionally convert `EvtxChunkInfo` fields to use `winevt_core::binary::EvtxChunkHeader` internally
-4. `memf-windows` walkers can populate `winevt-memory::MemoryRecoveredChunk` types and run `winevt-antiforensic` checks on recovered chunks
+4. `memf-windows` walkers can populate `winevt-memory::MemoryRecoveredChunk` types and run `winevt-integrity` checks on recovered chunks
 
 **The memory reading code (`scan_evtx_chunks`, `parse_chunk_header`, `enumerate_etw_sessions`) stays in `memf-windows`.** Only format constants and output types are shared.
 
@@ -465,7 +465,7 @@ When `winevt-core` is published or co-located:
 | Phase | Crate | Description | Status | Depends On |
 |-------|-------|-------------|--------|------------|
 | 0 | winevt-core | Binary format module: headers, constants, CRC32 | DONE | -- |
-| 1 | winevt-antiforensic | Gap detection, checksum verification, timestamp check, consistency | DONE | Phase 0 |
+| 1 | winevt-integrity | Gap detection, checksum verification, timestamp check, consistency | DONE | Phase 0 |
 | 2 | winevt-carver | Chunk discovery (`ElfChnk` magic scan) | DONE | Phase 0 |
 | 3 | winevt-carver | Record recovery (sequential walk, `**\0\0` scan) | DONE | Phase 2 |
 | 4 | winevt-carver | Anti-forensic integration + file API (US-01, US-02, US-03) | PENDING | Phase 1 + 3 |
@@ -510,17 +510,17 @@ When `winevt-core` is published or co-located:
 |-------|------|---------|
 | `winevt-core` | `Cargo.toml` | Deps: `crc32fast`, `serde` |
 | `winevt-core` | `src/lib.rs` | `EvtxEvent`, `LogonSession`, `ProcessEvent`, `ServiceEvent`, lookups |
-| `winevt-core` | `src/binary.rs` | `EvtxFileHeader`, `EvtxChunkHeader`, `EvtxRecordHeader`, constants, `AntiForensicIndicator` |
-| `winevt-antiforensic` | `Cargo.toml` | Deps: `winevt-core`, `crc32fast` |
-| `winevt-antiforensic` | `src/lib.rs` | `detect_record_id_gaps`, `verify_chunk_header_checksum`, `check_timestamp_monotonicity`, `check_file_header_consistency` |
-| `winevt-carver` | `Cargo.toml` | Deps: `winevt-core`, `winevt-antiforensic`, `crc32fast`, `thiserror`, `anyhow` |
+| `winevt-core` | `src/binary.rs` | `EvtxFileHeader`, `EvtxChunkHeader`, `EvtxRecordHeader`, constants, `IntegrityIndicator` |
+| `winevt-integrity` | `Cargo.toml` | Deps: `winevt-core`, `crc32fast` |
+| `winevt-integrity` | `src/lib.rs` | `detect_record_id_gaps`, `verify_chunk_header_checksum`, `check_timestamp_monotonicity`, `check_file_header_consistency` |
+| `winevt-carver` | `Cargo.toml` | Deps: `winevt-core`, `winevt-integrity`, `crc32fast`, `thiserror`, `anyhow` |
 | `winevt-carver` | `src/lib.rs` | `carve_from_bytes`, `recover_records_from_slice`, types (`Integrity`, `CarvedChunk`, `RecoveredRecord`, `CarveResult`, `CarveStats`) |
 
 ### Files To Create (PENDING)
 
 | Crate | File | Purpose | Phase |
 |-------|------|---------|-------|
-| `winevt-memory` | `Cargo.toml` | Deps: `winevt-core`, `winevt-antiforensic`, `serde` | 5 |
+| `winevt-memory` | `Cargo.toml` | Deps: `winevt-core`, `winevt-integrity`, `serde` | 5 |
 | `winevt-memory` | `src/lib.rs` | `MemoryRecoveredChunk`, `RecoveredEtwSession`, `RecoveredEtwEvent`, `EtwTamperingIndicator` | 5 |
 | `winevt-memory` | `src/analysis.rs` | `identify_eventlog_sessions`, `detect_etw_tampering` | 5 |
 
@@ -542,7 +542,7 @@ When `winevt-core` is published or co-located:
 resolver = "2"
 members = [
     "crates/winevt-core",
-    "crates/winevt-antiforensic",
+    "crates/winevt-integrity",
     "crates/winevt-carver",
 ]
 
@@ -565,7 +565,7 @@ After Phase 5:
 ```toml
 members = [
     "crates/winevt-core",
-    "crates/winevt-antiforensic",
+    "crates/winevt-integrity",
     "crates/winevt-carver",
     "crates/winevt-memory",     # NEW
 ]

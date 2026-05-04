@@ -18,7 +18,7 @@ This is not an event viewer. It is what you use when the log file has been tampe
 ```toml
 [dependencies]
 winevt-core         = "0.1"   # types + binary format
-winevt-antiforensic = "0.1"   # tampering detection
+winevt-integrity = "0.1"   # tampering detection
 winevt-carver       = "0.1"   # record carving from raw bytes
 ```
 
@@ -56,19 +56,19 @@ Recovers records even from chunks where the header CRC32 has been tampered with.
 
 ```rust
 use winevt_carver::verify_integrity;
-use winevt_core::binary::AntiForensicIndicator;
+use winevt_core::binary::IntegrityIndicator;
 
 let indicators = verify_integrity("/evidence/Security.evtx")?;
 
 for ind in &indicators {
     match ind {
-        AntiForensicIndicator::RecordIdGap { expected, found, chunk_offset } =>
+        IntegrityIndicator::RecordIdGap { expected, found, chunk_offset } =>
             println!("TAMPERED: records {expected}..{} missing at chunk 0x{chunk_offset:x}", found - 1),
-        AntiForensicIndicator::ChunkChecksumMismatch { chunk_offset, .. } =>
+        IntegrityIndicator::ChunkChecksumMismatch { chunk_offset, .. } =>
             println!("CORRUPT/TAMPERED: chunk header checksum mismatch at 0x{chunk_offset:x}"),
-        AntiForensicIndicator::TimestampAnomaly { record_id, .. } =>
+        IntegrityIndicator::TimestampAnomaly { record_id, .. } =>
             println!("ANOMALY: out-of-order timestamp at record #{record_id}"),
-        AntiForensicIndicator::NextRecordIdInconsistency { header_next, actual_highest } =>
+        IntegrityIndicator::NextRecordIdInconsistency { header_next, actual_highest } =>
             println!("INCONSISTENT: header says next={header_next}, highest seen={actual_highest}"),
         _ => println!("{ind:?}"),
     }
@@ -104,9 +104,9 @@ winevt-forensic/
     │                        structs (EvtxFileHeader, EvtxChunkHeader,
     │                        EvtxRecordHeader). Domain types: EvtxEvent,
     │                        LogonSession, ProcessEvent. Lookup tables.
-    │                        AntiForensicIndicator enum.
+    │                        IntegrityIndicator enum.
     │
-    ├── winevt-antiforensic  Detection algorithms over parsed types. No raw
+    ├── winevt-integrity  Detection algorithms over parsed types. No raw
     │                        bytes, no memory access. Consumed by both
     │                        winevt-carver (disk) and memf-windows (memory).
     │
@@ -121,7 +121,7 @@ winevt-forensic/
 
 **Dependency graph:**
 ```
-winevt-core  ←  winevt-antiforensic  ←  winevt-carver
+winevt-core  ←  winevt-integrity  ←  winevt-carver
                                      ←  winevt-memory
 ```
 

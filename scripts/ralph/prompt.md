@@ -6,8 +6,8 @@ Implement features from user stories using strict TDD (Red-Green-Refactor) until
 
 `winevt-forensic` is a deep EVTX forensic library workspace (NO CLI binary). Three crates:
 
-- `winevt-core` — binary format types, domain types (`EvtxEvent`, `LogonSession`), lookup tables, `AntiForensicIndicator` enum
-- `winevt-antiforensic` — detection algorithms (record ID gaps, checksum mismatches, timestamp anomalies)
+- `winevt-core` — binary format types, domain types (`EvtxEvent`, `LogonSession`), lookup tables, `IntegrityIndicator` enum
+- `winevt-integrity` — detection algorithms (record ID gaps, checksum mismatches, timestamp anomalies)
 - `winevt-carver` — EVTX chunk/record recovery from raw bytes, corrupt files, disk images
 
 Pending addition: `winevt-memory` (ETW/EVTX types for memory forensics — no binary I/O).
@@ -26,7 +26,7 @@ See `PLAN.md` for full architectural spec and file inventory.
 4. Pick ONE feature — highest priority, respecting dependencies in PLAN.md section 8.
 
    **Dependency order:**
-   - Stories 01-03 (carver improvements) depend on existing `winevt-carver` and `winevt-antiforensic`
+   - Stories 01-03 (carver improvements) depend on existing `winevt-carver` and `winevt-integrity`
    - Stories 04-05 (winevt-memory) require creating the `winevt-memory` crate first
    - Do story 01 before 02, 02 before 03; stories 04 and 05 can be sequential
 
@@ -68,7 +68,7 @@ When implementing story 04 (winevt-memory crate):
 1. `cargo new --lib crates/winevt-memory`
 2. Add to `Cargo.toml` workspace members: `"crates/winevt-memory"`
 3. Add to `[workspace.dependencies]`: `winevt-memory = { path = "crates/winevt-memory" }`
-4. Set `Cargo.toml` deps: `winevt-core`, `winevt-antiforensic`, `serde { features = ["derive"] }`
+4. Set `Cargo.toml` deps: `winevt-core`, `winevt-integrity`, `serde { features = ["derive"] }`
 5. Reference `PLAN.md` section 7 for types and API spec
 
 ## Rust Rules
