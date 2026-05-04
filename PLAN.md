@@ -51,27 +51,28 @@ The memory-forensic repo (`memf-windows`) handles memory-specific walkers (`Obje
 
 ---
 
-## 3. forensicnomicon's Role: Threat Intel, Not Format Specs
+## 3. forensicnomicon's Role: The Single Source of Truth for Format Knowledge
 
-`forensicnomicon` is a **threat intelligence and DFIR knowledge base** repository. It provides:
+`forensicnomicon` is the **authoritative knowledge base** for all DFIR artifact formats, threat intelligence, and lookup data. It is the single source of truth for:
 
+- Binary format constants (magic bytes, struct layouts, field offsets) for all artifact types — EVTX, ESE/SRUM, browser databases, registry hives
 - LOL/LOFL datasets (`lolbins.rs`) -- "is this binary a Living Off the Land binary?"
-- Abusable sites catalog (`abusable_sites.rs`) -- "is this URL an abusable file-sharing site?"
-- MITRE ATT&CK mappings (`mitre.rs`)
-- Sigma rule references (`sigma.rs`)
-- Anti-forensics awareness (`antiforensics_aware.rs`) -- knowledge about anti-forensic techniques, not detection algorithms
+- Abusable sites catalog (`abusable_sites.rs`)
+- MITRE ATT&CK mappings (`mitre.rs`), Sigma rule references (`sigma.rs`)
+- Anti-forensics awareness (`antiforensics_aware.rs`)
 - Event ID catalogs (`eventids.rs`)
 - The `4n6query` CLI for querying all of the above
 
-**forensicnomicon is NOT a binary format specification repository.** EVTX binary format constants (magic bytes, struct layouts, field offsets, CRC32 algorithms) belong in `winevt-core::binary`. The distinction:
+**All format constants belong in forensicnomicon. Parser crates (winevt-core, ese-core, browser-core) depend on forensicnomicon and re-export the constants they use.** This keeps format knowledge in one place — forensicnomicon is updated once when a format changes, parsers inherit the change.
 
-| Knowledge Type | Repository | Example |
-|---------------|------------|---------|
-| "EVTX chunks start with `ElfChnk\0` at offset 0x00" (Rust code) | `winevt-core` | `pub const ELFCHNK_MAGIC: [u8; 8]` |
-| "EVTX chunks start with `ElfChnk\0` at offset 0x00" (reference data) | `forensicnomicon` | EVTX binary constants artifact profile (pending) |
-| "Event ID 1102 means the Security log was cleared" | `forensicnomicon` | `eventids.rs` lookup tables |
-| "Attackers clear logs to hide lateral movement" | `forensicnomicon` | `antiforensics_aware.rs` |
-| "This chunk's CRC32 doesn't match stored value" | `winevt-integrity` | `verify_chunk_header_checksum()` |
+| Knowledge Type | Owner | Consumer |
+|---------------|-------|---------|
+| `ELFCHNK_MAGIC`, `CHUNK_SIZE`, field offsets | `forensicnomicon::evtx` | `winevt-core` re-exports; `winevt-carver` uses |
+| "Event ID 1102 means the Security log was cleared" | `forensicnomicon::eventids` | `rt-evtx` handlers |
+| "Attackers clear logs to hide lateral movement" | `forensicnomicon::antiforensics_aware` | `rt-evtx` evidence enrichment |
+| "This chunk's CRC32 doesn't match stored value" | `winevt-integrity` detection algorithm | runs against constants from forensicnomicon |
+
+**Phase 7 task** (after forensicnomicon EVTX constants are added): winevt-core removes inline constants from `binary.rs`, adds `forensicnomicon` as a workspace dependency, and re-exports from `forensicnomicon::evtx`.
 
 ---
 
@@ -352,21 +353,23 @@ graph TD
     end
 
     subgraph "forensicnomicon"
-        FN[forensicnomicon<br/>LOL/LOFL datasets, event IDs,<br/>MITRE mappings, abusable sites]
+        FN[forensicnomicon<br/>EVTX constants, LOL/LOFL, event IDs,<br/>MITRE mappings, abusable sites]
     end
 
+    FN -->|"format constants<br/>(Phase 7)"| WC
     FN -->|"threat intel lookups"| RTE
 ```
 
 ### Dependency Direction Rules
 
-1. `winevt-core` has zero workspace deps (only `crc32fast`, `serde`)
-2. `winevt-integrity` depends only on `winevt-core` + `crc32fast`
-3. `winevt-carver` depends on `winevt-core` + `winevt-integrity`
-4. `winevt-memory` (future) depends on `winevt-core` + `winevt-integrity`
-5. `memf-windows` may depend on `winevt-core` for shared constants (future; currently has its own local constants)
-6. `rt-evtx` depends on `winevt-core` + `evtx` (omerbenamram). Future: also `winevt-carver` + `winevt-integrity`
-7. **No crate in winevt-forensic ever depends on memf-core, memf-format, or RapidTriage**
+1. `forensicnomicon` has zero deps — it is the root knowledge layer
+2. `winevt-core` currently defines inline constants; **Phase 7**: depends on `forensicnomicon`, re-exports `forensicnomicon::evtx::*`
+3. `winevt-integrity` depends only on `winevt-core` + `crc32fast`
+4. `winevt-carver` depends on `winevt-core` + `winevt-integrity`
+5. `winevt-memory` (future) depends on `winevt-core` + `winevt-integrity`
+6. `memf-windows` (Phase 6) imports winevt-core constants replacing local copies
+7. `rt-evtx` depends on `winevt-core` + `evtx` (omerbenamram). Future: also `winevt-carver` + `winevt-integrity`
+8. **No crate in winevt-forensic ever depends on memf-core, memf-format, or RapidTriage**
 
 ---
 
@@ -472,6 +475,7 @@ When `winevt-core` is published or co-located:
 | 4 | winevt-carver | Anti-forensic integration + file API (US-01, US-02, US-03) | PENDING | Phase 1 + 3 |
 | 5 | winevt-memory | Memory recovery types + ETW analysis (US-04, US-05) | PENDING | Phase 1 |
 | 6 | memf-windows | Import `winevt-core` constants, replace local defs | PENDING | Phase 0 published |
+| 7 | winevt-core | Add `forensicnomicon` dep; re-export constants from `forensicnomicon::evtx` | PENDING | forensicnomicon EVTX constants added |
 
 ### Phase 4 Detail (US-01 + US-02 + US-03)
 
