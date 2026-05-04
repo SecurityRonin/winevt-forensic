@@ -1,3 +1,5 @@
+use std::path::Path;
+
 pub use winevt_core::binary::{
     EvtxChunkHeader, EvtxFileHeader, EvtxRecordHeader, IntegrityIndicator, CHUNK_RECORDS_OFFSET,
     CHUNK_SIZE, ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC,
@@ -162,6 +164,35 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
     }
 
     result
+}
+
+/// Read an EVTX file from disk and carve chunks and records from it.
+///
+/// Opens the file, reads it into memory, then delegates to [`carve_from_bytes`].
+pub fn carve_from_file(path: &Path) -> anyhow::Result<CarveResult> {
+    let data = std::fs::read(path)?;
+    Ok(carve_from_bytes(&data))
+}
+
+/// Verify the structural integrity of an EVTX file by checking all chunk header checksums.
+///
+/// Returns `Ok(Vec<IntegrityIndicator>)` where the vec is empty for a sound file and
+/// contains `ChunkChecksumMismatch` indicators for any corrupted chunks.
+pub fn verify_integrity(path: &Path) -> anyhow::Result<Vec<IntegrityIndicator>> {
+    let data = std::fs::read(path)?;
+    let mut indicators = Vec::new();
+    let mut i = 0usize;
+    while i + 8 <= data.len() {
+        if data[i..i + 8] == ELFCHNK_MAGIC {
+            let chunk_end = (i + CHUNK_SIZE as usize).min(data.len());
+            let chunk_data = &data[i..chunk_end];
+            indicators.extend(verify_chunk_header_checksum(chunk_data, i as u64));
+            i += CHUNK_SIZE as usize;
+            continue;
+        }
+        i += 8;
+    }
+    Ok(indicators)
 }
 
 fn recover_records_from_slice(
@@ -518,7 +549,8 @@ mod tests {
         let path = write_temp_evtx(&data);
         let result = verify_integrity(&path);
         let _ = std::fs::remove_file(&path);
-        let indicators = result.expect("verify_integrity should return Ok (not Err) for tampered file");
+        let indicators =
+            result.expect("verify_integrity should return Ok (not Err) for tampered file");
         let has_mismatch = indicators
             .iter()
             .any(|ind| matches!(ind, IntegrityIndicator::ChunkChecksumMismatch { .. }));
