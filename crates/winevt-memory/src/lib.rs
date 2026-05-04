@@ -54,6 +54,8 @@ pub enum EtwTamperingIndicator {
     SessionStopped { session_name: String },
     /// Buffer count is zero for a running session (buffers deallocated).
     ZeroBuffers { session_name: String },
+    /// Session has `log_mode = 0` (no output configured).
+    SuspiciousLogMode { session_name: String, log_mode: u32 },
 }
 
 /// Events-lost threshold above which a session is flagged.
@@ -76,6 +78,12 @@ pub fn detect_etw_tampering(sessions: &[RecoveredEtwSession]) -> Vec<EtwTamperin
                 session_name: session.name.clone(),
                 events_lost: session.events_lost,
                 threshold: HIGH_EVENTS_LOST_THRESHOLD,
+            });
+        }
+        if session.log_mode == 0 {
+            indicators.push(EtwTamperingIndicator::SuspiciousLogMode {
+                session_name: session.name.clone(),
+                log_mode: 0,
             });
         }
     }
