@@ -8,6 +8,6 @@
       "verify_integrity(path) on an EVTX file with a tampered chunk header checksum returns Ok with at least one ChunkChecksumMismatch indicator",
       "verify_integrity(path) on a path that does not exist returns an Err"
     ],
-    "passes": false
+    "passes": true
   }
 ]

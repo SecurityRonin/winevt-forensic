@@ -7,6 +7,6 @@
       "carve_from_bytes on data with a file header where NextRecordId is lower than the highest recovered record ID populates result.anti_forensic with NextRecordIdInconsistency",
       "carve_from_bytes on clean data with no gaps and valid checksums returns empty result.anti_forensic and empty per-chunk anti_forensic"
     ],
-    "passes": false
+    "passes": true
   }
 ]

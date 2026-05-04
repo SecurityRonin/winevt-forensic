@@ -9,6 +9,6 @@
       "MemoryRecoveredChunk implements serde::Serialize so it can be included in JSON triage output",
       "RecoveredEtwSession implements serde::Serialize"
     ],
-    "passes": false
+    "passes": true
   }
 ]

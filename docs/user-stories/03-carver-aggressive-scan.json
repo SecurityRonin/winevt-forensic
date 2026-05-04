@@ -8,6 +8,6 @@
       "CarveStats.records_corrupt is incremented for records found via aggressive scan",
       "aggressive scan does not duplicate records already found by sequential walk"
     ],
-    "passes": false
+    "passes": true
   }
 ]

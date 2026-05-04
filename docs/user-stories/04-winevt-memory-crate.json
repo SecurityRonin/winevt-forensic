@@ -10,6 +10,6 @@
       "detect_etw_tampering returns empty for sessions with events_lost <= 1000",
       "winevt-memory crate has no dependency on memf-core, memf-format, or any memory reader abstraction"
     ],
-    "passes": false
+    "passes": true
   }
 ]
