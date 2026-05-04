@@ -109,8 +109,16 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
                 Integrity::HeaderCorrupt
             };
 
-            let records = recover_records_from_slice(chunk_data, i as u64, false);
+            let records = if integrity == Integrity::HeaderCorrupt {
+                recover_records_aggressive(chunk_data, i as u64)
+            } else {
+                recover_records_from_slice(chunk_data, i as u64, false)
+            };
             let rec_count = records.len();
+            let corrupt_count = records
+                .iter()
+                .filter(|r| r.integrity == Integrity::Carved)
+                .count();
 
             result.chunks.push(CarvedChunk {
                 offset: i as u64,
@@ -126,6 +134,7 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
                 result.stats.chunks_corrupt += 1;
             }
             result.stats.records_recovered += rec_count;
+            result.stats.records_corrupt += corrupt_count;
 
             // Skip to end of chunk
             i += CHUNK_SIZE as usize;
@@ -256,6 +265,70 @@ fn recover_records_from_slice(
             pos += size;
         } else {
             pos += 8;
+        }
+    }
+    records
+}
+
+/// Aggressive scan: for `HeaderCorrupt` chunks, scan the records area at every 4-byte boundary
+/// for `**\0\0` magic. Records found this way are marked `Integrity::Carved`.
+/// Duplicate offsets (a record found at the same offset twice) are suppressed.
+fn recover_records_aggressive(chunk_data: &[u8], _chunk_offset: u64) -> Vec<RecoveredRecord> {
+    let mut records = Vec::new();
+    let start = CHUNK_RECORDS_OFFSET as usize;
+    let end = CHUNK_SIZE as usize;
+    if chunk_data.len() < start {
+        return records;
+    }
+    let records_area = &chunk_data[start..chunk_data.len().min(end)];
+
+    let mut seen_offsets = std::collections::HashSet::new();
+    let mut pos = 0usize;
+    while pos + 24 <= records_area.len() {
+        if records_area[pos..pos + 4] == RECORD_MAGIC {
+            if seen_offsets.contains(&pos) {
+                pos += 4;
+                continue;
+            }
+            let size =
+                u32::from_le_bytes(records_area[pos + 4..pos + 8].try_into().unwrap_or([0; 4]))
+                    as usize;
+            if size < 24 || pos + size > records_area.len() {
+                pos += 4;
+                continue;
+            }
+            let Some(header) = EvtxRecordHeader::parse(&records_area[pos..]) else {
+                pos += 4;
+                continue;
+            };
+            // Verify copy-of-size at record_end - 4
+            let copy_size = u32::from_le_bytes(
+                records_area[pos + size - 4..pos + size]
+                    .try_into()
+                    .unwrap_or([0; 4]),
+            ) as usize;
+            // Only accept if copy-of-size matches (basic sanity)
+            if copy_size != size {
+                pos += 4;
+                continue;
+            }
+            let payload_start = 24usize;
+            let payload_end = if size > 4 { size - 4 } else { size };
+            let bxml_payload = if payload_end > payload_start {
+                records_area[pos + payload_start..pos + payload_end].to_vec()
+            } else {
+                vec![]
+            };
+            seen_offsets.insert(pos);
+            records.push(RecoveredRecord {
+                offset: (start + pos) as u64,
+                header,
+                integrity: Integrity::Carved,
+                bxml_payload,
+            });
+            pos += size;
+        } else {
+            pos += 4;
         }
     }
     records
@@ -623,7 +696,11 @@ mod tests {
             chunk.records.len(),
             2,
             "aggressive scan should find both records, got: {:?}",
-            chunk.records.iter().map(|r| (r.header.record_id, r.integrity)).collect::<Vec<_>>()
+            chunk
+                .records
+                .iter()
+                .map(|r| (r.header.record_id, r.integrity))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -683,7 +760,11 @@ mod tests {
             ids.len(),
             chunk.records.len(),
             "duplicate records found: {:?}",
-            chunk.records.iter().map(|r| r.header.record_id).collect::<Vec<_>>()
+            chunk
+                .records
+                .iter()
+                .map(|r| r.header.record_id)
+                .collect::<Vec<_>>()
         );
     }
 }
