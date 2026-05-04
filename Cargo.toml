@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/winevt-core",
     "crates/winevt-antiforensic",
+    "crates/winevt-carver",
 ]
 
 [workspace.package]
@@ -21,6 +22,7 @@ anyhow = "1"
 # Internal
 winevt-core = { path = "crates/winevt-core" }
 winevt-antiforensic = { path = "crates/winevt-antiforensic" }
+winevt-carver = { path = "crates/winevt-carver" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
