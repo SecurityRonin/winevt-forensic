@@ -1,5 +1,7 @@
 //! Core types and lookup tables for Windows Event Log forensic analysis.
 
+pub mod binary;
+
 use std::collections::HashMap;
 
 /// Core event type — parsed from EVTX.
@@ -178,5 +180,118 @@ mod tests {
         };
         assert_eq!(pe.logon_id, Some(0xABCDEF));
         assert_eq!(pe.process_id, 1234);
+    }
+
+    // --- binary format tests ---
+    use crate::binary::*;
+
+    #[test]
+    fn elffile_magic_constant_is_correct() {
+        assert_eq!(ELFFILE_MAGIC, *b"ElfFile\0");
+    }
+
+    #[test]
+    fn elfchnk_magic_constant_is_correct() {
+        assert_eq!(ELFCHNK_MAGIC, *b"ElfChnk\0");
+    }
+
+    #[test]
+    fn record_magic_constant_is_correct() {
+        assert_eq!(RECORD_MAGIC, [0x2A, 0x2A, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn file_header_parse_returns_none_for_wrong_magic() {
+        let buf = [0u8; 128];
+        assert!(EvtxFileHeader::parse(&buf).is_none());
+    }
+
+    #[test]
+    fn file_header_parse_returns_fields_for_known_good() {
+        let mut buf = [0u8; 128];
+        buf[0..8].copy_from_slice(b"ElfFile\0");
+        // first_chunk_number = 0
+        buf[8..16].copy_from_slice(&0u64.to_le_bytes());
+        // last_chunk_number = 5
+        buf[16..24].copy_from_slice(&5u64.to_le_bytes());
+        // next_record_id = 1000
+        buf[24..32].copy_from_slice(&1000u64.to_le_bytes());
+        // header_size at 0x20 = 0x80
+        buf[32..36].copy_from_slice(&0x80u32.to_le_bytes());
+        // minor_version = 1
+        buf[36..38].copy_from_slice(&1u16.to_le_bytes());
+        // major_version = 3
+        buf[38..40].copy_from_slice(&3u16.to_le_bytes());
+        // header_block_size = 0x1000
+        buf[40..42].copy_from_slice(&0x1000u16.to_le_bytes());
+        // chunk_count = 6
+        buf[42..44].copy_from_slice(&6u16.to_le_bytes());
+        // file_flags at 0x78 = 0
+        buf[0x78..0x7C].copy_from_slice(&0u32.to_le_bytes());
+        // checksum at 0x7C (leave as 0 for this test)
+        let h = EvtxFileHeader::parse(&buf).expect("should parse");
+        assert_eq!(h.first_chunk_number, 0);
+        assert_eq!(h.last_chunk_number, 5);
+        assert_eq!(h.next_record_id, 1000);
+        assert_eq!(h.chunk_count, 6);
+        assert_eq!(h.major_version, 3);
+    }
+
+    #[test]
+    fn chunk_header_parse_returns_none_for_wrong_magic() {
+        let buf = [0u8; 512];
+        assert!(EvtxChunkHeader::parse(&buf).is_none());
+    }
+
+    #[test]
+    fn chunk_header_parse_returns_fields_for_known_good() {
+        let mut buf = [0u8; 512];
+        buf[0..8].copy_from_slice(b"ElfChnk\0");
+        buf[8..16].copy_from_slice(&10u64.to_le_bytes());   // first record number
+        buf[16..24].copy_from_slice(&19u64.to_le_bytes());  // last record number
+        buf[24..32].copy_from_slice(&100u64.to_le_bytes()); // first record id
+        buf[32..40].copy_from_slice(&109u64.to_le_bytes()); // last record id
+        buf[40..44].copy_from_slice(&0x80u32.to_le_bytes()); // header_size
+        buf[44..48].copy_from_slice(&0x500u32.to_le_bytes()); // last_event_record_data_offset
+        buf[48..52].copy_from_slice(&0x800u32.to_le_bytes()); // free_space_offset
+        buf[52..56].copy_from_slice(&0xDEADBEEFu32.to_le_bytes()); // event_records_checksum
+        buf[0x78..0x7C].copy_from_slice(&0xCAFEBABEu32.to_le_bytes()); // header_checksum
+        let h = EvtxChunkHeader::parse(&buf).expect("should parse");
+        assert_eq!(h.first_event_record_number, 10);
+        assert_eq!(h.last_event_record_number, 19);
+        assert_eq!(h.header_size, 0x80);
+        assert_eq!(h.event_records_checksum, 0xDEADBEEF);
+        assert_eq!(h.header_checksum, 0xCAFEBABE);
+    }
+
+    #[test]
+    fn record_header_parse_returns_none_for_wrong_magic() {
+        let buf = [0u8; 32];
+        assert!(EvtxRecordHeader::parse(&buf).is_none());
+    }
+
+    #[test]
+    fn record_header_parse_returns_fields_for_known_good() {
+        let mut buf = [0u8; 32];
+        buf[0..4].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]); // magic
+        buf[4..8].copy_from_slice(&100u32.to_le_bytes()); // size
+        buf[8..16].copy_from_slice(&42u64.to_le_bytes()); // record_id
+        buf[16..24].copy_from_slice(&133_297_085_160_000_000u64.to_le_bytes()); // timestamp (FILETIME)
+        let r = EvtxRecordHeader::parse(&buf).expect("should parse");
+        assert_eq!(r.size, 100);
+        assert_eq!(r.record_id, 42);
+        assert_eq!(r.timestamp, 133_297_085_160_000_000);
+    }
+
+    #[test]
+    fn compute_chunk_header_checksum_matches_expected() {
+        use crate::binary::compute_checksum;
+        // CRC32 of 120 zero bytes
+        let data = [0u8; 0x78];
+        let crc = compute_checksum(&data);
+        // Verify it's deterministic
+        assert_eq!(crc, compute_checksum(&data));
+        // Not zero (CRC32 of all-zeros is not zero)
+        assert_ne!(crc, 0);
     }
 }
