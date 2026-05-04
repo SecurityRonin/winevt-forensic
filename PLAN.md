@@ -67,7 +67,8 @@ The memory-forensic repo (`memf-windows`) handles memory-specific walkers (`Obje
 
 | Knowledge Type | Repository | Example |
 |---------------|------------|---------|
-| "EVTX chunks start with `ElfChnk\0` at offset 0x00" | `winevt-core` | `pub const ELFCHNK_MAGIC: [u8; 8]` |
+| "EVTX chunks start with `ElfChnk\0` at offset 0x00" (Rust code) | `winevt-core` | `pub const ELFCHNK_MAGIC: [u8; 8]` |
+| "EVTX chunks start with `ElfChnk\0` at offset 0x00" (reference data) | `forensicnomicon` | EVTX binary constants artifact profile (pending) |
 | "Event ID 1102 means the Security log was cleared" | `forensicnomicon` | `eventids.rs` lookup tables |
 | "Attackers clear logs to hide lateral movement" | `forensicnomicon` | `antiforensics_aware.rs` |
 | "This chunk's CRC32 doesn't match stored value" | `winevt-integrity` | `verify_chunk_header_checksum()` |
