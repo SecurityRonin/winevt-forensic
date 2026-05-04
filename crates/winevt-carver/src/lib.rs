@@ -313,4 +313,107 @@ mod tests {
         let result = carve_from_bytes(&data);
         assert!(result.file_header.is_some());
     }
+
+    // ---- US-01: anti-forensic integration tests ----
+
+    /// Build a minimal chunk with explicit first/last record numbers and IDs, with correct checksum.
+    fn make_chunk_with_record_range(
+        first_record_number: u64,
+        last_record_number: u64,
+        first_record_id: u64,
+        last_record_id: u64,
+    ) -> Vec<u8> {
+        let mut chunk = vec![0u8; 0x10000];
+        chunk[0..8].copy_from_slice(b"ElfChnk\0");
+        chunk[8..16].copy_from_slice(&first_record_number.to_le_bytes());
+        chunk[16..24].copy_from_slice(&last_record_number.to_le_bytes());
+        chunk[24..32].copy_from_slice(&first_record_id.to_le_bytes());
+        chunk[32..40].copy_from_slice(&last_record_id.to_le_bytes());
+        chunk[40..44].copy_from_slice(&0x80u32.to_le_bytes());
+        chunk[44..48].copy_from_slice(&0x200u32.to_le_bytes());
+        chunk[48..52].copy_from_slice(&0x200u32.to_le_bytes());
+        chunk[52..56].copy_from_slice(&0u32.to_le_bytes());
+        let crc = crc32fast::hash(&chunk[0..0x78]);
+        chunk[0x78..0x7C].copy_from_slice(&crc.to_le_bytes());
+        chunk
+    }
+
+    /// Build a valid file header (128 bytes at offset 0) with given next_record_id.
+    fn make_file_header(next_record_id: u64) -> Vec<u8> {
+        let mut hdr = vec![0u8; 0x1000];
+        hdr[0..8].copy_from_slice(b"ElfFile\0");
+        hdr[8..16].copy_from_slice(&0u64.to_le_bytes());   // first_chunk_number
+        hdr[16..24].copy_from_slice(&0u64.to_le_bytes());  // last_chunk_number
+        hdr[24..32].copy_from_slice(&next_record_id.to_le_bytes()); // next_record_id
+        hdr[36..38].copy_from_slice(&1u16.to_le_bytes());  // minor_version
+        hdr[38..40].copy_from_slice(&3u16.to_le_bytes());  // major_version
+        hdr[40..42].copy_from_slice(&0u16.to_le_bytes());  // HeaderBlockSize padding
+        hdr[42..44].copy_from_slice(&1u16.to_le_bytes());  // chunk_count
+        hdr
+    }
+
+    #[test]
+    fn record_id_gap_between_chunks_populates_anti_forensic() {
+        // chunk 1: records 1..10, chunk 2: records 15..20 — gap at 11-14
+        let mut data = make_chunk_with_record_range(1, 10, 1, 10);
+        data.extend(make_chunk_with_record_range(15, 20, 15, 20));
+        let result = carve_from_bytes(&data);
+        assert_eq!(result.chunks.len(), 2, "expected two chunks");
+        let has_gap = result.anti_forensic.iter().any(|ind| {
+            matches!(ind, IntegrityIndicator::RecordIdGap { expected, found, .. }
+                if *expected == 11 && *found == 15)
+        });
+        assert!(has_gap, "expected RecordIdGap(expected=11, found=15) in result.anti_forensic, got: {:?}", result.anti_forensic);
+    }
+
+    #[test]
+    fn corrupt_chunk_checksum_populates_chunk_anti_forensic() {
+        let mut data = make_minimal_chunk();
+        // Corrupt the checksum so it no longer matches
+        data[0x78..0x7C].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+        let result = carve_from_bytes(&data);
+        assert_eq!(result.chunks.len(), 1);
+        let has_mismatch = result.chunks[0].anti_forensic.iter().any(|ind| {
+            matches!(ind, IntegrityIndicator::ChunkChecksumMismatch { .. })
+        });
+        assert!(has_mismatch, "expected ChunkChecksumMismatch in chunk.anti_forensic");
+    }
+
+    #[test]
+    fn file_header_inconsistency_populates_result_anti_forensic() {
+        // File header says next_record_id = 5, but chunk has records up to 100
+        let mut data = make_file_header(5);
+        data.extend(make_chunk_with_record_range(1, 100, 1, 100));
+        let result = carve_from_bytes(&data);
+        let has_inconsistency = result.anti_forensic.iter().any(|ind| {
+            matches!(ind, IntegrityIndicator::NextRecordIdInconsistency { header_next, actual_highest }
+                if *header_next == 5 && *actual_highest == 100)
+        });
+        assert!(
+            has_inconsistency,
+            "expected NextRecordIdInconsistency in result.anti_forensic, got: {:?}",
+            result.anti_forensic
+        );
+    }
+
+    #[test]
+    fn clean_data_returns_empty_anti_forensic() {
+        // Two contiguous chunks with no gaps and valid checksums
+        let mut data = make_chunk_with_record_range(1, 10, 1, 10);
+        data.extend(make_chunk_with_record_range(11, 20, 11, 20));
+        let result = carve_from_bytes(&data);
+        assert_eq!(result.chunks.len(), 2);
+        assert!(
+            result.anti_forensic.is_empty(),
+            "expected empty result.anti_forensic for clean data, got: {:?}",
+            result.anti_forensic
+        );
+        for chunk in &result.chunks {
+            assert!(
+                chunk.anti_forensic.is_empty(),
+                "expected empty chunk.anti_forensic for valid chunk, got: {:?}",
+                chunk.anti_forensic
+            );
+        }
+    }
 }
