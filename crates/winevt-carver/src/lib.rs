@@ -453,4 +453,86 @@ mod tests {
             );
         }
     }
+
+    // ---- US-02: file API tests ----
+
+    fn write_temp_evtx(data: &[u8]) -> std::path::PathBuf {
+        use std::io::Write;
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "winevt_test_{}.evtx",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos()
+        ));
+        let mut f = std::fs::File::create(&path).expect("create temp file");
+        f.write_all(data).expect("write temp file");
+        path
+    }
+
+    #[test]
+    fn carve_from_file_valid_path_returns_ok_with_chunk() {
+        // Minimal EVTX: file header (4096 bytes) + one valid chunk
+        let mut data = make_file_header(101);
+        data.extend(make_chunk_with_record_range(1, 100, 1, 100));
+        let path = write_temp_evtx(&data);
+        let result = carve_from_file(&path);
+        let _ = std::fs::remove_file(&path);
+        let result = result.expect("carve_from_file should return Ok for valid EVTX");
+        assert!(
+            !result.chunks.is_empty(),
+            "expected at least one chunk in result"
+        );
+    }
+
+    #[test]
+    fn carve_from_file_nonexistent_path_returns_err() {
+        let path = std::path::Path::new("/nonexistent/path/to/test.evtx");
+        let result = carve_from_file(path);
+        assert!(result.is_err(), "expected Err for nonexistent path");
+    }
+
+    #[test]
+    fn verify_integrity_valid_evtx_returns_empty_vec() {
+        let mut data = make_file_header(101);
+        data.extend(make_chunk_with_record_range(1, 100, 1, 100));
+        let path = write_temp_evtx(&data);
+        let result = verify_integrity(&path);
+        let _ = std::fs::remove_file(&path);
+        let indicators = result.expect("verify_integrity should return Ok for valid EVTX");
+        assert!(
+            indicators.is_empty(),
+            "expected empty indicators for valid EVTX, got: {:?}",
+            indicators
+        );
+    }
+
+    #[test]
+    fn verify_integrity_tampered_checksum_returns_chunk_checksum_mismatch() {
+        let mut data = make_file_header(101);
+        let mut chunk = make_chunk_with_record_range(1, 100, 1, 100);
+        // Tamper the header checksum
+        chunk[0x78..0x7C].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+        data.extend(chunk);
+        let path = write_temp_evtx(&data);
+        let result = verify_integrity(&path);
+        let _ = std::fs::remove_file(&path);
+        let indicators = result.expect("verify_integrity should return Ok (not Err) for tampered file");
+        let has_mismatch = indicators
+            .iter()
+            .any(|ind| matches!(ind, IntegrityIndicator::ChunkChecksumMismatch { .. }));
+        assert!(
+            has_mismatch,
+            "expected ChunkChecksumMismatch for tampered EVTX, got: {:?}",
+            indicators
+        );
+    }
+
+    #[test]
+    fn verify_integrity_nonexistent_path_returns_err() {
+        let path = std::path::Path::new("/nonexistent/path/to/test.evtx");
+        let result = verify_integrity(path);
+        assert!(result.is_err(), "expected Err for nonexistent path");
+    }
 }
