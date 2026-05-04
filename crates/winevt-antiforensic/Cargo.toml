@@ -1,0 +1,10 @@
+[package]
+name = "winevt-antiforensic"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+winevt-core = { workspace = true }
+crc32fast = "1"
