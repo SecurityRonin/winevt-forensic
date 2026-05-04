@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "crates/winevt-core",
-    "crates/winevt-antiforensic",
+    "crates/winevt-integrity",
     "crates/winevt-carver",
 ]
 
@@ -21,7 +21,7 @@ anyhow = "1"
 
 # Internal
 winevt-core = { path = "crates/winevt-core" }
-winevt-antiforensic = { path = "crates/winevt-antiforensic" }
+winevt-integrity = { path = "crates/winevt-integrity" }
 winevt-carver = { path = "crates/winevt-carver" }
 
 [workspace.lints.clippy]

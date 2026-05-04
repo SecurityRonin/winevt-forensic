@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 winevt-core = { workspace = true }
-winevt-antiforensic = { workspace = true }
+winevt-integrity = { workspace = true }
 crc32fast = "1"
 thiserror = { workspace = true }
 anyhow = { workspace = true }

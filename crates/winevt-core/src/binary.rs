@@ -105,7 +105,7 @@ pub fn compute_checksum(data: &[u8]) -> u32 {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub enum AntiForensicIndicator {
+pub enum IntegrityIndicator {
     LogCleared {
         channel: String,
         timestamp: u64,

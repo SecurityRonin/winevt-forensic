@@ -1,8 +1,8 @@
 pub use winevt_core::binary::{
-    AntiForensicIndicator, EvtxChunkHeader, EvtxFileHeader, EvtxRecordHeader,
+    IntegrityIndicator, EvtxChunkHeader, EvtxFileHeader, EvtxRecordHeader,
     ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC, CHUNK_SIZE, CHUNK_RECORDS_OFFSET,
 };
-use winevt_antiforensic::verify_chunk_header_checksum;
+use winevt_integrity::verify_chunk_header_checksum;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Integrity {
@@ -28,7 +28,7 @@ pub struct CarvedChunk {
     pub header: EvtxChunkHeader,
     pub integrity: Integrity,
     pub records: Vec<RecoveredRecord>,
-    pub anti_forensic: Vec<AntiForensicIndicator>,
+    pub anti_forensic: Vec<IntegrityIndicator>,
 }
 
 #[derive(Debug, Default)]
@@ -45,7 +45,7 @@ pub struct CarveStats {
 pub struct CarveResult {
     pub file_header: Option<EvtxFileHeader>,
     pub chunks: Vec<CarvedChunk>,
-    pub anti_forensic: Vec<AntiForensicIndicator>,
+    pub anti_forensic: Vec<IntegrityIndicator>,
     pub stats: CarveStats,
 }
 

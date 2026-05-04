@@ -1,15 +1,15 @@
-use winevt_core::binary::AntiForensicIndicator;
+use winevt_core::binary::IntegrityIndicator;
 
 /// Given (first_record_number, last_record_number) per chunk in order,
 /// detect gaps between adjacent chunks.
-pub fn detect_record_id_gaps(chunks: &[(u64, u64)]) -> Vec<AntiForensicIndicator> {
+pub fn detect_record_id_gaps(chunks: &[(u64, u64)]) -> Vec<IntegrityIndicator> {
     let mut out = Vec::new();
     for window in chunks.windows(2) {
         let (_, prev_last) = window[0];
         let (next_first, _) = window[1];
         let expected = prev_last + 1;
         if next_first != expected {
-            out.push(AntiForensicIndicator::RecordIdGap {
+            out.push(IntegrityIndicator::RecordIdGap {
                 chunk_offset: 0, // caller fills in real offset
                 expected,
                 found: next_first,
@@ -21,14 +21,14 @@ pub fn detect_record_id_gaps(chunks: &[(u64, u64)]) -> Vec<AntiForensicIndicator
 
 /// Verify the chunk header CRC32 (bytes 0x00..0x78) against stored value at 0x78.
 /// `buf` must be at least 0x7C bytes. `chunk_offset` is for the indicator.
-pub fn verify_chunk_header_checksum(buf: &[u8], chunk_offset: u64) -> Vec<AntiForensicIndicator> {
+pub fn verify_chunk_header_checksum(buf: &[u8], chunk_offset: u64) -> Vec<IntegrityIndicator> {
     if buf.len() < 0x7C {
         return vec![];
     }
     let stored = u32::from_le_bytes(buf[0x78..0x7C].try_into().unwrap_or([0; 4]));
     let computed = crc32fast::hash(&buf[0..0x78]);
     if stored != computed {
-        vec![AntiForensicIndicator::ChunkChecksumMismatch {
+        vec![IntegrityIndicator::ChunkChecksumMismatch {
             chunk_offset,
             computed,
             stored,
@@ -42,12 +42,12 @@ pub fn verify_chunk_header_checksum(buf: &[u8], chunk_offset: u64) -> Vec<AntiFo
 pub fn check_timestamp_monotonicity(
     records: &[(u64, u64)],
     chunk_offset: u64,
-) -> Vec<AntiForensicIndicator> {
+) -> Vec<IntegrityIndicator> {
     let mut out = Vec::new();
     let mut prev_ts = 0u64;
     for &(record_id, ts) in records {
         if ts < prev_ts {
-            out.push(AntiForensicIndicator::TimestampAnomaly {
+            out.push(IntegrityIndicator::TimestampAnomaly {
                 chunk_offset,
                 record_id,
                 prev_ts,
@@ -63,9 +63,9 @@ pub fn check_timestamp_monotonicity(
 pub fn check_file_header_consistency(
     header_next: u64,
     actual_highest: u64,
-) -> Vec<AntiForensicIndicator> {
+) -> Vec<IntegrityIndicator> {
     if header_next <= actual_highest {
-        vec![AntiForensicIndicator::NextRecordIdInconsistency {
+        vec![IntegrityIndicator::NextRecordIdInconsistency {
             header_next,
             actual_highest,
         }]
@@ -77,7 +77,7 @@ pub fn check_file_header_consistency(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use winevt_core::binary::AntiForensicIndicator;
+    use winevt_core::binary::IntegrityIndicator;
 
     #[test]
     fn no_gaps_for_contiguous_chunks() {
@@ -93,7 +93,7 @@ mod tests {
         let gaps = detect_record_id_gaps(&chunks);
         assert_eq!(gaps.len(), 1);
         match &gaps[0] {
-            AntiForensicIndicator::RecordIdGap { expected, found, .. } => {
+            IntegrityIndicator::RecordIdGap { expected, found, .. } => {
                 assert_eq!(*expected, 11);
                 assert_eq!(*found, 15);
             }
@@ -121,7 +121,7 @@ mod tests {
         let indicators = verify_chunk_header_checksum(&buf, 0x10000);
         assert_eq!(indicators.len(), 1);
         match &indicators[0] {
-            AntiForensicIndicator::ChunkChecksumMismatch { chunk_offset, .. } => {
+            IntegrityIndicator::ChunkChecksumMismatch { chunk_offset, .. } => {
                 assert_eq!(*chunk_offset, 0x10000);
             }
             _ => panic!("wrong variant"),
@@ -135,7 +135,7 @@ mod tests {
         let anomalies = check_timestamp_monotonicity(&records, 0);
         assert_eq!(anomalies.len(), 1);
         match &anomalies[0] {
-            AntiForensicIndicator::TimestampAnomaly { record_id, .. } => {
+            IntegrityIndicator::TimestampAnomaly { record_id, .. } => {
                 assert_eq!(*record_id, 3);
             }
             _ => panic!("wrong variant"),
@@ -155,7 +155,7 @@ mod tests {
         let indicators = check_file_header_consistency(50, 100);
         assert_eq!(indicators.len(), 1);
         match &indicators[0] {
-            AntiForensicIndicator::NextRecordIdInconsistency { header_next, actual_highest } => {
+            IntegrityIndicator::NextRecordIdInconsistency { header_next, actual_highest } => {
                 assert_eq!(*header_next, 50);
                 assert_eq!(*actual_highest, 100);
             }
