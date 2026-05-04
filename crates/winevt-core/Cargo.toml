@@ -8,6 +8,8 @@ repository.workspace = true
 description = "Core types and lookup tables for Windows Event Log forensic analysis"
 
 [dependencies]
+crc32fast = "1"
+serde = { workspace = true }
 
 [lints]
 workspace = true
