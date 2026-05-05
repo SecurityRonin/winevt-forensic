@@ -140,6 +140,7 @@ The problem this library solves is upstream: getting records out of files the ot
 | CRC32 checksum verification | ✓ | — | — | — | — |
 | Record ID gap detection | ✓ | — | — | — | — |
 | JSON output | ✓ | ✓ | — | ✓ | — |
+| SQL query interface | — | — | — | — | ✓ |
 | Sigma-based detection rules | — | — | — | ✓ | — |
 | MITRE ATT&CK tagging | — | — | — | ✓ | — |
 | Free (no cost) | ✓ | ✓ | ✓ | ✓ | ✓ |
