@@ -23,36 +23,36 @@ pub const RECORDS_OFFSET: usize = 0x200;
 pub const MAX_RECORDS_AREA: usize = CHUNK_SIZE - RECORDS_OFFSET;
 
 // File-header field offsets (all little-endian).
-pub const FH_MAGIC: usize = 0x00;
-pub const FH_FIRST_CHUNK: usize = 0x08;
-pub const FH_LAST_CHUNK: usize = 0x10;
-pub const FH_NEXT_RECORD_ID: usize = 0x18;
-pub const FH_HEADER_SIZE: usize = 0x20;
-pub const FH_MINOR_VERSION: usize = 0x24;
-pub const FH_MAJOR_VERSION: usize = 0x26;
-pub const FH_HEADER_CHUNK_COUNT: usize = 0x28;
-pub const FH_CHUNK_COUNT: usize = 0x2A;
-pub const FH_FLAGS: usize = 0x78;
-pub const FH_CHECKSUM: usize = 0x7C;
+const FH_MAGIC: usize = 0x00; // b"ElfFile\0"    8 bytes
+const FH_FIRST_CHUNK: usize = 0x08; //              8 bytes (u64)
+const FH_LAST_CHUNK: usize = 0x10; //              8 bytes (u64)
+const FH_NEXT_RECORD_ID: usize = 0x18; //              8 bytes (u64)
+const FH_HEADER_SIZE: usize = 0x20; //              4 bytes (u32) = 0x80
+const FH_MINOR_VERSION: usize = 0x24; //              2 bytes (u16) = 1
+const FH_MAJOR_VERSION: usize = 0x26; //              2 bytes (u16) = 3
+const FH_HEADER_CHUNK_COUNT: usize = 0x28; //              2 bytes (u16) = 1
+const FH_CHUNK_COUNT: usize = 0x2A; //              2 bytes (u16)
+const FH_FLAGS: usize = 0x78; //              4 bytes (u32) = 0
+const FH_CHECKSUM: usize = 0x7C; //              4 bytes (u32) CRC32[0x00..0x78]
 
 // Chunk-header field offsets.
-pub const CH_MAGIC: usize = 0x00;
-pub const CH_FIRST_REC_NUM: usize = 0x08;
-pub const CH_LAST_REC_NUM: usize = 0x10;
-pub const CH_FIRST_REC_ID: usize = 0x18;
-pub const CH_LAST_REC_ID: usize = 0x20;
-pub const CH_HEADER_SIZE: usize = 0x28;
-pub const CH_LAST_REC_DATA_OFF: usize = 0x2C;
-pub const CH_FREE_SPACE_OFF: usize = 0x30;
-pub const CH_RECORDS_CHECKSUM: usize = 0x34;
-pub const CH_HEADER_CHECKSUM: usize = 0x78;
+const CH_MAGIC: usize = 0x00; // b"ElfChnk\0"   8 bytes
+const CH_FIRST_REC_NUM: usize = 0x08; //              8 bytes (u64)
+const CH_LAST_REC_NUM: usize = 0x10; //              8 bytes (u64)
+const CH_FIRST_REC_ID: usize = 0x18; //              8 bytes (u64)
+const CH_LAST_REC_ID: usize = 0x20; //              8 bytes (u64)
+const CH_HEADER_SIZE: usize = 0x28; //              4 bytes (u32) = 0x80
+const CH_LAST_REC_DATA_OFF: usize = 0x2C; //              4 bytes (u32)
+const CH_FREE_SPACE_OFF: usize = 0x30; //              4 bytes (u32)
+const CH_RECORDS_CHECKSUM: usize = 0x34; //              4 bytes (u32) CRC32 of records area
+const CH_HEADER_CHECKSUM: usize = 0x78; //              4 bytes (u32) CRC32[0x00..0x78]
 
 // Record field offsets (relative to record start).
-pub const REC_MAGIC: usize = 0x00;
-pub const REC_SIZE: usize = 0x04;
-pub const REC_ID: usize = 0x08;
-pub const REC_TIMESTAMP: usize = 0x10;
-pub const REC_PAYLOAD: usize = 0x18;
+const REC_MAGIC: usize = 0x00; // 0x2A 0x2A 0x00 0x00   4 bytes
+const REC_SIZE: usize = 0x04; //                         4 bytes (u32)
+const REC_ID: usize = 0x08; //                         8 bytes (u64)
+const REC_TIMESTAMP: usize = 0x10; //                         8 bytes (u64)
+const REC_PAYLOAD: usize = 0x18; //                         variable
 
 // ── Input type ────────────────────────────────────────────────────────────────
 
@@ -83,34 +83,227 @@ impl WriteRecord {
 // ── Layer 1: record serialisation ────────────────────────────────────────────
 
 /// Serialise one `WriteRecord` to raw EVTX bytes.
-pub fn build_record_bytes(_record: &WriteRecord) -> Vec<u8> {
-    todo!("not yet implemented")
+///
+/// Layout: magic(4) + size(4) + id(8) + timestamp(8) + payload(N) + size(4).
+///
+/// # Panics
+/// Never panics; payload length is bounded by `usize`.
+pub fn build_record_bytes(record: &WriteRecord) -> Vec<u8> {
+    let total = record.on_disk_size();
+    let mut buf = vec![0u8; total];
+
+    // Magic
+    buf[REC_MAGIC..REC_MAGIC + 4].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+    // Size (u32 LE)
+    buf[REC_SIZE..REC_SIZE + 4].copy_from_slice(&(total as u32).to_le_bytes());
+    // Record ID (u64 LE)
+    buf[REC_ID..REC_ID + 8].copy_from_slice(&record.record_id.to_le_bytes());
+    // Timestamp (u64 LE)
+    buf[REC_TIMESTAMP..REC_TIMESTAMP + 8].copy_from_slice(&record.timestamp.to_le_bytes());
+    // Payload
+    buf[REC_PAYLOAD..REC_PAYLOAD + record.payload.len()]
+        .copy_from_slice(&record.payload);
+    // Trailing size copy
+    let tail = total - 4;
+    buf[tail..].copy_from_slice(&(total as u32).to_le_bytes());
+
+    buf
 }
 
 // ── Layer 2: chunk construction ───────────────────────────────────────────────
 
 /// Pack `records` into a 65536-byte `ElfChnk` block.
-pub fn build_chunk(_records: &[WriteRecord], _chunk_number: u64) -> [u8; CHUNK_SIZE] {
-    todo!("not yet implemented")
+///
+/// `chunk_number` is the 0-based index of this chunk in the file (used for
+/// the `first_event_record_number` / `last_event_record_number` fields which
+/// are sequence numbers within the log).
+///
+/// Records are written sequentially; any record that would overflow the
+/// records area is silently dropped (callers must split batches beforehand
+/// via [`split_into_chunks`]).
+pub fn build_chunk(records: &[WriteRecord], chunk_number: u64) -> [u8; CHUNK_SIZE] {
+    let mut buf = [0u8; CHUNK_SIZE];
+
+    // --- write records into the records area first ---
+    let mut write_pos = RECORDS_OFFSET;
+    let mut first_id = 0u64;
+    let mut last_id = 0u64;
+    let mut first_num = 0u64;
+    let mut last_num = 0u64;
+    let mut last_data_end = RECORDS_OFFSET; // offset just past the last record written
+
+    for (i, record) in records.iter().enumerate() {
+        let bytes = build_record_bytes(record);
+        if write_pos + bytes.len() > CHUNK_SIZE {
+            break; // overflow — caller should have split
+        }
+        buf[write_pos..write_pos + bytes.len()].copy_from_slice(&bytes);
+
+        if i == 0 {
+            first_id = record.record_id;
+            first_num = chunk_number * records.len() as u64 + 1;
+        }
+        last_id = record.record_id;
+        last_num = chunk_number * records.len() as u64 + i as u64 + 1;
+        last_data_end = write_pos + bytes.len();
+        write_pos += bytes.len();
+    }
+
+    let free_space_offset = write_pos as u32;
+
+    // --- chunk header ---
+    buf[CH_MAGIC..CH_MAGIC + 8].copy_from_slice(b"ElfChnk\0");
+
+    // Record numbers (sequence numbers within the log, 1-based)
+    buf[CH_FIRST_REC_NUM..CH_FIRST_REC_NUM + 8].copy_from_slice(&first_num.to_le_bytes());
+    buf[CH_LAST_REC_NUM..CH_LAST_REC_NUM + 8].copy_from_slice(&last_num.to_le_bytes());
+
+    // Record IDs (globally unique, from the record headers)
+    buf[CH_FIRST_REC_ID..CH_FIRST_REC_ID + 8].copy_from_slice(&first_id.to_le_bytes());
+    buf[CH_LAST_REC_ID..CH_LAST_REC_ID + 8].copy_from_slice(&last_id.to_le_bytes());
+
+    // Header size = 0x80
+    buf[CH_HEADER_SIZE..CH_HEADER_SIZE + 4].copy_from_slice(&0x80u32.to_le_bytes());
+
+    // Last event record data offset = byte offset from chunk start to last record start
+    let last_data_offset = if last_data_end > RECORDS_OFFSET {
+        // offset of last record start = last_data_end - last_record_size
+        // We need the offset of the LAST record's start, not its end.
+        // Recompute by walking records.
+        let mut off = RECORDS_OFFSET;
+        for r in records.iter().take(records.len().saturating_sub(1)) {
+            let sz = r.on_disk_size();
+            if off + sz >= CHUNK_SIZE {
+                break;
+            }
+            off += sz;
+        }
+        off as u32
+    } else {
+        RECORDS_OFFSET as u32
+    };
+    buf[CH_LAST_REC_DATA_OFF..CH_LAST_REC_DATA_OFF + 4]
+        .copy_from_slice(&last_data_offset.to_le_bytes());
+
+    // Free space offset
+    buf[CH_FREE_SPACE_OFF..CH_FREE_SPACE_OFF + 4]
+        .copy_from_slice(&free_space_offset.to_le_bytes());
+
+    // Records area CRC32 (0x200..free_space_offset)
+    let records_area = &buf[RECORDS_OFFSET..write_pos];
+    let records_crc = crc32fast::hash(records_area);
+    buf[CH_RECORDS_CHECKSUM..CH_RECORDS_CHECKSUM + 4]
+        .copy_from_slice(&records_crc.to_le_bytes());
+
+    // Header CRC32 (0x00..0x78)
+    let header_crc = crc32fast::hash(&buf[0x00..0x78]);
+    buf[CH_HEADER_CHECKSUM..CH_HEADER_CHECKSUM + 4]
+        .copy_from_slice(&header_crc.to_le_bytes());
+
+    buf
 }
 
 // ── Layer 3: file header construction ─────────────────────────────────────────
 
 /// Build the 4096-byte ElfFile header block.
-pub fn build_file_header(_chunk_count: u16, _next_record_id: u64) -> [u8; FILE_HEADER_SIZE] {
-    todo!("not yet implemented")
+///
+/// `chunk_count` — number of ElfChnk blocks that follow.
+/// `next_record_id` — the ID that the next new record would receive
+///   (= highest existing record_id + 1, or 1 if no records).
+pub fn build_file_header(chunk_count: u16, next_record_id: u64) -> [u8; FILE_HEADER_SIZE] {
+    let mut buf = [0u8; FILE_HEADER_SIZE];
+
+    buf[FH_MAGIC..FH_MAGIC + 8].copy_from_slice(b"ElfFile\0");
+
+    // first_chunk_number = 0, last_chunk_number = chunk_count - 1
+    let last_chunk = if chunk_count > 0 {
+        (chunk_count - 1) as u64
+    } else {
+        0
+    };
+    buf[FH_FIRST_CHUNK..FH_FIRST_CHUNK + 8].copy_from_slice(&0u64.to_le_bytes());
+    buf[FH_LAST_CHUNK..FH_LAST_CHUNK + 8].copy_from_slice(&last_chunk.to_le_bytes());
+    buf[FH_NEXT_RECORD_ID..FH_NEXT_RECORD_ID + 8]
+        .copy_from_slice(&next_record_id.to_le_bytes());
+
+    // header_size = 0x80 (128)
+    buf[FH_HEADER_SIZE..FH_HEADER_SIZE + 4].copy_from_slice(&0x80u32.to_le_bytes());
+    // minor version = 1, major version = 3
+    buf[FH_MINOR_VERSION..FH_MINOR_VERSION + 2].copy_from_slice(&1u16.to_le_bytes());
+    buf[FH_MAJOR_VERSION..FH_MAJOR_VERSION + 2].copy_from_slice(&3u16.to_le_bytes());
+    // header chunk count = 1
+    buf[FH_HEADER_CHUNK_COUNT..FH_HEADER_CHUNK_COUNT + 2].copy_from_slice(&1u16.to_le_bytes());
+    // chunk count
+    buf[FH_CHUNK_COUNT..FH_CHUNK_COUNT + 2].copy_from_slice(&chunk_count.to_le_bytes());
+
+    // flags = 0 (clean shutdown)
+    buf[FH_FLAGS..FH_FLAGS + 4].copy_from_slice(&0u32.to_le_bytes());
+
+    // checksum = CRC32(buf[0x00..0x78])
+    let checksum = crc32fast::hash(&buf[0x00..0x78]);
+    buf[FH_CHECKSUM..FH_CHECKSUM + 4].copy_from_slice(&checksum.to_le_bytes());
+
+    buf
 }
 
 // ── Layer 4: top-level API ─────────────────────────────────────────────────────
 
 /// Split a flat record list into chunk-sized batches.
-pub fn split_into_chunks(_records: &[WriteRecord]) -> Vec<Vec<WriteRecord>> {
-    todo!("not yet implemented")
+///
+/// Each batch fits within [`MAX_RECORDS_AREA`] bytes.  Empty record slices
+/// are never emitted; an empty input returns an empty `Vec`.
+pub fn split_into_chunks(records: &[WriteRecord]) -> Vec<Vec<WriteRecord>> {
+    let mut chunks: Vec<Vec<WriteRecord>> = Vec::new();
+    let mut current: Vec<WriteRecord> = Vec::new();
+    let mut current_size = 0usize;
+
+    for record in records {
+        let sz = record.on_disk_size();
+        if current_size + sz > MAX_RECORDS_AREA && !current.is_empty() {
+            chunks.push(current);
+            current = Vec::new();
+            current_size = 0;
+        }
+        current_size += sz;
+        current.push(record.clone());
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
 }
 
 /// Reconstruct a well-formed EVTX byte stream from a slice of [`WriteRecord`]s.
-pub fn records_to_evtx(_records: &[WriteRecord]) -> Vec<u8> {
-    todo!("not yet implemented")
+///
+/// Returns a `Vec<u8>` whose layout is:
+/// - 4096-byte ElfFile header
+/// - N × 65536-byte ElfChnk blocks (one per chunk batch)
+///
+/// The result can be written to a `.evtx` file and parsed by any conforming
+/// reader (hayabusa, evtx, EvtxECmd, …).
+pub fn records_to_evtx(records: &[WriteRecord]) -> Vec<u8> {
+    let batches = split_into_chunks(records);
+    let chunk_count = batches.len() as u16;
+
+    let next_record_id = records
+        .iter()
+        .map(|r| r.record_id)
+        .max()
+        .map(|id| id + 1)
+        .unwrap_or(1);
+
+    let file_header = build_file_header(chunk_count, next_record_id);
+
+    let total_size = FILE_HEADER_SIZE + chunk_count as usize * CHUNK_SIZE;
+    let mut out = Vec::with_capacity(total_size);
+    out.extend_from_slice(&file_header);
+
+    for (i, batch) in batches.iter().enumerate() {
+        let chunk = build_chunk(batch, i as u64);
+        out.extend_from_slice(&chunk);
+    }
+
+    out
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -119,6 +312,7 @@ pub fn records_to_evtx(_records: &[WriteRecord]) -> Vec<u8> {
 mod tests {
     use super::*;
 
+    /// Build a minimal valid `WriteRecord` for testing.
     fn make_record(id: u64, ts: u64, payload: &[u8]) -> WriteRecord {
         WriteRecord {
             record_id: id,
@@ -330,12 +524,14 @@ mod tests {
 
     #[test]
     fn split_large_payloads_span_multiple_chunks() {
-        // Each record has a 32 KiB payload — two × 32776 bytes = 65552 > MAX_RECORDS_AREA (65024)
+        // Each record has a 32 KiB payload — two fit, three do not
         let big = vec![0xABu8; 32 * 1024];
         let records: Vec<WriteRecord> = (0..3)
             .map(|i| make_record(i, 0, &big))
             .collect();
         let batches = split_into_chunks(&records);
+        // First batch: record 0 + record 1 = 2 × 32776 ≈ 65552 > MAX_RECORDS_AREA (65024)?
+        // Actually 32776 * 2 = 65552 > 65024, so each record gets its own chunk.
         assert!(batches.len() >= 2);
     }
 
@@ -384,12 +580,15 @@ mod tests {
         let bytes = records_to_evtx(&records);
         let result = carve_from_bytes(&bytes);
 
+        // All three records recovered
         let recovered: Vec<_> = result.chunks.iter().flat_map(|c| c.records.iter()).collect();
         assert_eq!(recovered.len(), 3, "expected 3 records in round-trip");
 
+        // Record IDs preserved
         let ids: Vec<u64> = recovered.iter().map(|r| r.header.record_id).collect();
         assert_eq!(ids, vec![1, 2, 3]);
 
+        // Timestamps preserved
         let timestamps: Vec<u64> = recovered.iter().map(|r| r.header.timestamp).collect();
         assert_eq!(
             timestamps,
