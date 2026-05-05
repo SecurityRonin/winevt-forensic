@@ -622,6 +622,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "winevt-binxml"
+version = "0.1.0"
+
+[[package]]
 name = "winevt-carver"
 version = "0.1.0"
 dependencies = [
