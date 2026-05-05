@@ -685,6 +685,48 @@ mod tests {
         assert!(result.is_err(), "expected Err for nonexistent path");
     }
 
+    // ---- Feature 8: memmap2 ----
+
+    #[test]
+    fn carve_from_file_mmap_same_result_as_bytes() {
+        let data = make_chunk_with_one_record();
+        let path = write_temp_evtx(&data);
+        let file_result = carve_from_file(&path).expect("carve_from_file");
+        let _ = std::fs::remove_file(&path);
+        let bytes_result = carve_from_bytes(&data);
+        assert_eq!(file_result.chunks.len(), bytes_result.chunks.len());
+        assert_eq!(file_result.stats.chunks_found, bytes_result.stats.chunks_found);
+        assert_eq!(file_result.stats.records_recovered, bytes_result.stats.records_recovered);
+        // source_hash must be Some for file path
+        assert!(file_result.source_hash.is_some());
+        // bytes result must be None
+        assert!(bytes_result.source_hash.is_none());
+    }
+
+    #[test]
+    fn carve_from_file_empty_file_returns_ok_empty_result() {
+        use std::io::Write;
+        let mut path = std::env::temp_dir();
+        path.push("winevt_mmap_empty_test.evtx");
+        let mut f = std::fs::File::create(&path).expect("create temp");
+        f.write_all(&[]).expect("write empty");
+        drop(f);
+        let result = carve_from_file(&path).expect("empty file should return Ok");
+        let _ = std::fs::remove_file(&path);
+        assert!(result.chunks.is_empty());
+    }
+
+    #[test]
+    fn carve_from_file_three_chunk_file_recovers_all_chunks() {
+        let mut data = make_minimal_chunk();
+        data.extend(make_minimal_chunk());
+        data.extend(make_minimal_chunk());
+        let path = write_temp_evtx(&data);
+        let result = carve_from_file(&path).expect("carve_from_file");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(result.chunks.len(), 3, "expected 3 chunks via mmap path");
+    }
+
     // ---- Feature 6: SHA-256 source hash ----
 
     #[test]
