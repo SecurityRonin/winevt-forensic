@@ -32,7 +32,7 @@ pub struct CarvedChunk {
     pub header: EvtxChunkHeader,
     pub integrity: Integrity,
     pub records: Vec<RecoveredRecord>,
-    pub anti_forensic: Vec<IntegrityIndicator>,
+    pub indicators: Vec<IntegrityIndicator>,
 }
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -49,7 +49,7 @@ pub struct CarveStats {
 pub struct CarveResult {
     pub file_header: Option<EvtxFileHeader>,
     pub chunks: Vec<CarvedChunk>,
-    pub anti_forensic: Vec<IntegrityIndicator>,
+    pub indicators: Vec<IntegrityIndicator>,
     pub stats: CarveStats,
 }
 
@@ -57,7 +57,7 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
     let mut result = CarveResult {
         file_header: None,
         chunks: Vec::new(),
-        anti_forensic: Vec::new(),
+        indicators: Vec::new(),
         stats: CarveStats {
             bytes_scanned: data.len() as u64,
             ..Default::default()
@@ -84,7 +84,7 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
                         header,
                         integrity: Integrity::Truncated,
                         records,
-                        anti_forensic: vec![],
+                        indicators: vec![],
                     });
                     result.stats.chunks_found += 1;
                     result.stats.records_recovered += rec_count;
@@ -125,7 +125,7 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
                 header,
                 integrity,
                 records,
-                anti_forensic: checksum_indicators,
+                indicators: checksum_indicators,
             });
             result.stats.chunks_found += 1;
             if integrity == Integrity::Valid {
@@ -155,7 +155,7 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
         })
         .collect();
     result
-        .anti_forensic
+        .indicators
         .extend(detect_record_id_gaps(&chunk_ranges));
 
     // Post-carve: check file header consistency if we have a file header
@@ -166,7 +166,7 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
             .map(|c| c.header.last_event_record_id)
             .max()
             .unwrap_or(0);
-        result.anti_forensic.extend(check_file_header_consistency(
+        result.indicators.extend(check_file_header_consistency(
             fh.next_record_id,
             actual_highest,
         ));
@@ -447,7 +447,7 @@ mod tests {
         assert!(result.file_header.is_some());
     }
 
-    // ---- US-01: anti-forensic integration tests ----
+    // ---- US-01: integrity indicator integration tests ----
 
     /// Build a minimal chunk with explicit first/last record numbers and IDs, with correct checksum.
     fn make_chunk_with_record_range(
@@ -486,74 +486,74 @@ mod tests {
     }
 
     #[test]
-    fn record_id_gap_between_chunks_populates_anti_forensic() {
+    fn record_id_gap_between_chunks_populates_indicators() {
         // chunk 1: records 1..10, chunk 2: records 15..20 — gap at 11-14
         let mut data = make_chunk_with_record_range(1, 10, 1, 10);
         data.extend(make_chunk_with_record_range(15, 20, 15, 20));
         let result = carve_from_bytes(&data);
         assert_eq!(result.chunks.len(), 2, "expected two chunks");
-        let has_gap = result.anti_forensic.iter().any(|ind| {
+        let has_gap = result.indicators.iter().any(|ind| {
             matches!(ind, IntegrityIndicator::RecordIdGap { expected, found, .. }
                 if *expected == 11 && *found == 15)
         });
         assert!(
             has_gap,
-            "expected RecordIdGap(expected=11, found=15) in result.anti_forensic, got: {:?}",
-            result.anti_forensic
+            "expected RecordIdGap(expected=11, found=15) in result.indicators, got: {:?}",
+            result.indicators
         );
     }
 
     #[test]
-    fn corrupt_chunk_checksum_populates_chunk_anti_forensic() {
+    fn corrupt_chunk_checksum_populates_chunk_indicators() {
         let mut data = make_minimal_chunk();
         // Corrupt the checksum so it no longer matches
         data[0x78..0x7C].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
         let result = carve_from_bytes(&data);
         assert_eq!(result.chunks.len(), 1);
         let has_mismatch = result.chunks[0]
-            .anti_forensic
+            .indicators
             .iter()
             .any(|ind| matches!(ind, IntegrityIndicator::ChunkChecksumMismatch { .. }));
         assert!(
             has_mismatch,
-            "expected ChunkChecksumMismatch in chunk.anti_forensic"
+            "expected ChunkChecksumMismatch in chunk.indicators"
         );
     }
 
     #[test]
-    fn file_header_inconsistency_populates_result_anti_forensic() {
+    fn file_header_inconsistency_populates_result_indicators() {
         // File header says next_record_id = 5, but chunk has records up to 100
         let mut data = make_file_header(5);
         data.extend(make_chunk_with_record_range(1, 100, 1, 100));
         let result = carve_from_bytes(&data);
-        let has_inconsistency = result.anti_forensic.iter().any(|ind| {
+        let has_inconsistency = result.indicators.iter().any(|ind| {
             matches!(ind, IntegrityIndicator::NextRecordIdInconsistency { header_next, actual_highest }
                 if *header_next == 5 && *actual_highest == 100)
         });
         assert!(
             has_inconsistency,
-            "expected NextRecordIdInconsistency in result.anti_forensic, got: {:?}",
-            result.anti_forensic
+            "expected NextRecordIdInconsistency in result.indicators, got: {:?}",
+            result.indicators
         );
     }
 
     #[test]
-    fn clean_data_returns_empty_anti_forensic() {
+    fn clean_data_returns_empty_indicators() {
         // Two contiguous chunks with no gaps and valid checksums
         let mut data = make_chunk_with_record_range(1, 10, 1, 10);
         data.extend(make_chunk_with_record_range(11, 20, 11, 20));
         let result = carve_from_bytes(&data);
         assert_eq!(result.chunks.len(), 2);
         assert!(
-            result.anti_forensic.is_empty(),
-            "expected empty result.anti_forensic for clean data, got: {:?}",
-            result.anti_forensic
+            result.indicators.is_empty(),
+            "expected empty result.indicators for clean data, got: {:?}",
+            result.indicators
         );
         for chunk in &result.chunks {
             assert!(
-                chunk.anti_forensic.is_empty(),
-                "expected empty chunk.anti_forensic for valid chunk, got: {:?}",
-                chunk.anti_forensic
+                chunk.indicators.is_empty(),
+                "expected empty chunk.indicators for valid chunk, got: {:?}",
+                chunk.indicators
             );
         }
     }

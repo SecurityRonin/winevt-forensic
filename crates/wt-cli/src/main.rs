@@ -9,8 +9,8 @@ use std::path::PathBuf;
 
 /// EVTX forensic analysis tool.
 ///
-/// Carves records from corrupt or cleared EVTX files and detects
-/// anti-forensic tampering indicators.
+/// Carves records from corrupt or cleared EVTX files and reports
+/// structural integrity indicators.
 #[derive(Parser)]
 #[command(name = "wt", about = "EVTX forensic analysis tool", version)]
 struct Cli {
