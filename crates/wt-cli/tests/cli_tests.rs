@@ -128,6 +128,30 @@ fn wt_verify_nonexistent_path_exits_nonzero() {
     );
 }
 
+// ---- E01/EWF: wt carve-ewf subcommand ----
+
+#[test]
+fn wt_carve_ewf_nonexistent_exits_code_2() {
+    let status = wt_bin()
+        .args(["carve-ewf", "/nonexistent/disk.E01"])
+        .status()
+        .expect("run wt carve-ewf");
+    assert_eq!(
+        status.code(),
+        Some(2),
+        "wt carve-ewf on nonexistent path should exit 2"
+    );
+}
+
+#[test]
+fn wt_carve_ewf_help_exits_success() {
+    let status = wt_bin()
+        .args(["carve-ewf", "--help"])
+        .status()
+        .expect("run wt carve-ewf --help");
+    assert!(status.success(), "wt carve-ewf --help should exit 0");
+}
+
 // ---- Feature 12: wt stats subcommand ----
 
 #[test]

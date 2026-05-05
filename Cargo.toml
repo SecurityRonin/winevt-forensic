@@ -25,6 +25,7 @@ anyhow = "1"
 tempfile = "3"
 sha2 = "0.10"
 rayon = "1"
+ewf = "0.2"
 
 # Internal
 winevt-core = { path = "crates/winevt-core" }

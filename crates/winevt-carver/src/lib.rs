@@ -18,6 +18,8 @@ pub enum CarveError {
     Io(#[from] std::io::Error),
     #[error("file too small: {size} bytes")]
     FileTooSmall { size: u64 },
+    #[error("EWF error: {0}")]
+    EwfError(String),
 }
 
 pub use winevt_core::binary::{
@@ -264,6 +266,24 @@ pub fn carve_from_file(path: &Path) -> Result<CarveResult, CarveError> {
     let mmap = unsafe { memmap2::Mmap::map(&file)? };
     let mut result = carve_from_bytes(&mmap);
     result.source_hash = Some(compute_sha256(&mmap));
+    Ok(result)
+}
+
+/// Carve EVTX records from an E01/EWF forensic disk image.
+///
+/// Opens the image via `ewf::EwfReader`, reads all bytes into memory, then
+/// delegates to [`carve_from_bytes`]. Sets `source_hash` to the SHA-256 of the image bytes.
+pub fn carve_from_ewf(path: &Path) -> Result<CarveResult, CarveError> {
+    use std::io::Read;
+    let mut reader =
+        ewf::EwfReader::open(path).map_err(|e| CarveError::EwfError(e.to_string()))?;
+    let total = reader.total_size() as usize;
+    let mut data = vec![0u8; total];
+    reader
+        .read_exact(&mut data)
+        .map_err(|e| CarveError::EwfError(e.to_string()))?;
+    let mut result = carve_from_bytes(&data);
+    result.source_hash = Some(compute_sha256(&data));
     Ok(result)
 }
 
