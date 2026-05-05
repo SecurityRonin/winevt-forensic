@@ -130,20 +130,20 @@ This is not a detection tool. [Hayabusa](https://github.com/Yamato-Security/haya
 
 The problem this library solves is upstream: getting records out of files the other tools cannot open.
 
-| | [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) | [python-evtx](https://github.com/williballenthin/python-evtx) | [hayabusa](https://github.com/Yamato-Security/hayabusa) | [Log Parser Studio](https://github.com/microsoft/LogParserStudio) |
-|--|:-:|:-:|:-:|:-:|
-| Runs on Linux / macOS | ✓ | ✓ | ✓ | — |
-| Single static binary | ✓ | — | ✓ | — |
-| No Python / .NET runtime | ✓ | — | ✓ | — |
-| Recovers corrupt chunks | ✓ | — | — | — |
-| Carves from raw disk / memory | ✓ | — | — | — |
-| CRC32 checksum verification | ✓ | — | — | — |
-| Record ID gap detection | ✓ | — | — | — |
-| JSON output | ✓ | — | ✓ | — |
-| Sigma-based detection rules | — | — | ✓ | — |
-| MITRE ATT&CK tagging | — | — | ✓ | — |
-| Free (no cost) | ✓ | ✓ | ✓ | ✓ |
-| Open source | ✓ | ✓ | ✓ | — |
+| | [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) | [evtx](https://github.com/omerbenamram/evtx) | [python-evtx](https://github.com/williballenthin/python-evtx) | [hayabusa](https://github.com/Yamato-Security/hayabusa) | [Log Parser Studio](https://github.com/microsoft/LogParserStudio) |
+|--|:-:|:-:|:-:|:-:|:-:|
+| Runs on Linux / macOS | ✓ | ✓ | ✓ | ✓ | — |
+| Single static binary | ✓ | ✓ | — | ✓ | — |
+| No Python / .NET runtime | ✓ | ✓ | — | ✓ | — |
+| Recovers corrupt chunks | ✓ | — | — | — | — |
+| Carves from raw disk / memory | ✓ | — | — | — | — |
+| CRC32 checksum verification | ✓ | — | — | — | — |
+| Record ID gap detection | ✓ | — | — | — | — |
+| JSON output | ✓ | ✓ | — | ✓ | — |
+| Sigma-based detection rules | — | — | — | ✓ | — |
+| MITRE ATT&CK tagging | — | — | — | ✓ | — |
+| Free (no cost) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Open source | ✓ | ✓ | ✓ | ✓ | — |
 
 ---
 
