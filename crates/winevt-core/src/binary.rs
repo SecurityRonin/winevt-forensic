@@ -104,8 +104,13 @@ pub fn compute_checksum(data: &[u8]) -> u32 {
     h.finalize()
 }
 
+/// Structural integrity anomalies detected in an EVTX file.
+///
+/// These variants represent low-level binary format facts only.
+/// Intent inference (e.g. anti-forensic classification) belongs in the
+/// caller — for example, the RapidTriage correlation engine.
 #[derive(Debug, Clone, serde::Serialize)]
-pub enum IntegrityIndicator {
+pub enum IntegrityAnomaly {
     LogCleared {
         channel: String,
         timestamp: u64,
@@ -116,6 +121,8 @@ pub enum IntegrityIndicator {
         expected: u64,
         found: u64,
     },
+    /// Generic checksum mismatch (caller should prefer the specific variants below).
+    ChecksumMismatch,
     ChunkChecksumMismatch {
         chunk_offset: u64,
         computed: u32,
@@ -187,6 +194,9 @@ pub enum IntegrityIndicator {
         ghost_offset_in_chunk: u64,
     },
 }
+
+/// Backwards-compatible alias — prefer [`IntegrityAnomaly`] in new code.
+pub type IntegrityIndicator = IntegrityAnomaly;
 
 #[cfg(test)]
 mod tests {
