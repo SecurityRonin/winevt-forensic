@@ -27,7 +27,8 @@ pub use winevt_core::binary::{
     CHUNK_SIZE, ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC,
 };
 use winevt_integrity::{
-    check_chunk_count, check_file_flags, check_file_header_consistency, detect_record_id_gaps,
+    check_chunk_count, check_file_flags, check_file_header_consistency,
+    detect_danderspritz_deletion, detect_export_timestamp_corruption, detect_record_id_gaps,
     verify_chunk_header_checksum, verify_file_header_checksum, verify_records_area_checksum,
 };
 
@@ -241,6 +242,38 @@ fn carve_from_bytes_inner(data: &[u8], offset_base: u64) -> CarveResult {
         result
             .indicators
             .extend(check_chunk_count(fh.chunk_count, result.chunks.len()));
+    }
+
+    // Post-carve: export timestamp corruption (Fox-IT 2019) and DanderSpritz deletion (Fox-IT 2017)
+    {
+        // Collect (record_id, chunk_offset, header_timestamp) for all recovered records.
+        let all_records: Vec<(u64, u64, u64)> = result
+            .chunks
+            .iter()
+            .flat_map(|c| {
+                c.records
+                    .iter()
+                    .map(move |r| (r.header.record_id, c.offset, r.header.timestamp))
+            })
+            .collect();
+        result
+            .indicators
+            .extend(detect_export_timestamp_corruption(&all_records));
+
+        // For each full (non-truncated) chunk, scan raw bytes for ghost record magic.
+        for chunk in &result.chunks {
+            if chunk.integrity == Integrity::Truncated {
+                continue;
+            }
+            let local_off = (chunk.offset - offset_base) as usize;
+            let chunk_end = local_off + CHUNK_SIZE as usize;
+            if chunk_end <= data.len() {
+                result.indicators.extend(detect_danderspritz_deletion(
+                    &data[local_off..chunk_end],
+                    chunk.offset,
+                ));
+            }
+        }
     }
 
     result
