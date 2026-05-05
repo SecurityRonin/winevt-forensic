@@ -1,4 +1,15 @@
+use sha2::{Digest, Sha256};
 use std::path::Path;
+
+fn compute_sha256(data: &[u8]) -> String {
+    let hash = Sha256::digest(data);
+    use std::fmt::Write as _;
+    let mut s = String::with_capacity(64);
+    for b in hash {
+        write!(s, "{b:02x}").unwrap();
+    }
+    s
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum CarveError {
@@ -60,6 +71,7 @@ pub struct CarveResult {
     pub chunks: Vec<CarvedChunk>,
     pub indicators: Vec<IntegrityIndicator>,
     pub stats: CarveStats,
+    pub source_hash: Option<String>,
 }
 
 pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
@@ -71,6 +83,7 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
             bytes_scanned: data.len() as u64,
             ..Default::default()
         },
+        source_hash: None,
     };
 
     // Look for file header at start
@@ -209,7 +222,9 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
 /// Opens the file, reads it into memory, then delegates to [`carve_from_bytes`].
 pub fn carve_from_file(path: &Path) -> Result<CarveResult, CarveError> {
     let data = std::fs::read(path)?;
-    Ok(carve_from_bytes(&data))
+    let mut result = carve_from_bytes(&data);
+    result.source_hash = Some(compute_sha256(&data));
+    Ok(result)
 }
 
 /// Verify the structural integrity of an EVTX file by checking all chunk header checksums.
