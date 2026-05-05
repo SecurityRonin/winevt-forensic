@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
@@ -74,6 +75,39 @@ pub struct CarveResult {
     pub source_hash: Option<String>,
 }
 
+/// Process a single full chunk at a given offset. Returns the carved chunk or None.
+fn process_full_chunk(data: &[u8], offset: usize) -> Option<CarvedChunk> {
+    let chunk_end = offset + CHUNK_SIZE as usize;
+    let chunk_data = &data[offset..chunk_end];
+    let header = EvtxChunkHeader::parse(chunk_data)?;
+
+    let mut chunk_indicators = verify_chunk_header_checksum(chunk_data, offset as u64);
+    let integrity = if chunk_indicators.is_empty() {
+        Integrity::Valid
+    } else {
+        Integrity::HeaderCorrupt
+    };
+
+    // Feature 5: records area checksum (only for valid header chunks)
+    if integrity == Integrity::Valid {
+        chunk_indicators.extend(verify_records_area_checksum(chunk_data, offset as u64));
+    }
+
+    let records = if integrity == Integrity::HeaderCorrupt {
+        recover_records_aggressive(chunk_data, offset as u64)
+    } else {
+        recover_records_from_slice(chunk_data, offset as u64, false)
+    };
+
+    Some(CarvedChunk {
+        offset: offset as u64,
+        header,
+        integrity,
+        records,
+        indicators: chunk_indicators,
+    })
+}
+
 pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
     let mut result = CarveResult {
         file_header: None,
@@ -91,84 +125,64 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
         result.file_header = EvtxFileHeader::parse(&data[0..128]);
     }
 
-    // Scan for ElfChnk magic at 8-byte granularity
+    // Pass 1: collect chunk offsets (sequential — order matters)
+    let mut full_offsets: Vec<usize> = Vec::new();
+    let mut truncated_chunks: Vec<CarvedChunk> = Vec::new();
     let mut i = 0usize;
     while i + 8 <= data.len() {
         if data[i..i + 8] == ELFCHNK_MAGIC {
             let chunk_end = i + CHUNK_SIZE as usize;
             if chunk_end > data.len() {
-                // Truncated chunk
+                // Truncated chunk — handle immediately (not parallelizable)
                 if let Some(header) = EvtxChunkHeader::parse(&data[i..]) {
                     let records = recover_records_from_slice(&data[i..], i as u64, true);
-                    let rec_count = records.len();
-                    result.chunks.push(CarvedChunk {
+                    truncated_chunks.push(CarvedChunk {
                         offset: i as u64,
                         header,
                         integrity: Integrity::Truncated,
                         records,
                         indicators: vec![],
                     });
-                    result.stats.chunks_found += 1;
-                    result.stats.records_recovered += rec_count;
                 }
                 i += 8;
                 continue;
             }
-
-            let chunk_data = &data[i..chunk_end];
-            let header = match EvtxChunkHeader::parse(chunk_data) {
-                Some(h) => h,
-                None => {
-                    i += 8;
-                    continue;
-                }
-            };
-
-            let mut chunk_indicators = verify_chunk_header_checksum(chunk_data, i as u64);
-            let integrity = if chunk_indicators.is_empty() {
-                Integrity::Valid
-            } else {
-                Integrity::HeaderCorrupt
-            };
-
-            // Feature 5: records area checksum (only for valid header chunks)
-            if integrity == Integrity::Valid {
-                chunk_indicators.extend(verify_records_area_checksum(chunk_data, i as u64));
-            }
-
-            let records = if integrity == Integrity::HeaderCorrupt {
-                recover_records_aggressive(chunk_data, i as u64)
-            } else {
-                recover_records_from_slice(chunk_data, i as u64, false)
-            };
-            let rec_count = records.len();
-            let corrupt_count = records
-                .iter()
-                .filter(|r| r.integrity == Integrity::Carved)
-                .count();
-
-            result.chunks.push(CarvedChunk {
-                offset: i as u64,
-                header,
-                integrity,
-                records,
-                indicators: chunk_indicators,
-            });
-            result.stats.chunks_found += 1;
-            if integrity == Integrity::Valid {
-                result.stats.chunks_valid += 1;
-            } else {
-                result.stats.chunks_corrupt += 1;
-            }
-            result.stats.records_recovered += rec_count;
-            result.stats.records_corrupt += corrupt_count;
-
+            full_offsets.push(i);
             // Skip to end of chunk
             i += CHUNK_SIZE as usize;
             continue;
         }
         i += 8;
     }
+
+    // Pass 2: process full chunks in parallel, then sort by offset
+    let mut carved: Vec<CarvedChunk> = full_offsets
+        .par_iter()
+        .filter_map(|&off| process_full_chunk(data, off))
+        .collect();
+    carved.sort_by_key(|c| c.offset);
+
+    // Merge truncated chunks (already in offset order from sequential scan)
+    let mut all_chunks: Vec<CarvedChunk> = carved;
+    all_chunks.extend(truncated_chunks);
+    all_chunks.sort_by_key(|c| c.offset);
+
+    // Accumulate stats
+    for chunk in &all_chunks {
+        result.stats.chunks_found += 1;
+        match chunk.integrity {
+            Integrity::Valid => result.stats.chunks_valid += 1,
+            Integrity::Truncated => {}
+            _ => result.stats.chunks_corrupt += 1,
+        }
+        result.stats.records_recovered += chunk.records.len();
+        result.stats.records_corrupt += chunk
+            .records
+            .iter()
+            .filter(|r| r.integrity == Integrity::Carved)
+            .count();
+    }
+    result.chunks = all_chunks;
 
     // Post-carve: detect record ID gaps across all chunks
     let chunk_ranges: Vec<(u64, u64)> = result
