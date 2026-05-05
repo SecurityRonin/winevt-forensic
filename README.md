@@ -249,6 +249,8 @@ Records start at chunk offset `0x200`. Each chunk is exactly `0x10000` bytes.
 
 **The Rust [crc32fast](https://github.com/srijs/rust-crc32fast)** team for a correct, fast CRC32 implementation — EVTX uses standard ISO 3309 (same polynomial).
 
+**[Akhil Dara](https://www.linkedin.com/in/akhil-dara/)** — first star, before the build was even finished. That means something.
+
 ---
 
 [Privacy Policy](https://securityronin.github.io/winevt-forensic/privacy/) · [Terms of Service](https://securityronin.github.io/winevt-forensic/terms/) · © 2026 Security Ronin Ltd.
