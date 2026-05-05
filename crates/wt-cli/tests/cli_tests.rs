@@ -128,6 +128,46 @@ fn wt_verify_nonexistent_path_exits_nonzero() {
     );
 }
 
+// ---- Feature 12: wt stats subcommand ----
+
+#[test]
+fn wt_stats_valid_file_exits_code_0() {
+    let path = write_valid_evtx();
+    let output = wt_bin()
+        .args(["stats", path.to_str().unwrap()])
+        .output()
+        .expect("run wt stats");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(output.status.code(), Some(0), "wt stats should exit 0 for valid file");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Chunks:"), "expected 'Chunks:' in output, got: {stdout}");
+    assert!(stdout.contains("Records:"), "expected 'Records:' in output, got: {stdout}");
+    assert!(stdout.contains("Hash:"), "expected 'Hash:' in output, got: {stdout}");
+}
+
+#[test]
+fn wt_stats_nonexistent_exits_code_2() {
+    let status = wt_bin()
+        .args(["stats", "/nonexistent/path/stats_test.evtx"])
+        .status()
+        .expect("run wt stats");
+    assert_eq!(status.code(), Some(2), "wt stats on nonexistent path should exit 2");
+}
+
+#[test]
+fn wt_stats_json_flag_outputs_valid_json() {
+    let path = write_valid_evtx();
+    let output = wt_bin()
+        .args(["stats", "--json", path.to_str().unwrap()])
+        .output()
+        .expect("run wt stats --json");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let _: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("expected valid JSON from wt stats --json, got error: {e}, output: {stdout}"));
+}
+
 // ---- Feature 9: Meaningful exit codes ----
 
 #[test]
