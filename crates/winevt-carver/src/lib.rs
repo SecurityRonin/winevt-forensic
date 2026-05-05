@@ -733,6 +733,39 @@ mod tests {
         assert!(result.is_err(), "expected Err for nonexistent path");
     }
 
+    // ---- Feature 14: Offset base parameter ----
+
+    #[test]
+    fn carve_with_config_offset_base_zero_same_as_default() {
+        let data = make_minimal_chunk();
+        let config = CarveConfig { offset_base: 0 };
+        let r1 = carve_from_bytes_with_config(&data, &config);
+        let r2 = carve_from_bytes(&data);
+        assert_eq!(r1.chunks.len(), r2.chunks.len());
+        assert_eq!(r1.chunks[0].offset, r2.chunks[0].offset);
+    }
+
+    #[test]
+    fn carve_with_config_offset_base_shifts_chunk_offsets() {
+        let data = make_minimal_chunk();
+        let base = 0x1000_0000u64;
+        let config = CarveConfig { offset_base: base };
+        let result = carve_from_bytes_with_config(&data, &config);
+        assert_eq!(result.chunks.len(), 1);
+        assert_eq!(
+            result.chunks[0].offset, base,
+            "chunk offset should be shifted by offset_base"
+        );
+    }
+
+    #[test]
+    fn carve_from_bytes_delegates_to_config_with_zero_base() {
+        let data = make_minimal_chunk();
+        let r1 = carve_from_bytes(&data);
+        let r2 = carve_from_bytes_with_config(&data, &CarveConfig::default());
+        assert_eq!(r1.chunks[0].offset, r2.chunks[0].offset);
+    }
+
     // ---- Feature 13: Parallel chunk processing ----
 
     #[test]
