@@ -670,6 +670,55 @@ mod tests {
         assert!(result.is_err(), "expected Err for nonexistent path");
     }
 
+    // ---- Feature 6: SHA-256 source hash ----
+
+    #[test]
+    fn carve_from_bytes_source_hash_is_none() {
+        let data = vec![0u8; 64];
+        let result = carve_from_bytes(&data);
+        assert!(
+            result.source_hash.is_none(),
+            "carve_from_bytes should set source_hash to None"
+        );
+    }
+
+    #[test]
+    fn carve_from_file_source_hash_is_some_64_char_hex() {
+        let mut data = make_file_header(101);
+        data.extend(make_chunk_with_record_range(1, 100, 1, 100));
+        let path = write_temp_evtx(&data);
+        let result = carve_from_file(&path).expect("carve_from_file should succeed");
+        let _ = std::fs::remove_file(&path);
+        let hash = result.source_hash.expect("source_hash should be Some");
+        assert_eq!(hash.len(), 64, "SHA-256 hex should be 64 chars, got: {hash}");
+        assert!(
+            hash.chars().all(|c| c.is_ascii_hexdigit()),
+            "SHA-256 should be hex, got: {hash}"
+        );
+    }
+
+    #[test]
+    fn carve_from_file_source_hash_matches_known_sha256() {
+        // SHA-256 of empty bytes is known
+        use std::io::Write;
+        let path = {
+            let mut p = std::env::temp_dir();
+            p.push("winevt_sha256_test_empty.evtx");
+            p
+        };
+        let mut f = std::fs::File::create(&path).expect("create temp");
+        f.write_all(&[]).expect("write empty");
+        drop(f);
+        let result = carve_from_file(&path).expect("ok");
+        let _ = std::fs::remove_file(&path);
+        let hash = result.source_hash.expect("Some");
+        // SHA-256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        assert_eq!(
+            hash,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
     // ---- Feature 1: thiserror / CarveError ----
 
     #[test]
