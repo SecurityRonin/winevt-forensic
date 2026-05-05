@@ -257,6 +257,26 @@ pub fn verify_integrity(path: &Path) -> Result<Vec<IntegrityIndicator>, CarveErr
     Ok(indicators)
 }
 
+/// BinXml validity heuristic.
+/// Returns `false` for payloads that are clearly not BinXml fragments.
+fn is_likely_valid_binxml(payload: &[u8]) -> bool {
+    if payload.len() < 4 {
+        return false;
+    }
+    // FragmentHeaderToken = 0x0F
+    if payload[0] != 0x0F {
+        return false;
+    }
+    // MajorVersion must be 1
+    if payload[1] != 0x01 {
+        return false;
+    }
+    // No excessive null runs (> 16 consecutive nulls in first 32 bytes)
+    let check_len = payload.len().min(32);
+    let null_run = payload[..check_len].windows(16).any(|w| w.iter().all(|&b| b == 0));
+    !null_run
+}
+
 fn recover_records_from_slice(
     chunk_data: &[u8],
     _chunk_offset: u64,
@@ -372,6 +392,11 @@ fn recover_records_aggressive(chunk_data: &[u8], _chunk_offset: u64) -> Vec<Reco
             } else {
                 vec![]
             };
+            // Feature 10: BinXml validity heuristic — skip garbage records
+            if !is_likely_valid_binxml(&bxml_payload) {
+                pos += 4;
+                continue;
+            }
             seen_offsets.insert(pos);
             records.push(RecoveredRecord {
                 offset: (start + pos) as u64,
@@ -928,12 +953,16 @@ mod tests {
         // CORRUPT the header checksum intentionally
         chunk[0x78..0x7C].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
 
+        // Valid BinXml payload to pass the heuristic
+        let binxml: [u8; 8] = [0x0F, 0x01, 0x01, 0x00, 0xAA, 0xBB, 0xCC, 0xDD];
+
         // Record 1 at offset 0x200 (standard position)
-        let rec_size: u32 = 28;
+        let rec_size: u32 = 24 + 8 + 4; // header + binxml payload + copy-of-size
         chunk[0x200..0x204].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
         chunk[0x204..0x208].copy_from_slice(&rec_size.to_le_bytes());
         chunk[0x208..0x210].copy_from_slice(&1u64.to_le_bytes()); // record_id = 1
         chunk[0x210..0x218].copy_from_slice(&100u64.to_le_bytes()); // timestamp
+        chunk[0x218..0x220].copy_from_slice(&binxml);
         let end1 = 0x200 + rec_size as usize;
         chunk[end1 - 4..end1].copy_from_slice(&rec_size.to_le_bytes());
 
@@ -943,6 +972,7 @@ mod tests {
         chunk[0x304..0x308].copy_from_slice(&rec_size.to_le_bytes());
         chunk[0x308..0x310].copy_from_slice(&2u64.to_le_bytes()); // record_id = 2
         chunk[0x310..0x318].copy_from_slice(&200u64.to_le_bytes()); // timestamp
+        chunk[0x318..0x320].copy_from_slice(&binxml);
         let end2 = 0x300 + rec_size as usize;
         chunk[end2 - 4..end2].copy_from_slice(&rec_size.to_le_bytes());
 
