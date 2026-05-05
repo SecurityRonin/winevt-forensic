@@ -719,6 +719,41 @@ mod tests {
         assert!(result.is_err(), "expected Err for nonexistent path");
     }
 
+    // ---- Feature 11: Adversarial inputs / fuzz regression ----
+
+    #[test]
+    fn adversarial_inputs_do_not_panic() {
+        // All-zeros
+        let _ = carve_from_bytes(&[0u8; 65536]);
+        // Magic bytes everywhere
+        let mut data = vec![0u8; 65536];
+        for i in (0..65536).step_by(8) {
+            data[i..i + 8].copy_from_slice(b"ElfChnk\0");
+        }
+        let _ = carve_from_bytes(&data);
+        // Maximum record size field
+        let mut data = vec![0u8; 65536];
+        data[0..8].copy_from_slice(b"ElfChnk\0");
+        data[0x78..0x7C].copy_from_slice(&0xDEADBEEFu32.to_le_bytes()); // corrupt checksum
+        // set record magic at 0x200 with size = max u32
+        data[0x200..0x204].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+        data[0x204..0x208].copy_from_slice(&u32::MAX.to_le_bytes());
+        let _ = carve_from_bytes(&data);
+        // Single byte
+        let _ = carve_from_bytes(&[0x2A]);
+        // Empty
+        let _ = carve_from_bytes(&[]);
+        // Only a file header magic
+        let mut data = vec![0u8; 128];
+        data[0..8].copy_from_slice(b"ElfFile\0");
+        let _ = carve_from_bytes(&data);
+        // File header + partial chunk header
+        let mut data = vec![0u8; 200];
+        data[0..8].copy_from_slice(b"ElfFile\0");
+        data[128..136].copy_from_slice(b"ElfChnk\0");
+        let _ = carve_from_bytes(&data);
+    }
+
     // ---- Feature 10: BinXml validity heuristic ----
 
     #[test]
