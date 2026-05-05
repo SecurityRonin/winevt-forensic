@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 winevt-carver.workspace = true
+winevt-writer.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
@@ -20,6 +21,7 @@ serde_json.workspace = true
 tempfile.workspace = true
 crc32fast = "1"
 serde_json.workspace = true
+winevt-writer.workspace = true
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]

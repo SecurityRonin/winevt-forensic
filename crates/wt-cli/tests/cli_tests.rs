@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::process::Command;
+use winevt_writer::{WriteRecord, records_to_evtx};
 
 fn wt_bin() -> Command {
     let mut bin = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -7,37 +8,38 @@ fn wt_bin() -> Command {
     Command::new(bin)
 }
 
-/// Build a minimal valid EVTX file (file header + one valid chunk) in a temp file.
-fn write_valid_evtx() -> std::path::PathBuf {
-    // Minimal chunk with correct checksums
-    let mut chunk = vec![0u8; 0x10000];
-    chunk[0..8].copy_from_slice(b"ElfChnk\0");
-    chunk[8..16].copy_from_slice(&1u64.to_le_bytes());
-    chunk[16..24].copy_from_slice(&1u64.to_le_bytes());
-    chunk[24..32].copy_from_slice(&1u64.to_le_bytes());
-    chunk[32..40].copy_from_slice(&1u64.to_le_bytes());
-    chunk[40..44].copy_from_slice(&0x80u32.to_le_bytes());
-    chunk[44..48].copy_from_slice(&0x200u32.to_le_bytes());
-    chunk[48..52].copy_from_slice(&0x200u32.to_le_bytes());
-    chunk[52..56].copy_from_slice(&0u32.to_le_bytes());
-    let crc = {
-        let mut h = crc32fast::Hasher::new();
-        h.update(&chunk[0..0x78]);
-        h.finalize()
-    };
-    chunk[0x78..0x7C].copy_from_slice(&crc.to_le_bytes());
-
+/// Unique temp path for test files.
+fn temp_evtx(label: &str) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();
     path.push(format!(
-        "wt_test_valid_{}.evtx",
+        "wt_test_{}_{}.evtx",
+        label,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .subsec_nanos()
     ));
-    let mut f = std::fs::File::create(&path).expect("create temp");
-    f.write_all(&chunk).expect("write chunk");
     path
+}
+
+/// Build a valid EVTX file with N records via winevt-writer (DRY: no hand-rolled binary).
+fn write_evtx_with_records(label: &str, count: usize) -> std::path::PathBuf {
+    let records: Vec<WriteRecord> = (1..=count as u64)
+        .map(|id| WriteRecord {
+            record_id: id,
+            timestamp: 132_700_000_000_000_000 + id * 1_000_000,
+            payload: vec![0x0fu8, 0x01, 0x02], // minimal BinXml fragment header
+        })
+        .collect();
+    let bytes = records_to_evtx(&records);
+    let path = temp_evtx(label);
+    std::fs::write(&path, &bytes).expect("write evtx");
+    path
+}
+
+/// Build a minimal valid EVTX file with no records (for integrity/stats tests).
+fn write_valid_evtx() -> std::path::PathBuf {
+    write_evtx_with_records("valid", 1)
 }
 
 /// Build a minimal EVTX with a tampered chunk checksum.
@@ -263,4 +265,101 @@ fn wt_carve_nonexistent_exits_code_2() {
         Some(2),
         "wt carve on nonexistent path should exit 2"
     );
+}
+
+// ── Feature 17: wt reconstruct subcommand ─────────────────────────────────────
+
+#[test]
+fn wt_reconstruct_help_exits_success() {
+    let status = wt_bin()
+        .args(["reconstruct", "--help"])
+        .status()
+        .expect("run wt reconstruct --help");
+    assert!(status.success(), "wt reconstruct --help should exit 0");
+}
+
+#[test]
+fn wt_reconstruct_nonexistent_input_exits_code_2() {
+    let out = temp_evtx("recon_out");
+    let status = wt_bin()
+        .args([
+            "reconstruct",
+            "--output",
+            out.to_str().unwrap(),
+            "/nonexistent/no_such.evtx",
+        ])
+        .status()
+        .expect("run wt reconstruct");
+    let _ = std::fs::remove_file(&out);
+    assert_eq!(status.code(), Some(2), "nonexistent input should exit 2");
+}
+
+#[test]
+fn wt_reconstruct_valid_input_exits_code_0() {
+    let input = write_evtx_with_records("recon_in", 3);
+    let output = temp_evtx("recon_out");
+    let status = wt_bin()
+        .args([
+            "reconstruct",
+            "--output",
+            output.to_str().unwrap(),
+            input.to_str().unwrap(),
+        ])
+        .status()
+        .expect("run wt reconstruct");
+    let _ = std::fs::remove_file(&input);
+    let _ = std::fs::remove_file(&output);
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "wt reconstruct on valid input should exit 0"
+    );
+}
+
+#[test]
+fn wt_reconstruct_output_is_valid_evtx() {
+    let input = write_evtx_with_records("recon_valid_in", 3);
+    let output = temp_evtx("recon_valid_out");
+    let status = wt_bin()
+        .args([
+            "reconstruct",
+            "--output",
+            output.to_str().unwrap(),
+            input.to_str().unwrap(),
+        ])
+        .status()
+        .expect("run wt reconstruct");
+    assert_eq!(status.code(), Some(0));
+
+    // Output must start with ElfFile magic
+    let bytes = std::fs::read(&output).expect("read output");
+    let _ = std::fs::remove_file(&input);
+    let _ = std::fs::remove_file(&output);
+    assert_eq!(&bytes[0..8], b"ElfFile\0", "output must start with ElfFile magic");
+}
+
+#[test]
+fn wt_reconstruct_output_preserves_record_count() {
+    use winevt_carver::carve_from_bytes;
+
+    let input = write_evtx_with_records("recon_rcount_in", 5);
+    let output = temp_evtx("recon_rcount_out");
+    let status = wt_bin()
+        .args([
+            "reconstruct",
+            "--output",
+            output.to_str().unwrap(),
+            input.to_str().unwrap(),
+        ])
+        .status()
+        .expect("run wt reconstruct");
+    assert_eq!(status.code(), Some(0));
+
+    let out_bytes = std::fs::read(&output).expect("read output");
+    let _ = std::fs::remove_file(&input);
+    let _ = std::fs::remove_file(&output);
+
+    let result = carve_from_bytes(&out_bytes);
+    let recovered: usize = result.chunks.iter().map(|c| c.records.len()).sum();
+    assert_eq!(recovered, 5, "reconstructed file should contain 5 records");
 }

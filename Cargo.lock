@@ -759,6 +759,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "winevt-writer"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "winevt-carver",
+ "winevt-core",
+]
+
+[[package]]
 name = "wit-bindgen"
 version = "0.51.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -862,6 +871,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "winevt-carver",
+ "winevt-writer",
 ]
 
 [[package]]
