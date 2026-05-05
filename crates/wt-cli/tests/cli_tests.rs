@@ -8,25 +8,37 @@ fn wt_bin() -> Command {
 
 #[test]
 fn wt_help_exits_success() {
-    let status = wt_bin().arg("--help").status().expect("failed to run wt --help");
+    let status = wt_bin()
+        .arg("--help")
+        .status()
+        .expect("failed to run wt --help");
     assert!(status.success());
 }
 
 #[test]
 fn wt_version_exits_success() {
-    let status = wt_bin().arg("--version").status().expect("failed to run wt --version");
+    let status = wt_bin()
+        .arg("--version")
+        .status()
+        .expect("failed to run wt --version");
     assert!(status.success());
 }
 
 #[test]
 fn wt_carve_help_exits_success() {
-    let status = wt_bin().args(["carve", "--help"]).status().expect("failed to run wt carve --help");
+    let status = wt_bin()
+        .args(["carve", "--help"])
+        .status()
+        .expect("failed to run wt carve --help");
     assert!(status.success());
 }
 
 #[test]
 fn wt_verify_help_exits_success() {
-    let status = wt_bin().args(["verify", "--help"]).status().expect("failed to run wt verify --help");
+    let status = wt_bin()
+        .args(["verify", "--help"])
+        .status()
+        .expect("failed to run wt verify --help");
     assert!(status.success());
 }
 
@@ -36,7 +48,10 @@ fn wt_carve_nonexistent_path_exits_nonzero() {
         .args(["carve", "/tmp/does_not_exist_evtx_12345.evtx"])
         .status()
         .expect("failed to run wt carve");
-    assert!(!status.success(), "wt carve on nonexistent file should fail");
+    assert!(
+        !status.success(),
+        "wt carve on nonexistent file should fail"
+    );
 }
 
 #[test]
@@ -45,5 +60,8 @@ fn wt_verify_nonexistent_path_exits_nonzero() {
         .args(["verify", "/tmp/does_not_exist_evtx_12345.evtx"])
         .status()
         .expect("failed to run wt verify");
-    assert!(!status.success(), "wt verify on nonexistent file should fail");
+    assert!(
+        !status.success(),
+        "wt verify on nonexistent file should fail"
+    );
 }
