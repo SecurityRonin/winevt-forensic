@@ -3,6 +3,11 @@
 //! Subcommands:
 //! - `wt carve <path>`  — carve EVTX records from file, output JSON
 //! - `wt verify <path>` — verify EVTX integrity, output JSON indicators
+//!
+//! Exit codes:
+//! - `0` = success, no integrity indicators
+//! - `1` = success, integrity indicators found (verify only)
+//! - `2` = I/O or argument error
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -38,17 +43,41 @@ enum Cmd {
     },
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() {
     let cli = Cli::parse();
-    match cli.command {
-        Cmd::Carve { path } => {
-            let result = winevt_carver::carve_from_file(&path)?;
-            println!("{}", serde_json::to_string_pretty(&result)?);
-        }
-        Cmd::Verify { path } => {
-            let indicators = winevt_carver::verify_integrity(&path)?;
-            println!("{}", serde_json::to_string_pretty(&indicators)?);
-        }
-    }
-    Ok(())
+    let code = match cli.command {
+        Cmd::Carve { path } => match winevt_carver::carve_from_file(&path) {
+            Ok(result) => {
+                match serde_json::to_string_pretty(&result) {
+                    Ok(json) => println!("{json}"),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(2);
+                    }
+                }
+                0
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                2
+            }
+        },
+        Cmd::Verify { path } => match winevt_carver::verify_integrity(&path) {
+            Ok(indicators) => {
+                match serde_json::to_string_pretty(&indicators) {
+                    Ok(json) => println!("{json}"),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(2);
+                    }
+                }
+                i32::from(!indicators.is_empty())
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                2
+            }
+        },
+    };
+    std::process::exit(code);
 }
