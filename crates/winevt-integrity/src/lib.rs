@@ -427,4 +427,162 @@ mod tests {
             indicators
         );
     }
+
+    // ── detect_export_timestamp_corruption ───────────────────────────────────
+    //
+    // Reference: Wassenaar, Fox-IT BV (2019).
+    // "Export corrupts Windows Event Log files"
+    // https://blog.fox-it.com/2019/06/04/export-corrupts-windows-event-log-files/
+
+    #[test]
+    fn export_corruption_empty_records_returns_empty() {
+        let indicators = detect_export_timestamp_corruption(&[]);
+        assert!(indicators.is_empty());
+    }
+
+    #[test]
+    fn export_corruption_all_nonzero_timestamps_returns_empty() {
+        let records = vec![(1u64, 0u64, 100u64), (2, 0, 200), (3, 0, 300)];
+        assert!(detect_export_timestamp_corruption(&records).is_empty());
+    }
+
+    #[test]
+    fn export_corruption_first_record_zero_ts_detected() {
+        let records = vec![
+            (1u64, 0x10000u64, 0u64),
+            (2,    0x10000,    200),
+            (3,    0x10000,    300),
+        ];
+        let indicators = detect_export_timestamp_corruption(&records);
+        assert_eq!(indicators.len(), 1);
+        assert!(
+            matches!(
+                &indicators[0],
+                IntegrityIndicator::ExportTimestampCorruption {
+                    record_id: 1,
+                    chunk_offset: 0x10000,
+                }
+            ),
+            "got: {:?}", indicators
+        );
+    }
+
+    #[test]
+    fn export_corruption_single_zero_ts_detected() {
+        let records = vec![(42u64, 0u64, 0u64)];
+        let indicators = detect_export_timestamp_corruption(&records);
+        assert_eq!(indicators.len(), 1);
+        assert!(matches!(
+            &indicators[0],
+            IntegrityIndicator::ExportTimestampCorruption { record_id: 42, .. }
+        ));
+    }
+
+    #[test]
+    fn export_corruption_all_zero_ts_emits_one_per_record() {
+        let records = vec![(1u64, 0u64, 0u64), (2, 0, 0), (3, 0, 0)];
+        assert_eq!(detect_export_timestamp_corruption(&records).len(), 3);
+    }
+
+    #[test]
+    fn export_corruption_two_leading_zeros_flagged() {
+        let records = vec![(1u64, 0u64, 0u64), (2, 0, 0), (3, 0, 999)];
+        assert_eq!(detect_export_timestamp_corruption(&records).len(), 2);
+    }
+
+    // ── detect_danderspritz_deletion ─────────────────────────────────────────
+    //
+    // Reference: Wassenaar & van Dijk, Fox-IT BV (2017).
+    // "Detection and recovery of NSA's covered up tracks"
+    // https://blog.fox-it.com/2017/12/08/detection-and-recovery-of-nsas-covered-up-tracks/
+    //
+    // Reference implementation (Python, MIT License):
+    // fox-it/danderspritz-evtx — https://github.com/fox-it/danderspritz-evtx
+    // Algorithm independently re-implemented in Rust.
+
+    fn write_record_at(buf: &mut Vec<u8>, offset: usize, record_id: u64, ts: u64, payload: &[u8]) -> u32 {
+        let size = (4 + 4 + 8 + 8 + payload.len() + 4) as u32;
+        let end = offset + size as usize;
+        if buf.len() < end { buf.resize(end, 0); }
+        buf[offset..offset + 4].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+        buf[offset + 4..offset + 8].copy_from_slice(&size.to_le_bytes());
+        buf[offset + 8..offset + 16].copy_from_slice(&record_id.to_le_bytes());
+        buf[offset + 16..offset + 24].copy_from_slice(&ts.to_le_bytes());
+        buf[offset + 24..offset + 24 + payload.len()].copy_from_slice(payload);
+        let tail = offset + size as usize - 4;
+        buf[tail..tail + 4].copy_from_slice(&size.to_le_bytes());
+        size
+    }
+
+    fn empty_chunk_buf() -> Vec<u8> {
+        let mut buf = vec![0u8; 0x10000];
+        buf[0..8].copy_from_slice(b"ElfChnk\0");
+        buf[0x30..0x34].copy_from_slice(&0x200u32.to_le_bytes()); // free_space_offset
+        buf
+    }
+
+    #[test]
+    fn danderspritz_empty_chunk_returns_empty() {
+        assert!(detect_danderspritz_deletion(&empty_chunk_buf(), 0).is_empty());
+    }
+
+    #[test]
+    fn danderspritz_single_valid_record_returns_empty() {
+        let mut chunk = empty_chunk_buf();
+        let sz = write_record_at(&mut chunk, 0x200, 1, 100, b"payload");
+        chunk[0x30..0x34].copy_from_slice(&(0x200u32 + sz).to_le_bytes());
+        assert!(detect_danderspritz_deletion(&chunk, 0).is_empty());
+    }
+
+    #[test]
+    fn danderspritz_two_valid_records_returns_empty() {
+        let mut chunk = empty_chunk_buf();
+        let sz1 = write_record_at(&mut chunk, 0x200, 1, 100, b"rec1");
+        let sz2 = write_record_at(&mut chunk, 0x200 + sz1 as usize, 2, 200, b"rec2");
+        chunk[0x30..0x34].copy_from_slice(&(0x200u32 + sz1 + sz2).to_le_bytes());
+        assert!(detect_danderspritz_deletion(&chunk, 0).is_empty());
+    }
+
+    #[test]
+    fn danderspritz_inflated_size_absorbing_deleted_record_detected() {
+        let mut chunk = empty_chunk_buf();
+        let sz1 = write_record_at(&mut chunk, 0x200, 1, 100, b"absorber");
+        let sz2 = write_record_at(&mut chunk, 0x200 + sz1 as usize, 2, 200, b"ghost");
+        chunk[0x30..0x34].copy_from_slice(&(0x200u32 + sz1 + sz2).to_le_bytes());
+        // Inflate record1 to absorb record2 (eventlogedit pattern)
+        let inflated = sz1 + sz2;
+        chunk[0x204..0x208].copy_from_slice(&inflated.to_le_bytes());
+        let trail = 0x200 + inflated as usize - 4;
+        chunk[trail..trail + 4].copy_from_slice(&inflated.to_le_bytes());
+
+        let indicators = detect_danderspritz_deletion(&chunk, 0);
+        assert_eq!(indicators.len(), 1, "got: {:?}", indicators);
+        assert!(matches!(
+            &indicators[0],
+            IntegrityIndicator::SurgicalRecordDeletion { absorbing_record_id: 1, .. }
+        ));
+    }
+
+    #[test]
+    fn danderspritz_ghost_offset_matches_deleted_record_position() {
+        let mut chunk = empty_chunk_buf();
+        let sz1 = write_record_at(&mut chunk, 0x200, 5, 500, b"absorber");
+        let sz2 = write_record_at(&mut chunk, 0x200 + sz1 as usize, 6, 600, b"ghost");
+        chunk[0x30..0x34].copy_from_slice(&(0x200u32 + sz1 + sz2).to_le_bytes());
+        let inflated = sz1 + sz2;
+        chunk[0x204..0x208].copy_from_slice(&inflated.to_le_bytes());
+        let trail = 0x200 + inflated as usize - 4;
+        chunk[trail..trail + 4].copy_from_slice(&inflated.to_le_bytes());
+
+        let indicators = detect_danderspritz_deletion(&chunk, 0x20000);
+        assert_eq!(indicators.len(), 1);
+        if let IntegrityIndicator::SurgicalRecordDeletion {
+            chunk_offset, ghost_offset_in_chunk, ..
+        } = &indicators[0] {
+            assert_eq!(*chunk_offset, 0x20000);
+            assert_eq!(*ghost_offset_in_chunk, 0x200 + sz1 as u64);
+        } else {
+            panic!("wrong variant: {:?}", indicators[0]);
+        }
+    }
 }

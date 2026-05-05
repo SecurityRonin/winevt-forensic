@@ -146,4 +146,44 @@ pub enum IntegrityIndicator {
         header_count: u16,
         actual_count: usize,
     },
+    /// A record has a zeroed header timestamp consistent with the wevtutil /
+    /// Event Viewer export bug: when exporting with `wevtutil epl` or
+    /// "Save As…", each record's header timestamp is replaced with the
+    /// *previous* record's BinXml timestamp; the first record in the export
+    /// therefore has no predecessor and receives timestamp 0.
+    ///
+    /// Reference: Wassenaar, Fox-IT BV (2019).
+    /// "Export corrupts Windows Event Log files"
+    /// <https://blog.fox-it.com/2019/06/04/export-corrupts-windows-event-log-files/>
+    ExportTimestampCorruption {
+        /// Record ID of the affected record (header timestamp is 0).
+        record_id: u64,
+        /// Byte offset of the chunk that contains this record.
+        chunk_offset: u64,
+    },
+    /// A record's stated size spans the magic bytes of a subsequent record,
+    /// consistent with surgical deletion by the NSA DanderSpritz
+    /// `eventlogedit` tool.  The tool absorbs the deleted record into the
+    /// preceding record's size field without emitting EID 1102.
+    ///
+    /// Reference: Wassenaar & van Dijk, Fox-IT BV (2017).
+    /// "Detection and recovery of NSA's covered up tracks"
+    /// <https://blog.fox-it.com/2017/12/08/detection-and-recovery-of-nsas-covered-up-tracks/>
+    ///
+    /// Reference implementation (Python):
+    /// Wassenaar, Fox-IT BV — fox-it/danderspritz-evtx
+    /// <https://github.com/fox-it/danderspritz-evtx>
+    /// (MIT License; algorithm independently re-implemented in Rust)
+    SurgicalRecordDeletion {
+        /// Byte offset of the chunk containing the anomaly.
+        chunk_offset: u64,
+        /// Record ID of the absorbing record (its size was inflated).
+        absorbing_record_id: u64,
+        /// The inflated size value read from the absorbing record.
+        stated_size: u32,
+        /// Byte offset within the chunk where the ghost record's magic
+        /// bytes (`0x2A 0x2A 0x00 0x00`) were found inside the absorbing
+        /// record's body.
+        ghost_offset_in_chunk: u64,
+    },
 }
