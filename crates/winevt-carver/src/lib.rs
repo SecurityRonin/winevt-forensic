@@ -13,7 +13,8 @@ pub use winevt_core::binary::{
     CHUNK_SIZE, ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC,
 };
 use winevt_integrity::{
-    check_file_header_consistency, detect_record_id_gaps, verify_chunk_header_checksum,
+    check_chunk_count, check_file_flags, check_file_header_consistency, detect_record_id_gaps,
+    verify_chunk_header_checksum, verify_file_header_checksum, verify_records_area_checksum,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -110,12 +111,17 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
                 }
             };
 
-            let checksum_indicators = verify_chunk_header_checksum(chunk_data, i as u64);
-            let integrity = if checksum_indicators.is_empty() {
+            let mut chunk_indicators = verify_chunk_header_checksum(chunk_data, i as u64);
+            let integrity = if chunk_indicators.is_empty() {
                 Integrity::Valid
             } else {
                 Integrity::HeaderCorrupt
             };
+
+            // Feature 5: records area checksum (only for valid header chunks)
+            if integrity == Integrity::Valid {
+                chunk_indicators.extend(verify_records_area_checksum(chunk_data, i as u64));
+            }
 
             let records = if integrity == Integrity::HeaderCorrupt {
                 recover_records_aggressive(chunk_data, i as u64)
@@ -133,7 +139,7 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
                 header,
                 integrity,
                 records,
-                indicators: checksum_indicators,
+                indicators: chunk_indicators,
             });
             result.stats.chunks_found += 1;
             if integrity == Integrity::Valid {
@@ -177,6 +183,21 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
         result.indicators.extend(check_file_header_consistency(
             fh.next_record_id,
             actual_highest,
+        ));
+        // Feature 2: file header checksum
+        if data.len() >= 0x80 {
+            result
+                .indicators
+                .extend(verify_file_header_checksum(&data[0..0x80]));
+        }
+        // Feature 3: file flags
+        result
+            .indicators
+            .extend(check_file_flags(fh.file_flags));
+        // Feature 4: chunk count consistency
+        result.indicators.extend(check_chunk_count(
+            fh.chunk_count,
+            result.chunks.len(),
         ));
     }
 

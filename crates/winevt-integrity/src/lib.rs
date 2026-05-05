@@ -59,6 +59,75 @@ pub fn check_timestamp_monotonicity(
     out
 }
 
+/// Verify the file header CRC32 (bytes 0x00..0x78) against stored value at 0x7C.
+/// `buf` must be at least 0x80 bytes (128 bytes).
+pub fn verify_file_header_checksum(buf: &[u8]) -> Vec<IntegrityIndicator> {
+    if buf.len() < 0x80 {
+        return vec![];
+    }
+    let stored = u32::from_le_bytes(buf[0x7C..0x80].try_into().unwrap_or([0; 4]));
+    let computed = crc32fast::hash(&buf[0..0x78]);
+    if stored != computed {
+        vec![IntegrityIndicator::FileHeaderChecksumMismatch { computed, stored }]
+    } else {
+        vec![]
+    }
+}
+
+/// Check file flags for dirty/full anomalies.
+/// Bit 0x1 = not cleanly shut down; bit 0x2 = file full.
+pub fn check_file_flags(flags: u32) -> Vec<IntegrityIndicator> {
+    let mut out = Vec::new();
+    if flags & 0x1 != 0 {
+        out.push(IntegrityIndicator::FileNotCleanlyShutdown);
+    }
+    if flags & 0x2 != 0 {
+        out.push(IntegrityIndicator::FileFull);
+    }
+    out
+}
+
+/// Check that the chunk count in the file header matches the number of chunks found.
+pub fn check_chunk_count(header_count: u16, actual_count: usize) -> Vec<IntegrityIndicator> {
+    if header_count as usize != actual_count {
+        vec![IntegrityIndicator::ChunkCountMismatch {
+            header_count,
+            actual_count,
+        }]
+    } else {
+        vec![]
+    }
+}
+
+/// Verify the event records area CRC32 for a chunk.
+/// Records area = bytes `0x200..free_space_offset` (from chunk header field at bytes 48..52).
+/// CRC32 compared with `event_records_checksum` at bytes 52..56.
+pub fn verify_records_area_checksum(
+    chunk_data: &[u8],
+    chunk_offset: u64,
+) -> Vec<IntegrityIndicator> {
+    if chunk_data.len() < 0x38 {
+        return vec![];
+    }
+    let free_space_offset =
+        u32::from_le_bytes(chunk_data[48..52].try_into().unwrap_or([0; 4])) as usize;
+    let stored = u32::from_le_bytes(chunk_data[52..56].try_into().unwrap_or([0; 4]));
+    let records_start = 0x200usize;
+    if free_space_offset < records_start || chunk_data.len() < free_space_offset {
+        return vec![];
+    }
+    let computed = crc32fast::hash(&chunk_data[records_start..free_space_offset]);
+    if stored != computed {
+        vec![IntegrityIndicator::RecordChecksumMismatch {
+            chunk_offset,
+            computed,
+            stored,
+        }]
+    } else {
+        vec![]
+    }
+}
+
 /// Check file header consistency: next_record_id should be > actual_highest_record_id.
 pub fn check_file_header_consistency(
     header_next: u64,
