@@ -48,6 +48,10 @@ fn which_hayabusa() -> Option<std::path::PathBuf> {
     None
 }
 
+/// Returns the hayabusa rules directory.
+///
+/// Resolution order:
+/// 1. `HAYABUSA_RULES` env var
 /// Build a temp EVTX file containing N records via winevt-writer.
 fn write_evtx_fixture(label: &str, records: &[WriteRecord]) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();
@@ -64,6 +68,9 @@ fn write_evtx_fixture(label: &str, records: &[WriteRecord]) -> std::path::PathBu
 }
 
 /// Skip the test gracefully when hayabusa is absent.
+///
+/// The hayabusa wrapper at `/usr/local/bin/hayabusa` cds to the install
+/// directory before exec, so `rules/` is always found relative to cwd.
 macro_rules! require_hayabusa {
     () => {
         match hayabusa_path() {
@@ -78,15 +85,15 @@ macro_rules! require_hayabusa {
 
 // ── pipeline tests ─────────────────────────────────────────────────────────────
 
-/// hayabusa binary is callable and exits 0 for `--help`.
+/// hayabusa binary is callable and exits 0 for `help`.
 #[test]
 fn hayabusa_help_exits_success() {
     let bin = require_hayabusa!();
     let status = Command::new(&bin)
-        .arg("--help")
+        .arg("help")
         .status()
-        .expect("run hayabusa --help");
-    assert!(status.success(), "hayabusa --help should exit 0");
+        .expect("run hayabusa help");
+    assert!(status.success(), "hayabusa help should exit 0");
 }
 
 /// wt reconstruct → hayabusa pipeline completes without error for a
@@ -152,10 +159,8 @@ fn hayabusa_parses_reconstructed_evtx() {
     let haya_status = Command::new(&bin)
         .args([
             "json-timeline",
-            "-f",
-            recon_path.to_str().unwrap(),
-            "-o",
-            haya_out.to_str().unwrap(),
+            "-f", recon_path.to_str().unwrap(),
+            "-o", haya_out.to_str().unwrap(),
             "--no-wizard",
             "--quiet",
         ])
@@ -241,10 +246,8 @@ fn hayabusa_processes_corrupted_then_reconstructed_evtx() {
     let haya_status = Command::new(&bin)
         .args([
             "json-timeline",
-            "-f",
-            recon_path.to_str().unwrap(),
-            "-o",
-            haya_out.to_str().unwrap(),
+            "-f", recon_path.to_str().unwrap(),
+            "-o", haya_out.to_str().unwrap(),
             "--no-wizard",
             "--quiet",
         ])
