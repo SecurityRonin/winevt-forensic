@@ -1,0 +1,21 @@
+[package]
+name = "winevt-writer"
+version = "0.1.0"
+description = "Reconstruct valid EVTX files from carved records"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+winevt-core = { workspace = true }
+crc32fast = "1"
+
+[dev-dependencies]
+winevt-carver = { workspace = true }
+crc32fast = "1"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+
+[lints]
+workspace = true
