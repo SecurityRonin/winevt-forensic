@@ -7,9 +7,9 @@
 
 # winevt-forensic
 
-**Carve. Verify. Detect.**
+**Recover the logs first. Analyze them second.**
 
-Recovers Windows Event Log records from corrupt files, disk images, and memory dumps. Detects structural integrity anomalies — cleared logs, checksum mismatches, record ID gaps — without trusting the file header.
+Every detection tool assumes the event log is intact. In a real incident it often isn't — cleared, truncated, partially overwritten, or encrypted mid-stream by ransomware. This library recovers what can be recovered and tells you exactly what the file's own structure says about what happened to it.
 
 ```bash
 cargo install wt-cli
@@ -48,10 +48,13 @@ winevt-carver    = "0.1"   # record carving from files, bytes, disk images
 
 ## Three Things You Do With This
 
-### Carve records from a corrupt or cleared EVTX file
+### Recover event logs from a ransomware-hit machine
+
+Ransomware encrypts storage sequentially. If it was interrupted — killed by EDR, power-cut, or network loss — the Security log on the victim's drive is likely partially encrypted: some chunks intact, some garbage. Every mainstream EVTX parser will fail on the first corrupt chunk and return nothing.
 
 ```bash
-wt carve /evidence/Security.evtx
+# Partial acquisition from a partially-encrypted NTFS volume
+wt carve /mnt/victim/Windows/System32/winevt/Logs/Security.evtx
 ```
 
 ```json
@@ -64,13 +67,17 @@ wt carve /evidence/Security.evtx
     "records_recovered": 4021,
     "records_corrupt": 12
   },
-  "indicators": []
+  "indicators": [
+    { "RecordIdGap": { "chunk_offset": 720896, "expected": 3102, "found": 3201 } }
+  ]
 }
 ```
 
-Recovers records even from chunks where the header CRC32 has been tampered with. Falls back to aggressive magic-byte scan when the sequential record walk fails.
+14 valid chunks plus partial recovery from the 3 corrupt ones. The record ID gap tells you which records were in those 3 chunks before they were hit.
 
-### Verify structural integrity
+### Verify integrity before you trust the timeline
+
+Before running detection rules against an event log, know whether the file is structurally sound. A log that's been cleared, rolled back, or selectively edited will have structural traces that pre-date any rule match.
 
 ```bash
 wt verify /evidence/Security.evtx
@@ -95,14 +102,15 @@ wt verify /evidence/Security.evtx
 ]
 ```
 
-Reports raw structural facts — not forensic conclusions. The interpretive layer (what these facts mean, what intent they imply) belongs to [RapidTriage](https://github.com/SecurityRonin/rapidtriage).
+These are structural facts, not forensic conclusions. The file says the checksum is wrong and records are missing. What that means — and what was in those 104 missing records — is for the analyst to determine.
 
 ### Carve from raw bytes — disk image, memory dump, slack space
 
 ```rust
 use winevt_carver::carve_from_bytes;
 
-let raw: Vec<u8> = std::fs::read("/dev/sda")?;
+// Works on memory dumps, unallocated disk space, raw sector reads
+let raw: Vec<u8> = std::fs::read("/dev/sda1")?;
 let result = carve_from_bytes(&raw);
 
 println!("Scanned {} bytes, found {} chunks, recovered {} records",
@@ -112,15 +120,17 @@ println!("Scanned {} bytes, found {} chunks, recovered {} records",
 );
 ```
 
-Finds `ElfChnk` magic at any 8-byte offset — no alignment assumptions. Works on memory dumps, unallocated disk space, and partial acquisitions.
+Finds `ElfChnk` magic at any 8-byte offset. No alignment assumptions. No file header required.
 
 ---
 
-## What's Different
+## Where This Fits
 
-Every other EVTX tool either parses clean files only or requires the Windows Event Log service. This one is built for the files that break everything else.
+This is not a detection tool. [Hayabusa](https://github.com/Yamato-Security/hayabusa) does Sigma-based threat hunting and MITRE ATT&CK tagging far better than anything built here ever will. [Log Parser Studio](https://github.com/microsoft/LogParserStudio) has years of query infrastructure. These tools are the reason to recover your logs — so you can feed them something to work with.
 
-| | winevt-forensic | python-evtx | hayabusa | Log Parser Studio |
+The problem this library solves is upstream: getting records out of files the other tools cannot open.
+
+| | [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) | [python-evtx](https://github.com/williballenthin/python-evtx) | [hayabusa](https://github.com/Yamato-Security/hayabusa) | [Log Parser Studio](https://github.com/microsoft/LogParserStudio) |
 |--|:-:|:-:|:-:|:-:|
 | Runs on Linux / macOS | ✓ | ✓ | ✓ | — |
 | Single static binary | ✓ | — | ✓ | — |
@@ -130,15 +140,17 @@ Every other EVTX tool either parses clean files only or requires the Windows Eve
 | CRC32 checksum verification | ✓ | — | — | — |
 | Record ID gap detection | ✓ | — | — | — |
 | JSON output | ✓ | — | ✓ | — |
+| Sigma-based detection rules | — | — | ✓ | — |
+| MITRE ATT&CK tagging | — | — | ✓ | — |
 | Free & open source | ✓ | ✓ | ✓ | — |
 
 ---
 
 ## Structural Integrity Checks
 
-`winevt-integrity` checks structural anomalies at the binary level — raw facts, not forensic conclusions:
+`winevt-integrity` checks anomalies at the binary level — raw facts, not forensic conclusions:
 
-**Chunk header CRC32 mismatch** — the stored checksum at offset `0x78` does not match a CRC32 of bytes `0x00..0x78`. The chunk header was modified after it was written.
+**Chunk header CRC32 mismatch** — the stored checksum at offset `0x78` does not match CRC32 of bytes `0x00..0x78`. The chunk header was modified after it was written.
 
 **Record ID gap** — `LastEventRecordNumber` of chunk N + 1 does not equal `FirstEventRecordNumber` of chunk N+1. Records between those IDs are absent from the file.
 
@@ -148,7 +160,7 @@ Every other EVTX tool either parses clean files only or requires the Windows Eve
 
 **Log cleared (EID 1102 / 104)** — the standard Windows event indicating the Security or System log was explicitly cleared.
 
-These facts are inputs to forensic reasoning, not conclusions. [RapidTriage](https://github.com/SecurityRonin/rapidtriage) consumes them and produces the interpretive layer.
+These are inputs to forensic reasoning. [RapidTriage](https://github.com/SecurityRonin/rapidtriage) consumes them alongside session correlation and frequency analysis to produce the interpretive layer.
 
 ---
 
@@ -236,8 +248,8 @@ Records start at chunk offset `0x200`. Each chunk is exactly `0x10000` bytes.
 
 - **[RapidTriage](https://github.com/SecurityRonin/rapidtriage)** — consumes winevt-forensic for EVTX carving; provides session correlation, frequency analysis, and the `rt` CLI
 - **[srum-forensic](https://github.com/SecurityRonin/srum-forensic)** — sister library for Windows SRUM (ESE) forensics
-- **[evtx](https://github.com/omerbenamram/evtx)** — full EVTX parser for normal (non-corrupt) files
-- **[hayabusa](https://github.com/Yamato-Security/hayabusa)** — Sigma-based EVTX detection; complements this library
+- **[evtx](https://github.com/omerbenamram/evtx)** — full EVTX parser for normal (non-corrupt) files; the right tool when the file is clean
+- **[hayabusa](https://github.com/Yamato-Security/hayabusa)** — Sigma-based threat hunting on EVTX; use this after recovering your logs
 
 ---
 
