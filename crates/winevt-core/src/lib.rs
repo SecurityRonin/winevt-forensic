@@ -161,10 +161,7 @@ mod tests {
 
     #[test]
     fn substatus_wrong_password_code() {
-        assert_eq!(
-            substatus_description("0xC000006A"),
-            Some("Wrong password")
-        );
+        assert_eq!(substatus_description("0xC000006A"), Some("Wrong password"));
     }
 
     #[test]
@@ -247,8 +244,8 @@ mod tests {
     fn chunk_header_parse_returns_fields_for_known_good() {
         let mut buf = [0u8; 512];
         buf[0..8].copy_from_slice(b"ElfChnk\0");
-        buf[8..16].copy_from_slice(&10u64.to_le_bytes());   // first record number
-        buf[16..24].copy_from_slice(&19u64.to_le_bytes());  // last record number
+        buf[8..16].copy_from_slice(&10u64.to_le_bytes()); // first record number
+        buf[16..24].copy_from_slice(&19u64.to_le_bytes()); // last record number
         buf[24..32].copy_from_slice(&100u64.to_le_bytes()); // first record id
         buf[32..40].copy_from_slice(&109u64.to_le_bytes()); // last record id
         buf[40..44].copy_from_slice(&0x80u32.to_le_bytes()); // header_size

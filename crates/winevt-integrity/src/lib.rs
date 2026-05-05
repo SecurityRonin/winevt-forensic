@@ -93,7 +93,9 @@ mod tests {
         let gaps = detect_record_id_gaps(&chunks);
         assert_eq!(gaps.len(), 1);
         match &gaps[0] {
-            IntegrityIndicator::RecordIdGap { expected, found, .. } => {
+            IntegrityIndicator::RecordIdGap {
+                expected, found, ..
+            } => {
                 assert_eq!(*expected, 11);
                 assert_eq!(*found, 15);
             }
@@ -110,7 +112,11 @@ mod tests {
         let crc = crc32fast::hash(&buf[0..0x78]);
         buf[0x78..0x7C].copy_from_slice(&crc.to_le_bytes());
         let indicators = verify_chunk_header_checksum(&buf, 0);
-        assert!(indicators.is_empty(), "expected no indicators, got {:?}", indicators);
+        assert!(
+            indicators.is_empty(),
+            "expected no indicators, got {:?}",
+            indicators
+        );
     }
 
     #[test]
@@ -155,7 +161,10 @@ mod tests {
         let indicators = check_file_header_consistency(50, 100);
         assert_eq!(indicators.len(), 1);
         match &indicators[0] {
-            IntegrityIndicator::NextRecordIdInconsistency { header_next, actual_highest } => {
+            IntegrityIndicator::NextRecordIdInconsistency {
+                header_next,
+                actual_highest,
+            } => {
                 assert_eq!(*header_next, 50);
                 assert_eq!(*actual_highest, 100);
             }
