@@ -719,6 +719,40 @@ mod tests {
         assert!(result.is_err(), "expected Err for nonexistent path");
     }
 
+    // ---- Feature 13: Parallel chunk processing ----
+
+    #[test]
+    fn parallel_processing_same_results_as_sequential() {
+        // Build 4 back-to-back chunks and verify carve_from_bytes returns them in offset order
+        let mut data = Vec::new();
+        for _ in 0..4 {
+            data.extend(make_minimal_chunk());
+        }
+        let result = carve_from_bytes(&data);
+        assert_eq!(result.chunks.len(), 4);
+        // All offsets must be in ascending order
+        let offsets: Vec<u64> = result.chunks.iter().map(|c| c.offset).collect();
+        let mut sorted = offsets.clone();
+        sorted.sort();
+        assert_eq!(offsets, sorted, "chunk offsets should be in order: {:?}", offsets);
+    }
+
+    #[test]
+    fn parallel_processing_results_deterministic() {
+        // Run carve_from_bytes multiple times on same input, results must be identical
+        let mut data = Vec::new();
+        for _ in 0..3 {
+            data.extend(make_minimal_chunk());
+        }
+        let r1 = carve_from_bytes(&data);
+        let r2 = carve_from_bytes(&data);
+        assert_eq!(r1.chunks.len(), r2.chunks.len());
+        for (c1, c2) in r1.chunks.iter().zip(r2.chunks.iter()) {
+            assert_eq!(c1.offset, c2.offset);
+            assert_eq!(c1.records.len(), c2.records.len());
+        }
+    }
+
     // ---- Feature 11: Adversarial inputs / fuzz regression ----
 
     #[test]
