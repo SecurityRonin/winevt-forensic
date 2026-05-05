@@ -50,7 +50,7 @@ winevt-carver    = "0.1"   # record carving from files, bytes, disk images
 
 ### Recover event logs from a ransomware-hit machine
 
-Ransomware encrypts storage sequentially. If it was interrupted — killed by EDR, power-cut, or network loss — the Security log on the victim's drive is likely partially encrypted: some chunks intact, some garbage. Every mainstream EVTX parser will fail on the first corrupt chunk and return nothing.
+Ransomware encrypts storage fast. Some families encrypt only a fraction of each file deliberately — speed over thoroughness. Others are interrupted by EDR, power loss, or network cut. Either way, the Security log on the victim's drive ends up partially encrypted: some chunks intact, some garbage. Every mainstream EVTX parser will fail on the first corrupt chunk and return nothing.
 
 ```bash
 # Partial acquisition from a partially-encrypted NTFS volume
@@ -132,19 +132,19 @@ The problem this library solves is upstream: getting records out of files the ot
 
 | | [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) | [evtx](https://github.com/omerbenamram/evtx) | [python-evtx](https://github.com/williballenthin/python-evtx) | [hayabusa](https://github.com/Yamato-Security/hayabusa) | [Log Parser Studio](https://github.com/microsoft/LogParserStudio) |
 |--|:-:|:-:|:-:|:-:|:-:|
-| Runs on Linux / macOS | ✓ | ✓ | ✓ | ✓ | — |
-| Single static binary | ✓ | ✓ | — | ✓ | — |
-| No Python / .NET runtime | ✓ | ✓ | — | ✓ | — |
-| Recovers corrupt chunks | ✓ | — | — | — | — |
-| Carves from raw disk / memory | ✓ | — | — | — | — |
-| CRC32 checksum verification | ✓ | — | — | — | — |
-| Record ID gap detection | ✓ | — | — | — | — |
-| JSON output | ✓ | ✓ | — | ✓ | — |
-| SQL query interface | — | — | — | — | ✓ |
-| Sigma-based detection rules | — | — | — | ✓ | — |
-| MITRE ATT&CK tagging | — | — | — | ✓ | — |
-| Free (no cost) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Open source | ✓ | ✓ | ✓ | ✓ | — |
+| Runs on Linux / macOS | ✅ | ✅ | ✅ | ✅ | — |
+| Single static binary | ✅ | ✅ | — | ✅ | — |
+| No Python / .NET runtime | ✅ | ✅ | — | ✅ | — |
+| Recovers corrupt chunks | ✅ | — | — | — | — |
+| Carves from raw disk / memory | ✅ | — | — | — | — |
+| CRC32 checksum verification | ✅ | — | — | — | — |
+| Record ID gap detection | ✅ | — | — | — | — |
+| JSON output | ✅ | ✅ | — | ✅ | — |
+| SQL query interface | — | — | — | — | ✅ |
+| Sigma-based detection rules | — | — | — | ✅ | — |
+| MITRE ATT&CK tagging | — | — | — | ✅ | — |
+| Free (no cost) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Open source | ✅ | ✅ | ✅ | ✅ | — |
 
 ---
 
