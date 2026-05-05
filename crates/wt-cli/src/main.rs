@@ -12,6 +12,7 @@
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use winevt_writer::{WriteRecord, records_to_evtx};
 
 /// EVTX forensic analysis tool.
 ///
@@ -57,6 +58,18 @@ enum Cmd {
     CarveEwf {
         /// Path to the E01 image (first segment).
         path: PathBuf,
+    },
+    /// Reconstruct a valid EVTX file from a corrupt or partial one.
+    ///
+    /// Carves all recoverable records from the input file, then writes them
+    /// into a new, structurally valid EVTX file with correct checksums.
+    /// The output can be read by hayabusa, EvtxECmd, and other standard tools.
+    Reconstruct {
+        /// Path to the source EVTX file (may be corrupt or partial).
+        path: PathBuf,
+        /// Path to write the reconstructed EVTX file.
+        #[arg(long, short)]
+        output: PathBuf,
     },
 }
 
@@ -225,6 +238,39 @@ fn main() {
                     }
                 }
                 0
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                2
+            }
+        },
+        Cmd::Reconstruct { path, output } => match winevt_carver::carve_from_file(&path) {
+            Ok(result) => {
+                let write_records: Vec<WriteRecord> = result
+                    .chunks
+                    .iter()
+                    .flat_map(|c| c.records.iter())
+                    .map(|r| WriteRecord {
+                        record_id: r.header.record_id,
+                        timestamp: r.header.timestamp,
+                        payload: r.bxml_payload.clone(),
+                    })
+                    .collect();
+                let evtx_bytes = records_to_evtx(&write_records);
+                match std::fs::write(&output, &evtx_bytes) {
+                    Ok(()) => {
+                        eprintln!(
+                            "reconstructed {} records → {}",
+                            write_records.len(),
+                            output.display()
+                        );
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("error writing output: {e}");
+                        2
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("error: {e}");
