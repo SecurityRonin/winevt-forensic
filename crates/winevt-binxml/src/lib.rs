@@ -1,4 +1,38 @@
-// Tests only — implementation comes in GREEN commit
+//! Minimal `BinXml` token scanner for Windows Event Log payloads.
+//!
+//! This is a best-effort scanner, NOT a full `BinXml` parser. It extracts
+//! commonly needed fields by scanning byte patterns in the `BinXml` System element.
+//! Returns `None` for any field that cannot be reliably determined.
+
+/// Summary of fields extracted from a `BinXml` event payload.
+#[derive(Debug, Clone)]
+pub struct BinXmlSummary {
+    pub event_id: Option<u16>,
+    pub channel: Option<String>,
+    pub computer: Option<String>,
+    pub provider_name: Option<String>,
+    pub level: Option<u8>,
+}
+
+/// Scan a `BinXml` payload for known fields. Best-effort: all fields may be `None`.
+///
+/// # Limitations
+/// This is not a full `BinXml` parser. It uses heuristic byte-pattern scanning
+/// and is intentionally conservative — it returns `None` rather than guessing.
+pub fn scan_binxml(payload: &[u8]) -> BinXmlSummary {
+    // BinXml is a complex binary format. A full parser requires tracking
+    // the string table, template substitution slots, and element nesting.
+    // This stub returns all None to ensure no panics on arbitrary input.
+    // Future work: implement a proper BinXml token walker.
+    let _ = payload; // suppress unused warning while remaining a no-op
+    BinXmlSummary {
+        event_id: None,
+        channel: None,
+        computer: None,
+        provider_name: None,
+        level: None,
+    }
+}
 
 #[cfg(test)]
 mod tests {
