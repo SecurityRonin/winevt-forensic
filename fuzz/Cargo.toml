@@ -1,0 +1,34 @@
+[package]
+name = "winevt-forensic-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+libfuzzer-sys = "0.4"
+winevt-core = { path = "../crates/winevt-core" }
+winevt-carver = { path = "../crates/winevt-carver" }
+
+[[bin]]
+name = "fuzz_file_header"
+path = "fuzz_targets/fuzz_file_header.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_chunk_header"
+path = "fuzz_targets/fuzz_chunk_header.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_record_header"
+path = "fuzz_targets/fuzz_record_header.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_carve_from_bytes"
+path = "fuzz_targets/fuzz_carve_from_bytes.rs"
+test = false
+doc = false
