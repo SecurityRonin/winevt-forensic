@@ -108,7 +108,7 @@ pub fn compute_checksum(data: &[u8]) -> u32 {
 ///
 /// These variants represent low-level binary format facts only.
 /// Intent inference (e.g. anti-forensic classification) belongs in the
-/// caller — for example, the RapidTriage correlation engine.
+/// caller — for example, the `RapidTriage` correlation engine.
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum IntegrityAnomaly {
     LogCleared {
@@ -156,7 +156,7 @@ pub enum IntegrityAnomaly {
     /// A record has a zeroed header timestamp consistent with the wevtutil /
     /// Event Viewer export bug: when exporting with `wevtutil epl` or
     /// "Save As…", each record's header timestamp is replaced with the
-    /// *previous* record's BinXml timestamp; the first record in the export
+    /// *previous* record's `BinXml` timestamp; the first record in the export
     /// therefore has no predecessor and receives timestamp 0.
     ///
     /// Reference: Wassenaar, Fox-IT BV (2019).
@@ -169,7 +169,7 @@ pub enum IntegrityAnomaly {
         chunk_offset: u64,
     },
     /// A record's stated size spans the magic bytes of a subsequent record,
-    /// consistent with surgical deletion by the NSA DanderSpritz
+    /// consistent with surgical deletion by the NSA `DanderSpritz`
     /// `eventlogedit` tool.  The tool absorbs the deleted record into the
     /// preceding record's size field without emitting EID 1102.
     ///
