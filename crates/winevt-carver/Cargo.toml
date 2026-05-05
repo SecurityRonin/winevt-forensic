@@ -10,6 +10,5 @@ winevt-core = { workspace = true }
 winevt-integrity = { workspace = true }
 crc32fast = "1"
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 memmap2 = "0.9"
 serde = { workspace = true }

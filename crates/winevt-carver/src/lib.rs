@@ -1,5 +1,13 @@
 use std::path::Path;
 
+#[derive(Debug, thiserror::Error)]
+pub enum CarveError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("file too small: {size} bytes")]
+    FileTooSmall { size: u64 },
+}
+
 pub use winevt_core::binary::{
     EvtxChunkHeader, EvtxFileHeader, EvtxRecordHeader, IntegrityIndicator, CHUNK_RECORDS_OFFSET,
     CHUNK_SIZE, ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC,
@@ -178,7 +186,7 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
 /// Read an EVTX file from disk and carve chunks and records from it.
 ///
 /// Opens the file, reads it into memory, then delegates to [`carve_from_bytes`].
-pub fn carve_from_file(path: &Path) -> anyhow::Result<CarveResult> {
+pub fn carve_from_file(path: &Path) -> Result<CarveResult, CarveError> {
     let data = std::fs::read(path)?;
     Ok(carve_from_bytes(&data))
 }
@@ -187,7 +195,7 @@ pub fn carve_from_file(path: &Path) -> anyhow::Result<CarveResult> {
 ///
 /// Returns `Ok(Vec<IntegrityIndicator>)` where the vec is empty for a sound file and
 /// contains `ChunkChecksumMismatch` indicators for any corrupted chunks.
-pub fn verify_integrity(path: &Path) -> anyhow::Result<Vec<IntegrityIndicator>> {
+pub fn verify_integrity(path: &Path) -> Result<Vec<IntegrityIndicator>, CarveError> {
     let data = std::fs::read(path)?;
     let mut indicators = Vec::new();
     let mut i = 0usize;
