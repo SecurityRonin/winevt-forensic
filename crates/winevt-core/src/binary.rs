@@ -187,3 +187,15 @@ pub enum IntegrityIndicator {
         ghost_offset_in_chunk: u64,
     },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn integrity_anomaly_has_checksum_variant() {
+        let a = IntegrityAnomaly::ChecksumMismatch;
+        let s = format!("{a:?}");
+        assert!(s.contains("ChecksumMismatch"));
+    }
+}
