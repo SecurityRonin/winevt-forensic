@@ -1,0 +1,23 @@
+[package]
+name = "wt-cli"
+version = "0.1.0"
+description = "wt — EVTX forensic analysis CLI"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "wt"
+path = "src/main.rs"
+
+[dependencies]
+winevt-carver.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

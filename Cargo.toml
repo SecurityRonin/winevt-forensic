@@ -5,6 +5,7 @@ members = [
     "crates/winevt-integrity",
     "crates/winevt-carver",
     "crates/winevt-memory",
+    "crates/wt-cli",
 ]
 
 [workspace.package]
@@ -15,16 +16,19 @@ repository = "https://github.com/SecurityRonin/winevt-forensic"
 
 [workspace.dependencies]
 chrono = { version = "0.4", default-features = false, features = ["alloc", "serde"] }
+clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 anyhow = "1"
+tempfile = "3"
 
 # Internal
 winevt-core = { path = "crates/winevt-core" }
 winevt-integrity = { path = "crates/winevt-integrity" }
 winevt-carver = { path = "crates/winevt-carver" }
 winevt-memory = { path = "crates/winevt-memory" }
+wt-cli = { path = "crates/wt-cli" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

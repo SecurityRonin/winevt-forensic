@@ -8,7 +8,7 @@ use winevt_integrity::{
     check_file_header_consistency, detect_record_id_gaps, verify_chunk_header_checksum,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum Integrity {
     Valid,
     HeaderCorrupt,
@@ -18,7 +18,7 @@ pub enum Integrity {
     Truncated,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct RecoveredRecord {
     pub offset: u64,
     pub header: EvtxRecordHeader,
@@ -26,7 +26,7 @@ pub struct RecoveredRecord {
     pub bxml_payload: Vec<u8>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct CarvedChunk {
     pub offset: u64,
     pub header: EvtxChunkHeader,
@@ -35,7 +35,7 @@ pub struct CarvedChunk {
     pub anti_forensic: Vec<IntegrityIndicator>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize)]
 pub struct CarveStats {
     pub bytes_scanned: u64,
     pub chunks_found: usize,
@@ -45,7 +45,7 @@ pub struct CarveStats {
     pub records_corrupt: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct CarveResult {
     pub file_header: Option<EvtxFileHeader>,
     pub chunks: Vec<CarvedChunk>,

@@ -6,7 +6,7 @@ pub const RECORD_MAGIC: [u8; 4] = [0x2A, 0x2A, 0x00, 0x00];
 pub const CHUNK_SIZE: u64 = 0x1_0000;
 pub const CHUNK_RECORDS_OFFSET: u64 = 0x200;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct EvtxFileHeader {
     pub first_chunk_number: u64,
     pub last_chunk_number: u64,
@@ -74,7 +74,7 @@ impl EvtxChunkHeader {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct EvtxRecordHeader {
     pub size: u32,
     pub record_id: u64,
