@@ -195,8 +195,6 @@ pub enum IntegrityAnomaly {
     },
 }
 
-/// Backwards-compatible alias — prefer [`IntegrityAnomaly`] in new code.
-pub type IntegrityIndicator = IntegrityAnomaly;
 
 #[cfg(test)]
 mod tests {

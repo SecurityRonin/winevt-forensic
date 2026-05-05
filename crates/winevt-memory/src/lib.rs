@@ -1,7 +1,7 @@
 // winevt-memory: types and analysis functions for EVTX/ETW data recovered from memory dumps.
 // No dependency on memory readers — provides types that memf-windows populates.
 
-pub use winevt_core::binary::{EvtxChunkHeader, IntegrityIndicator};
+pub use winevt_core::binary::{EvtxChunkHeader, IntegrityAnomaly};
 
 /// An ETW event recovered from a session buffer in kernel memory.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -23,7 +23,7 @@ pub struct MemoryRecoveredChunk {
     pub channel: String,
     pub source_process: Option<String>,
     pub source_pid: Option<u32>,
-    pub anti_forensic: Vec<IntegrityIndicator>,
+    pub anti_forensic: Vec<IntegrityAnomaly>,
 }
 
 /// An ETW session recovered from kernel memory (`_WMI_LOGGER_CONTEXT` walk).

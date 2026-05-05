@@ -23,7 +23,7 @@ pub enum CarveError {
 }
 
 pub use winevt_core::binary::{
-    EvtxChunkHeader, EvtxFileHeader, EvtxRecordHeader, IntegrityIndicator, CHUNK_RECORDS_OFFSET,
+    EvtxChunkHeader, EvtxFileHeader, EvtxRecordHeader, IntegrityAnomaly, CHUNK_RECORDS_OFFSET,
     CHUNK_SIZE, ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC,
 };
 use winevt_integrity::{
@@ -56,7 +56,7 @@ pub struct CarvedChunk {
     pub header: EvtxChunkHeader,
     pub integrity: Integrity,
     pub records: Vec<RecoveredRecord>,
-    pub indicators: Vec<IntegrityIndicator>,
+    pub indicators: Vec<IntegrityAnomaly>,
 }
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -73,7 +73,7 @@ pub struct CarveStats {
 pub struct CarveResult {
     pub file_header: Option<EvtxFileHeader>,
     pub chunks: Vec<CarvedChunk>,
-    pub indicators: Vec<IntegrityIndicator>,
+    pub indicators: Vec<IntegrityAnomaly>,
     pub stats: CarveStats,
     pub source_hash: Option<String>,
 }
@@ -322,9 +322,9 @@ pub fn carve_from_ewf(path: &Path) -> Result<CarveResult, CarveError> {
 
 /// Verify the structural integrity of an EVTX file by checking all chunk header checksums.
 ///
-/// Returns `Ok(Vec<IntegrityIndicator>)` where the vec is empty for a sound file and
+/// Returns `Ok(Vec<IntegrityAnomaly>)` where the vec is empty for a sound file and
 /// contains `ChunkChecksumMismatch` indicators for any corrupted chunks.
-pub fn verify_integrity(path: &Path) -> Result<Vec<IntegrityIndicator>, CarveError> {
+pub fn verify_integrity(path: &Path) -> Result<Vec<IntegrityAnomaly>, CarveError> {
     let data = std::fs::read(path)?;
     let mut indicators = Vec::new();
     let mut i = 0usize;
@@ -655,7 +655,7 @@ mod tests {
         let result = carve_from_bytes(&data);
         assert_eq!(result.chunks.len(), 2, "expected two chunks");
         let has_gap = result.indicators.iter().any(|ind| {
-            matches!(ind, IntegrityIndicator::RecordIdGap { expected, found, .. }
+            matches!(ind, IntegrityAnomaly::RecordIdGap { expected, found, .. }
                 if *expected == 11 && *found == 15)
         });
         assert!(
@@ -675,7 +675,7 @@ mod tests {
         let has_mismatch = result.chunks[0]
             .indicators
             .iter()
-            .any(|ind| matches!(ind, IntegrityIndicator::ChunkChecksumMismatch { .. }));
+            .any(|ind| matches!(ind, IntegrityAnomaly::ChunkChecksumMismatch { .. }));
         assert!(
             has_mismatch,
             "expected ChunkChecksumMismatch in chunk.indicators"
@@ -689,7 +689,7 @@ mod tests {
         data.extend(make_chunk_with_record_range(1, 100, 1, 100));
         let result = carve_from_bytes(&data);
         let has_inconsistency = result.indicators.iter().any(|ind| {
-            matches!(ind, IntegrityIndicator::NextRecordIdInconsistency { header_next, actual_highest }
+            matches!(ind, IntegrityAnomaly::NextRecordIdInconsistency { header_next, actual_highest }
                 if *header_next == 5 && *actual_highest == 100)
         });
         assert!(
@@ -788,7 +788,7 @@ mod tests {
             result.expect("verify_integrity should return Ok (not Err) for tampered file");
         let has_mismatch = indicators
             .iter()
-            .any(|ind| matches!(ind, IntegrityIndicator::ChunkChecksumMismatch { .. }));
+            .any(|ind| matches!(ind, IntegrityAnomaly::ChunkChecksumMismatch { .. }));
         assert!(
             has_mismatch,
             "expected ChunkChecksumMismatch for tampered EVTX, got: {:?}",
@@ -1315,7 +1315,7 @@ mod tests {
         assert_eq!(result.chunks.len(), 1);
         assert_eq!(result.chunks[0].records.len(), 1, "should recover one record");
         let has_indicator = result.indicators.iter().any(|ind| {
-            matches!(ind, IntegrityIndicator::ExportTimestampCorruption { record_id: 7, .. })
+            matches!(ind, IntegrityAnomaly::ExportTimestampCorruption { record_id: 7, .. })
         });
         assert!(
             has_indicator,
@@ -1329,7 +1329,7 @@ mod tests {
         let data = make_chunk_with_record(1, 133_297_085_160_000_000, b"");
         let result = carve_from_bytes(&data);
         let has_export = result.indicators.iter().any(|ind| {
-            matches!(ind, IntegrityIndicator::ExportTimestampCorruption { .. })
+            matches!(ind, IntegrityAnomaly::ExportTimestampCorruption { .. })
         });
         assert!(
             !has_export,
@@ -1390,7 +1390,7 @@ mod tests {
         let result = carve_from_bytes(&data);
         assert_eq!(result.chunks.len(), 1);
         let has_surgical = result.indicators.iter().any(|ind| {
-            matches!(ind, IntegrityIndicator::SurgicalRecordDeletion { absorbing_record_id: 1, .. })
+            matches!(ind, IntegrityAnomaly::SurgicalRecordDeletion { absorbing_record_id: 1, .. })
         });
         assert!(
             has_surgical,
@@ -1404,7 +1404,7 @@ mod tests {
         let data = make_chunk_with_record(3, 133_297_085_160_000_000, b"normal");
         let result = carve_from_bytes(&data);
         let has_surgical = result.indicators.iter().any(|ind| {
-            matches!(ind, IntegrityIndicator::SurgicalRecordDeletion { .. })
+            matches!(ind, IntegrityAnomaly::SurgicalRecordDeletion { .. })
         });
         assert!(
             !has_surgical,

@@ -1,15 +1,15 @@
-use winevt_core::binary::IntegrityIndicator;
+use winevt_core::binary::IntegrityAnomaly;
 
 /// Given (first_record_number, last_record_number) per chunk in order,
 /// detect gaps between adjacent chunks.
-pub fn detect_record_id_gaps(chunks: &[(u64, u64)]) -> Vec<IntegrityIndicator> {
+pub fn detect_record_id_gaps(chunks: &[(u64, u64)]) -> Vec<IntegrityAnomaly> {
     let mut out = Vec::new();
     for window in chunks.windows(2) {
         let (_, prev_last) = window[0];
         let (next_first, _) = window[1];
         let expected = prev_last + 1;
         if next_first != expected {
-            out.push(IntegrityIndicator::RecordIdGap {
+            out.push(IntegrityAnomaly::RecordIdGap {
                 chunk_offset: 0, // caller fills in real offset
                 expected,
                 found: next_first,
@@ -21,14 +21,14 @@ pub fn detect_record_id_gaps(chunks: &[(u64, u64)]) -> Vec<IntegrityIndicator> {
 
 /// Verify the chunk header CRC32 (bytes 0x00..0x78) against stored value at 0x78.
 /// `buf` must be at least 0x7C bytes. `chunk_offset` is for the indicator.
-pub fn verify_chunk_header_checksum(buf: &[u8], chunk_offset: u64) -> Vec<IntegrityIndicator> {
+pub fn verify_chunk_header_checksum(buf: &[u8], chunk_offset: u64) -> Vec<IntegrityAnomaly> {
     if buf.len() < 0x7C {
         return vec![];
     }
     let stored = u32::from_le_bytes(buf[0x78..0x7C].try_into().unwrap_or([0; 4]));
     let computed = crc32fast::hash(&buf[0..0x78]);
     if stored != computed {
-        vec![IntegrityIndicator::ChunkChecksumMismatch {
+        vec![IntegrityAnomaly::ChunkChecksumMismatch {
             chunk_offset,
             computed,
             stored,
@@ -42,12 +42,12 @@ pub fn verify_chunk_header_checksum(buf: &[u8], chunk_offset: u64) -> Vec<Integr
 pub fn check_timestamp_monotonicity(
     records: &[(u64, u64)],
     chunk_offset: u64,
-) -> Vec<IntegrityIndicator> {
+) -> Vec<IntegrityAnomaly> {
     let mut out = Vec::new();
     let mut prev_ts = 0u64;
     for &(record_id, ts) in records {
         if ts < prev_ts {
-            out.push(IntegrityIndicator::TimestampAnomaly {
+            out.push(IntegrityAnomaly::TimestampAnomaly {
                 chunk_offset,
                 record_id,
                 prev_ts,
@@ -61,14 +61,14 @@ pub fn check_timestamp_monotonicity(
 
 /// Verify the file header CRC32 (bytes 0x00..0x78) against stored value at 0x7C.
 /// `buf` must be at least 0x80 bytes (128 bytes).
-pub fn verify_file_header_checksum(buf: &[u8]) -> Vec<IntegrityIndicator> {
+pub fn verify_file_header_checksum(buf: &[u8]) -> Vec<IntegrityAnomaly> {
     if buf.len() < 0x80 {
         return vec![];
     }
     let stored = u32::from_le_bytes(buf[0x7C..0x80].try_into().unwrap_or([0; 4]));
     let computed = crc32fast::hash(&buf[0..0x78]);
     if stored != computed {
-        vec![IntegrityIndicator::FileHeaderChecksumMismatch { computed, stored }]
+        vec![IntegrityAnomaly::FileHeaderChecksumMismatch { computed, stored }]
     } else {
         vec![]
     }
@@ -76,21 +76,21 @@ pub fn verify_file_header_checksum(buf: &[u8]) -> Vec<IntegrityIndicator> {
 
 /// Check file flags for dirty/full anomalies.
 /// Bit 0x1 = not cleanly shut down; bit 0x2 = file full.
-pub fn check_file_flags(flags: u32) -> Vec<IntegrityIndicator> {
+pub fn check_file_flags(flags: u32) -> Vec<IntegrityAnomaly> {
     let mut out = Vec::new();
     if flags & 0x1 != 0 {
-        out.push(IntegrityIndicator::FileNotCleanlyShutdown);
+        out.push(IntegrityAnomaly::FileNotCleanlyShutdown);
     }
     if flags & 0x2 != 0 {
-        out.push(IntegrityIndicator::FileFull);
+        out.push(IntegrityAnomaly::FileFull);
     }
     out
 }
 
 /// Check that the chunk count in the file header matches the number of chunks found.
-pub fn check_chunk_count(header_count: u16, actual_count: usize) -> Vec<IntegrityIndicator> {
+pub fn check_chunk_count(header_count: u16, actual_count: usize) -> Vec<IntegrityAnomaly> {
     if header_count as usize != actual_count {
-        vec![IntegrityIndicator::ChunkCountMismatch {
+        vec![IntegrityAnomaly::ChunkCountMismatch {
             header_count,
             actual_count,
         }]
@@ -105,7 +105,7 @@ pub fn check_chunk_count(header_count: u16, actual_count: usize) -> Vec<Integrit
 pub fn verify_records_area_checksum(
     chunk_data: &[u8],
     chunk_offset: u64,
-) -> Vec<IntegrityIndicator> {
+) -> Vec<IntegrityAnomaly> {
     if chunk_data.len() < 0x38 {
         return vec![];
     }
@@ -118,7 +118,7 @@ pub fn verify_records_area_checksum(
     }
     let computed = crc32fast::hash(&chunk_data[records_start..free_space_offset]);
     if stored != computed {
-        vec![IntegrityIndicator::RecordChecksumMismatch {
+        vec![IntegrityAnomaly::RecordChecksumMismatch {
             chunk_offset,
             computed,
             stored,
@@ -132,9 +132,9 @@ pub fn verify_records_area_checksum(
 pub fn check_file_header_consistency(
     header_next: u64,
     actual_highest: u64,
-) -> Vec<IntegrityIndicator> {
+) -> Vec<IntegrityAnomaly> {
     if header_next <= actual_highest {
-        vec![IntegrityIndicator::NextRecordIdInconsistency {
+        vec![IntegrityAnomaly::NextRecordIdInconsistency {
             header_next,
             actual_highest,
         }]
@@ -149,7 +149,7 @@ pub fn check_file_header_consistency(
 /// replaced with the **previous** record's BinXml timestamp.  The first record in the export
 /// therefore receives no predecessor and gets timestamp = 0.
 ///
-/// This function returns one [`IntegrityIndicator::ExportTimestampCorruption`] for every
+/// This function returns one [`IntegrityAnomaly::ExportTimestampCorruption`] for every
 /// record whose header timestamp is 0.
 ///
 /// `records` is a slice of `(record_id, chunk_offset, header_timestamp)` tuples.
@@ -159,12 +159,12 @@ pub fn check_file_header_consistency(
 /// <https://blog.fox-it.com/2019/06/04/export-corrupts-windows-event-log-files/>
 pub fn detect_export_timestamp_corruption(
     records: &[(u64, u64, u64)],
-) -> Vec<IntegrityIndicator> {
+) -> Vec<IntegrityAnomaly> {
     records
         .iter()
         .filter(|&&(_, _, ts)| ts == 0)
         .map(|&(record_id, chunk_offset, _)| {
-            IntegrityIndicator::ExportTimestampCorruption {
+            IntegrityAnomaly::ExportTimestampCorruption {
                 record_id,
                 chunk_offset,
             }
@@ -179,7 +179,7 @@ pub fn detect_export_timestamp_corruption(
 /// (`0x2A 0x2A 0x00 0x00`) remain visible inside the inflated body.  No EID 1102 is emitted.
 ///
 /// This function walks the records area (`0x200..free_space_offset`) of `chunk_data` and
-/// emits one [`IntegrityIndicator::SurgicalRecordDeletion`] for each record whose stated
+/// emits one [`IntegrityAnomaly::SurgicalRecordDeletion`] for each record whose stated
 /// body contains the record-magic pattern.
 ///
 /// `chunk_offset` is the byte offset of the chunk within the source file (used in indicators).
@@ -194,7 +194,7 @@ pub fn detect_export_timestamp_corruption(
 pub fn detect_danderspritz_deletion(
     chunk_data: &[u8],
     chunk_offset: u64,
-) -> Vec<IntegrityIndicator> {
+) -> Vec<IntegrityAnomaly> {
     const RECORD_MAGIC: [u8; 4] = [0x2A, 0x2A, 0x00, 0x00];
     const RECORDS_START: usize = 0x200;
     const FREE_SPACE_OFF_FIELD: usize = 0x30; // bytes 48..52 in chunk header
@@ -246,7 +246,7 @@ pub fn detect_danderspritz_deletion(
                 .position(|w| w == RECORD_MAGIC)
             {
                 let ghost_offset_in_chunk = (body_start + rel) as u64;
-                indicators.push(IntegrityIndicator::SurgicalRecordDeletion {
+                indicators.push(IntegrityAnomaly::SurgicalRecordDeletion {
                     chunk_offset,
                     absorbing_record_id: record_id,
                     stated_size: stated_size as u32,
@@ -264,7 +264,7 @@ pub fn detect_danderspritz_deletion(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use winevt_core::binary::IntegrityIndicator;
+    use winevt_core::binary::IntegrityAnomaly;
 
     #[test]
     fn no_gaps_for_contiguous_chunks() {
@@ -280,7 +280,7 @@ mod tests {
         let gaps = detect_record_id_gaps(&chunks);
         assert_eq!(gaps.len(), 1);
         match &gaps[0] {
-            IntegrityIndicator::RecordIdGap {
+            IntegrityAnomaly::RecordIdGap {
                 expected, found, ..
             } => {
                 assert_eq!(*expected, 11);
@@ -314,7 +314,7 @@ mod tests {
         let indicators = verify_chunk_header_checksum(&buf, 0x10000);
         assert_eq!(indicators.len(), 1);
         match &indicators[0] {
-            IntegrityIndicator::ChunkChecksumMismatch { chunk_offset, .. } => {
+            IntegrityAnomaly::ChunkChecksumMismatch { chunk_offset, .. } => {
                 assert_eq!(*chunk_offset, 0x10000);
             }
             _ => panic!("wrong variant"),
@@ -328,7 +328,7 @@ mod tests {
         let anomalies = check_timestamp_monotonicity(&records, 0);
         assert_eq!(anomalies.len(), 1);
         match &anomalies[0] {
-            IntegrityIndicator::TimestampAnomaly { record_id, .. } => {
+            IntegrityAnomaly::TimestampAnomaly { record_id, .. } => {
                 assert_eq!(*record_id, 3);
             }
             _ => panic!("wrong variant"),
@@ -348,7 +348,7 @@ mod tests {
         let indicators = check_file_header_consistency(50, 100);
         assert_eq!(indicators.len(), 1);
         match &indicators[0] {
-            IntegrityIndicator::NextRecordIdInconsistency {
+            IntegrityAnomaly::NextRecordIdInconsistency {
                 header_next,
                 actual_highest,
             } => {
@@ -397,7 +397,7 @@ mod tests {
         assert!(
             matches!(
                 &indicators[0],
-                IntegrityIndicator::FileHeaderChecksumMismatch { stored, .. }
+                IntegrityAnomaly::FileHeaderChecksumMismatch { stored, .. }
                     if *stored == 0xDEADBEEF
             ),
             "expected FileHeaderChecksumMismatch, got: {:?}",
@@ -425,7 +425,7 @@ mod tests {
         let indicators = check_file_flags(0x1);
         assert_eq!(indicators.len(), 1);
         assert!(
-            matches!(&indicators[0], IntegrityIndicator::FileNotCleanlyShutdown),
+            matches!(&indicators[0], IntegrityAnomaly::FileNotCleanlyShutdown),
             "expected FileNotCleanlyShutdown, got: {:?}",
             indicators
         );
@@ -436,7 +436,7 @@ mod tests {
         let indicators = check_file_flags(0x2);
         assert_eq!(indicators.len(), 1);
         assert!(
-            matches!(&indicators[0], IntegrityIndicator::FileFull),
+            matches!(&indicators[0], IntegrityAnomaly::FileFull),
             "expected FileFull, got: {:?}",
             indicators
         );
@@ -448,10 +448,10 @@ mod tests {
         assert_eq!(indicators.len(), 2);
         let has_shutdown = indicators
             .iter()
-            .any(|i| matches!(i, IntegrityIndicator::FileNotCleanlyShutdown));
+            .any(|i| matches!(i, IntegrityAnomaly::FileNotCleanlyShutdown));
         let has_full = indicators
             .iter()
-            .any(|i| matches!(i, IntegrityIndicator::FileFull));
+            .any(|i| matches!(i, IntegrityAnomaly::FileFull));
         assert!(has_shutdown && has_full);
     }
 
@@ -470,7 +470,7 @@ mod tests {
         assert!(
             matches!(
                 &indicators[0],
-                IntegrityIndicator::ChunkCountMismatch {
+                IntegrityAnomaly::ChunkCountMismatch {
                     header_count: 3,
                     actual_count: 5
                 }
@@ -486,7 +486,7 @@ mod tests {
         assert_eq!(indicators.len(), 1);
         assert!(matches!(
             &indicators[0],
-            IntegrityIndicator::ChunkCountMismatch {
+            IntegrityAnomaly::ChunkCountMismatch {
                 header_count: 10,
                 actual_count: 3
             }
@@ -539,7 +539,7 @@ mod tests {
         assert!(
             matches!(
                 &indicators[0],
-                IntegrityIndicator::RecordChecksumMismatch { chunk_offset: 0x10000, .. }
+                IntegrityAnomaly::RecordChecksumMismatch { chunk_offset: 0x10000, .. }
             ),
             "expected RecordChecksumMismatch, got: {:?}",
             indicators
@@ -576,7 +576,7 @@ mod tests {
         assert!(
             matches!(
                 &indicators[0],
-                IntegrityIndicator::ExportTimestampCorruption {
+                IntegrityAnomaly::ExportTimestampCorruption {
                     record_id: 1,
                     chunk_offset: 0x10000,
                 }
@@ -592,7 +592,7 @@ mod tests {
         assert_eq!(indicators.len(), 1);
         assert!(matches!(
             &indicators[0],
-            IntegrityIndicator::ExportTimestampCorruption { record_id: 42, .. }
+            IntegrityAnomaly::ExportTimestampCorruption { record_id: 42, .. }
         ));
     }
 
@@ -677,7 +677,7 @@ mod tests {
         assert_eq!(indicators.len(), 1, "got: {:?}", indicators);
         assert!(matches!(
             &indicators[0],
-            IntegrityIndicator::SurgicalRecordDeletion { absorbing_record_id: 1, .. }
+            IntegrityAnomaly::SurgicalRecordDeletion { absorbing_record_id: 1, .. }
         ));
     }
 
@@ -694,7 +694,7 @@ mod tests {
 
         let indicators = detect_danderspritz_deletion(&chunk, 0x20000);
         assert_eq!(indicators.len(), 1);
-        if let IntegrityIndicator::SurgicalRecordDeletion {
+        if let IntegrityAnomaly::SurgicalRecordDeletion {
             chunk_offset, ghost_offset_in_chunk, ..
         } = &indicators[0] {
             assert_eq!(*chunk_offset, 0x20000);
