@@ -49,7 +49,7 @@ pub enum EtwTamperingIndicator {
         threshold: u32,
     },
     /// Expected Event Log session missing (e.g., "EventLog-Security" not found).
-    MissingEventLogSession { expected_channel: String },
+    MissingEventLogSession { expected_name: String },
     /// Session exists but is not running (stopped ETW session = blind spot).
     SessionStopped { session_name: String },
     /// Buffer count is zero for a running session (buffers deallocated).
@@ -69,9 +69,26 @@ pub fn identify_eventlog_sessions(sessions: &[RecoveredEtwSession]) -> Vec<&Reco
         .collect()
 }
 
+/// Required `EventLog` session names that must be present.
+const REQUIRED_EVENTLOG_SESSIONS: &[&str] = &[
+    "EventLog-Security",
+    "EventLog-System",
+    "EventLog-Application",
+];
+
 /// Detect ETW-level tampering indicators across the given sessions.
 pub fn detect_etw_tampering(sessions: &[RecoveredEtwSession]) -> Vec<EtwTamperingIndicator> {
     let mut indicators = Vec::new();
+
+    // Feature 7: check required sessions are present
+    for required in REQUIRED_EVENTLOG_SESSIONS {
+        if !sessions.iter().any(|s| s.name == *required) {
+            indicators.push(EtwTamperingIndicator::MissingEventLogSession {
+                expected_name: (*required).to_string(),
+            });
+        }
+    }
+
     for session in sessions {
         if session.events_lost > HIGH_EVENTS_LOST_THRESHOLD {
             indicators.push(EtwTamperingIndicator::HighEventsLost {
@@ -84,6 +101,18 @@ pub fn detect_etw_tampering(sessions: &[RecoveredEtwSession]) -> Vec<EtwTamperin
             indicators.push(EtwTamperingIndicator::SuspiciousLogMode {
                 session_name: session.name.clone(),
                 log_mode: 0,
+            });
+        }
+        // Feature 7: stopped session
+        if session.name.starts_with("EventLog-") && !session.is_running {
+            indicators.push(EtwTamperingIndicator::SessionStopped {
+                session_name: session.name.clone(),
+            });
+        }
+        // Feature 7: zero buffers on running session
+        if session.is_running && session.buffer_count == 0 {
+            indicators.push(EtwTamperingIndicator::ZeroBuffers {
+                session_name: session.name.clone(),
             });
         }
     }
@@ -228,20 +257,43 @@ mod tests {
 
     #[test]
     fn detect_etw_tampering_returns_empty_for_low_events_lost() {
-        let sessions = vec![RecoveredEtwSession {
-            logger_id: 1,
-            name: "EventLog-Security".to_string(),
-            is_running: true,
-            buffer_count: 4,
-            buffer_size: 64,
-            events_lost: 100,
-            log_mode: 0x00000101,
-            buffer_events: vec![],
-        }];
+        // Must include all three required sessions to avoid MissingEventLogSession indicators
+        let sessions = vec![
+            RecoveredEtwSession {
+                logger_id: 1,
+                name: "EventLog-Security".to_string(),
+                is_running: true,
+                buffer_count: 4,
+                buffer_size: 64,
+                events_lost: 100,
+                log_mode: 0x00000101,
+                buffer_events: vec![],
+            },
+            RecoveredEtwSession {
+                logger_id: 2,
+                name: "EventLog-System".to_string(),
+                is_running: true,
+                buffer_count: 4,
+                buffer_size: 64,
+                events_lost: 0,
+                log_mode: 0x00000101,
+                buffer_events: vec![],
+            },
+            RecoveredEtwSession {
+                logger_id: 3,
+                name: "EventLog-Application".to_string(),
+                is_running: true,
+                buffer_count: 4,
+                buffer_size: 64,
+                events_lost: 0,
+                log_mode: 0x00000101,
+                buffer_events: vec![],
+            },
+        ];
         let indicators = detect_etw_tampering(&sessions);
         assert!(
             indicators.is_empty(),
-            "expected empty indicators for low events_lost, got: {:?}",
+            "expected empty indicators for low events_lost (all sessions present), got: {:?}",
             indicators
         );
     }
@@ -274,20 +326,43 @@ mod tests {
 
     #[test]
     fn detect_etw_tampering_returns_empty_for_normal_active_session() {
-        let sessions = vec![RecoveredEtwSession {
-            logger_id: 1,
-            name: "EventLog-Security".to_string(),
-            is_running: true,
-            buffer_count: 4,
-            buffer_size: 64,
-            events_lost: 5,
-            log_mode: 0x00000101, // standard circular in-memory mode
-            buffer_events: vec![],
-        }];
+        // Must include all three required sessions
+        let sessions = vec![
+            RecoveredEtwSession {
+                logger_id: 1,
+                name: "EventLog-Security".to_string(),
+                is_running: true,
+                buffer_count: 4,
+                buffer_size: 64,
+                events_lost: 5,
+                log_mode: 0x00000101,
+                buffer_events: vec![],
+            },
+            RecoveredEtwSession {
+                logger_id: 2,
+                name: "EventLog-System".to_string(),
+                is_running: true,
+                buffer_count: 4,
+                buffer_size: 64,
+                events_lost: 0,
+                log_mode: 0x00000101,
+                buffer_events: vec![],
+            },
+            RecoveredEtwSession {
+                logger_id: 3,
+                name: "EventLog-Application".to_string(),
+                is_running: true,
+                buffer_count: 4,
+                buffer_size: 64,
+                events_lost: 0,
+                log_mode: 0x00000101,
+                buffer_events: vec![],
+            },
+        ];
         let indicators = detect_etw_tampering(&sessions);
         assert!(
             indicators.is_empty(),
-            "expected empty indicators for normal session, got: {:?}",
+            "expected empty indicators for normal session (all required present), got: {:?}",
             indicators
         );
     }
