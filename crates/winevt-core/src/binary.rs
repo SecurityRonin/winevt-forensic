@@ -136,4 +136,14 @@ pub enum IntegrityIndicator {
         prev_ts: u64,
         this_ts: u64,
     },
+    FileHeaderChecksumMismatch {
+        computed: u32,
+        stored: u32,
+    },
+    FileNotCleanlyShutdown,
+    FileFull,
+    ChunkCountMismatch {
+        header_count: u16,
+        actual_count: usize,
+    },
 }

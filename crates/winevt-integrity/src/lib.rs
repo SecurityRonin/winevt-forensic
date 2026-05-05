@@ -178,4 +178,184 @@ mod tests {
         let indicators = check_file_header_consistency(101, 100);
         assert!(indicators.is_empty());
     }
+
+    // ---- Feature 2: File header checksum verification ----
+
+    fn make_valid_file_header_128() -> Vec<u8> {
+        let mut buf = vec![0u8; 0x80];
+        buf[0..8].copy_from_slice(b"ElfFile\0");
+        let crc = crc32fast::hash(&buf[0..0x78]);
+        buf[0x7C..0x80].copy_from_slice(&crc.to_le_bytes());
+        buf
+    }
+
+    #[test]
+    fn verify_file_header_checksum_valid_returns_empty() {
+        let buf = make_valid_file_header_128();
+        let indicators = verify_file_header_checksum(&buf);
+        assert!(
+            indicators.is_empty(),
+            "expected no indicators for valid file header, got: {:?}",
+            indicators
+        );
+    }
+
+    #[test]
+    fn verify_file_header_checksum_corrupt_returns_indicator() {
+        let mut buf = make_valid_file_header_128();
+        // Corrupt the checksum
+        buf[0x7C..0x80].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+        let indicators = verify_file_header_checksum(&buf);
+        assert_eq!(indicators.len(), 1);
+        assert!(
+            matches!(
+                &indicators[0],
+                IntegrityIndicator::FileHeaderChecksumMismatch { stored, .. }
+                    if *stored == 0xDEADBEEF
+            ),
+            "expected FileHeaderChecksumMismatch, got: {:?}",
+            indicators
+        );
+    }
+
+    #[test]
+    fn verify_file_header_checksum_too_short_returns_empty() {
+        let buf = vec![0u8; 10];
+        let indicators = verify_file_header_checksum(&buf);
+        assert!(indicators.is_empty());
+    }
+
+    // ---- Feature 3: File flags ----
+
+    #[test]
+    fn check_file_flags_zero_returns_empty() {
+        let indicators = check_file_flags(0x0);
+        assert!(indicators.is_empty());
+    }
+
+    #[test]
+    fn check_file_flags_bit0_returns_not_cleanly_shutdown() {
+        let indicators = check_file_flags(0x1);
+        assert_eq!(indicators.len(), 1);
+        assert!(
+            matches!(&indicators[0], IntegrityIndicator::FileNotCleanlyShutdown),
+            "expected FileNotCleanlyShutdown, got: {:?}",
+            indicators
+        );
+    }
+
+    #[test]
+    fn check_file_flags_bit1_returns_file_full() {
+        let indicators = check_file_flags(0x2);
+        assert_eq!(indicators.len(), 1);
+        assert!(
+            matches!(&indicators[0], IntegrityIndicator::FileFull),
+            "expected FileFull, got: {:?}",
+            indicators
+        );
+    }
+
+    #[test]
+    fn check_file_flags_both_bits_returns_two_indicators() {
+        let indicators = check_file_flags(0x3);
+        assert_eq!(indicators.len(), 2);
+        let has_shutdown = indicators
+            .iter()
+            .any(|i| matches!(i, IntegrityIndicator::FileNotCleanlyShutdown));
+        let has_full = indicators
+            .iter()
+            .any(|i| matches!(i, IntegrityIndicator::FileFull));
+        assert!(has_shutdown && has_full);
+    }
+
+    // ---- Feature 4: Chunk count consistency ----
+
+    #[test]
+    fn check_chunk_count_match_returns_empty() {
+        let indicators = check_chunk_count(5, 5);
+        assert!(indicators.is_empty());
+    }
+
+    #[test]
+    fn check_chunk_count_actual_greater_returns_mismatch() {
+        let indicators = check_chunk_count(3, 5);
+        assert_eq!(indicators.len(), 1);
+        assert!(
+            matches!(
+                &indicators[0],
+                IntegrityIndicator::ChunkCountMismatch {
+                    header_count: 3,
+                    actual_count: 5
+                }
+            ),
+            "expected ChunkCountMismatch, got: {:?}",
+            indicators
+        );
+    }
+
+    #[test]
+    fn check_chunk_count_actual_less_returns_mismatch() {
+        let indicators = check_chunk_count(10, 3);
+        assert_eq!(indicators.len(), 1);
+        assert!(matches!(
+            &indicators[0],
+            IntegrityIndicator::ChunkCountMismatch {
+                header_count: 10,
+                actual_count: 3
+            }
+        ));
+    }
+
+    // ---- Feature 5: Records area checksum ----
+
+    fn make_valid_chunk_with_free_space_200() -> Vec<u8> {
+        let mut chunk = vec![0u8; 0x10000];
+        chunk[0..8].copy_from_slice(b"ElfChnk\0");
+        chunk[8..16].copy_from_slice(&1u64.to_le_bytes());
+        chunk[16..24].copy_from_slice(&1u64.to_le_bytes());
+        chunk[24..32].copy_from_slice(&1u64.to_le_bytes());
+        chunk[32..40].copy_from_slice(&1u64.to_le_bytes());
+        chunk[40..44].copy_from_slice(&0x80u32.to_le_bytes());
+        chunk[44..48].copy_from_slice(&0x200u32.to_le_bytes());
+        // free_space_offset = 0x200 (empty records area)
+        chunk[48..52].copy_from_slice(&0x200u32.to_le_bytes());
+        // CRC32 of empty slice (0x200..0x200) = 0x00000000
+        chunk[52..56].copy_from_slice(&0u32.to_le_bytes());
+        let crc = crc32fast::hash(&chunk[0..0x78]);
+        chunk[0x78..0x7C].copy_from_slice(&crc.to_le_bytes());
+        chunk
+    }
+
+    #[test]
+    fn verify_records_area_checksum_valid_returns_empty() {
+        let chunk = make_valid_chunk_with_free_space_200();
+        let indicators = verify_records_area_checksum(&chunk, 0);
+        assert!(
+            indicators.is_empty(),
+            "expected empty for valid records area, got: {:?}",
+            indicators
+        );
+    }
+
+    #[test]
+    fn verify_records_area_checksum_tampered_returns_mismatch() {
+        let mut chunk = make_valid_chunk_with_free_space_200();
+        // Set free_space_offset to 0x210 so records area is 0x200..0x210
+        chunk[48..52].copy_from_slice(&0x210u32.to_le_bytes());
+        // Store wrong checksum at bytes 52..56
+        chunk[52..56].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+        // Recompute header checksum so it's valid
+        let crc = crc32fast::hash(&chunk[0..0x78]);
+        chunk[0x78..0x7C].copy_from_slice(&crc.to_le_bytes());
+        let indicators = verify_records_area_checksum(&chunk, 0x10000);
+        assert_eq!(indicators.len(), 1);
+        assert!(
+            matches!(
+                &indicators[0],
+                IntegrityIndicator::RecordChecksumMismatch { chunk_offset: 0x10000, .. }
+            ),
+            "expected RecordChecksumMismatch, got: {:?}",
+            indicators
+        );
+    }
 }
