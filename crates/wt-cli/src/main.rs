@@ -50,6 +50,14 @@ enum Cmd {
         /// Path to the EVTX file.
         path: PathBuf,
     },
+    /// Carve EVTX records from an E01/EWF forensic disk image.
+    ///
+    /// Reads the image via the EWF reader, then carves records from all bytes.
+    /// Outputs a `CarveResult` as JSON.
+    CarveEwf {
+        /// Path to the E01 image (first segment).
+        path: PathBuf,
+    },
 }
 
 /// Convert Windows FILETIME (100-ns intervals since 1601-01-01) to a UTC string.
@@ -200,6 +208,22 @@ fn main() {
         Cmd::Stats { path, json } => match winevt_carver::carve_from_file(&path) {
             Ok(result) => {
                 print_stats(&path, &result, json);
+                0
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                2
+            }
+        },
+        Cmd::CarveEwf { path } => match winevt_carver::carve_from_ewf(&path) {
+            Ok(result) => {
+                match serde_json::to_string_pretty(&result) {
+                    Ok(json) => println!("{json}"),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(2);
+                    }
+                }
                 0
             }
             Err(e) => {
