@@ -143,6 +143,124 @@ pub fn check_file_header_consistency(
     }
 }
 
+/// Detect the wevtutil / Event Viewer export timestamp corruption described by Fox-IT.
+///
+/// When `wevtutil epl` or "Save As…" exports an EVTX, each record's header timestamp is
+/// replaced with the **previous** record's BinXml timestamp.  The first record in the export
+/// therefore receives no predecessor and gets timestamp = 0.
+///
+/// This function returns one [`IntegrityIndicator::ExportTimestampCorruption`] for every
+/// record whose header timestamp is 0.
+///
+/// `records` is a slice of `(record_id, chunk_offset, header_timestamp)` tuples.
+///
+/// Reference: Wassenaar, Fox-IT BV (2019).
+/// "Export corrupts Windows Event Log files"
+/// <https://blog.fox-it.com/2019/06/04/export-corrupts-windows-event-log-files/>
+pub fn detect_export_timestamp_corruption(
+    records: &[(u64, u64, u64)],
+) -> Vec<IntegrityIndicator> {
+    records
+        .iter()
+        .filter(|&&(_, _, ts)| ts == 0)
+        .map(|&(record_id, chunk_offset, _)| {
+            IntegrityIndicator::ExportTimestampCorruption {
+                record_id,
+                chunk_offset,
+            }
+        })
+        .collect()
+}
+
+/// Detect surgical record deletion consistent with the NSA DanderSpritz `eventlogedit` tool.
+///
+/// The tool absorbs a deleted record into the preceding record's size field: the absorbing
+/// record's `size` is inflated to span the bytes of the deleted record, whose magic bytes
+/// (`0x2A 0x2A 0x00 0x00`) remain visible inside the inflated body.  No EID 1102 is emitted.
+///
+/// This function walks the records area (`0x200..free_space_offset`) of `chunk_data` and
+/// emits one [`IntegrityIndicator::SurgicalRecordDeletion`] for each record whose stated
+/// body contains the record-magic pattern.
+///
+/// `chunk_offset` is the byte offset of the chunk within the source file (used in indicators).
+///
+/// Reference: Wassenaar & van Dijk, Fox-IT BV (2017).
+/// "Detection and recovery of NSA's covered up tracks"
+/// <https://blog.fox-it.com/2017/12/08/detection-and-recovery-of-nsas-covered-up-tracks/>
+///
+/// Reference implementation (Python, MIT License): fox-it/danderspritz-evtx
+/// <https://github.com/fox-it/danderspritz-evtx>
+/// Algorithm independently re-implemented in Rust.
+pub fn detect_danderspritz_deletion(
+    chunk_data: &[u8],
+    chunk_offset: u64,
+) -> Vec<IntegrityIndicator> {
+    const RECORD_MAGIC: [u8; 4] = [0x2A, 0x2A, 0x00, 0x00];
+    const RECORDS_START: usize = 0x200;
+    const FREE_SPACE_OFF_FIELD: usize = 0x30; // bytes 48..52 in chunk header
+
+    if chunk_data.len() < FREE_SPACE_OFF_FIELD + 4 {
+        return vec![];
+    }
+    let free_space_offset = u32::from_le_bytes(
+        chunk_data[FREE_SPACE_OFF_FIELD..FREE_SPACE_OFF_FIELD + 4]
+            .try_into()
+            .unwrap_or([0; 4]),
+    ) as usize;
+
+    if free_space_offset <= RECORDS_START || chunk_data.len() < free_space_offset {
+        return vec![];
+    }
+
+    let mut indicators = Vec::new();
+    let mut pos = RECORDS_START;
+
+    while pos + 24 <= free_space_offset {
+        // Every valid record starts with magic.
+        if chunk_data[pos..pos + 4] != RECORD_MAGIC {
+            break;
+        }
+
+        let stated_size = u32::from_le_bytes(
+            chunk_data[pos + 4..pos + 8].try_into().unwrap_or([0; 4]),
+        ) as usize;
+
+        // Minimum well-formed record: 4 magic + 4 size + 8 id + 8 ts + 0 payload + 4 tail = 28
+        if stated_size < 28 || pos + stated_size > free_space_offset {
+            break;
+        }
+
+        let record_id = u64::from_le_bytes(
+            chunk_data[pos + 8..pos + 16].try_into().unwrap_or([0; 8]),
+        );
+
+        // Body = bytes after the 24-byte header, before the 4-byte trailing size field.
+        let body_start = pos + 24;
+        let body_end = pos + stated_size - 4;
+
+        // Search the body for a nested record-magic pattern.
+        if body_end > body_start {
+            let body = &chunk_data[body_start..body_end];
+            if let Some(rel) = body
+                .windows(4)
+                .position(|w| w == RECORD_MAGIC)
+            {
+                let ghost_offset_in_chunk = (body_start + rel) as u64;
+                indicators.push(IntegrityIndicator::SurgicalRecordDeletion {
+                    chunk_offset,
+                    absorbing_record_id: record_id,
+                    stated_size: stated_size as u32,
+                    ghost_offset_in_chunk,
+                });
+            }
+        }
+
+        pos += stated_size;
+    }
+
+    indicators
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
