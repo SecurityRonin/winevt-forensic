@@ -75,6 +75,21 @@ pub struct CarveResult {
     pub source_hash: Option<String>,
 }
 
+/// Configuration for carving.
+#[derive(Debug, Clone, Default)]
+pub struct CarveConfig {
+    /// Added to all reported chunk/record offsets. Use when carving a slice
+    /// from a larger image so that offsets are absolute within the image.
+    pub offset_base: u64,
+}
+
+/// Like [`carve_from_bytes`] but with explicit configuration.
+pub fn carve_from_bytes_with_config(data: &[u8], config: &CarveConfig) -> CarveResult {
+    let mut result = carve_from_bytes_inner(data, config.offset_base);
+    result.source_hash = None;
+    result
+}
+
 /// Process a single full chunk at a given offset. Returns the carved chunk or None.
 fn process_full_chunk(data: &[u8], offset: usize) -> Option<CarvedChunk> {
     let chunk_end = offset + CHUNK_SIZE as usize;
@@ -108,7 +123,7 @@ fn process_full_chunk(data: &[u8], offset: usize) -> Option<CarvedChunk> {
     })
 }
 
-pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
+fn carve_from_bytes_inner(data: &[u8], offset_base: u64) -> CarveResult {
     let mut result = CarveResult {
         file_header: None,
         chunks: Vec::new(),
@@ -135,9 +150,9 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
             if chunk_end > data.len() {
                 // Truncated chunk — handle immediately (not parallelizable)
                 if let Some(header) = EvtxChunkHeader::parse(&data[i..]) {
-                    let records = recover_records_from_slice(&data[i..], i as u64, true);
+                    let records = recover_records_from_slice(&data[i..], i as u64 + offset_base, true);
                     truncated_chunks.push(CarvedChunk {
-                        offset: i as u64,
+                        offset: i as u64 + offset_base,
                         header,
                         integrity: Integrity::Truncated,
                         records,
@@ -158,7 +173,15 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
     // Pass 2: process full chunks in parallel, then sort by offset
     let mut carved: Vec<CarvedChunk> = full_offsets
         .par_iter()
-        .filter_map(|&off| process_full_chunk(data, off))
+        .filter_map(|&off| {
+            let mut chunk = process_full_chunk(data, off)?;
+            chunk.offset += offset_base;
+            // Shift record offsets too
+            for rec in &mut chunk.records {
+                rec.offset += offset_base;
+            }
+            Some(chunk)
+        })
         .collect();
     carved.sort_by_key(|c| c.offset);
 
@@ -188,16 +211,9 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
     let chunk_ranges: Vec<(u64, u64)> = result
         .chunks
         .iter()
-        .map(|c| {
-            (
-                c.header.first_event_record_number,
-                c.header.last_event_record_number,
-            )
-        })
+        .map(|c| (c.header.first_event_record_number, c.header.last_event_record_number))
         .collect();
-    result
-        .indicators
-        .extend(detect_record_id_gaps(&chunk_ranges));
+    result.indicators.extend(detect_record_id_gaps(&chunk_ranges));
 
     // Post-carve: check file header consistency if we have a file header
     if let Some(ref fh) = result.file_header {
@@ -218,17 +234,18 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
                 .extend(verify_file_header_checksum(&data[0..0x80]));
         }
         // Feature 3: file flags
+        result.indicators.extend(check_file_flags(fh.file_flags));
+        // Feature 4: chunk count consistency
         result
             .indicators
-            .extend(check_file_flags(fh.file_flags));
-        // Feature 4: chunk count consistency
-        result.indicators.extend(check_chunk_count(
-            fh.chunk_count,
-            result.chunks.len(),
-        ));
+            .extend(check_chunk_count(fh.chunk_count, result.chunks.len()));
     }
 
     result
+}
+
+pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
+    carve_from_bytes_inner(data, 0)
 }
 
 /// Read an EVTX file from disk and carve chunks and records from it.
