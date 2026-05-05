@@ -243,7 +243,7 @@ Records start at chunk offset `0x200`. Each chunk is exactly `0x10000` bytes.
 
 ## Acknowledgements
 
-**Eric Zimmerman** whose EVTX Explorer and Timeline Explorer tools established the gold standard for Windows event log analysis and documented the format in public tooling.
+**Eric Zimmerman** whose [EVTX Explorer](https://ericzimmerman.github.io/#!index.md) and [Timeline Explorer](https://ericzimmerman.github.io/#!index.md) tools established the gold standard for Windows event log analysis and documented the format in public tooling.
 
 **Omer Ben-Amram** whose [evtx](https://github.com/omerbenamram/evtx) Rust crate proved EVTX parsing in safe Rust was viable and provided an authoritative reference implementation.
 
