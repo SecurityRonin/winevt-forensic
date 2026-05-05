@@ -1238,4 +1238,145 @@ mod tests {
                 .collect::<Vec<_>>()
         );
     }
+
+    // ── Feature 18: export timestamp corruption wired into carve_from_bytes ──
+
+    /// Build a full valid chunk with one record at 0x200 with given id/ts/payload.
+    fn make_chunk_with_record(record_id: u64, timestamp: u64, payload: &[u8]) -> Vec<u8> {
+        let rec_size = (4 + 4 + 8 + 8 + payload.len() + 4) as u32;
+        let free_off = 0x200u32 + rec_size;
+        let mut chunk = vec![0u8; 0x10000];
+        chunk[0..8].copy_from_slice(b"ElfChnk\0");
+        chunk[8..16].copy_from_slice(&record_id.to_le_bytes());
+        chunk[16..24].copy_from_slice(&record_id.to_le_bytes());
+        chunk[24..32].copy_from_slice(&record_id.to_le_bytes());
+        chunk[32..40].copy_from_slice(&record_id.to_le_bytes());
+        chunk[40..44].copy_from_slice(&0x80u32.to_le_bytes());
+        chunk[44..48].copy_from_slice(&0x200u32.to_le_bytes());
+        chunk[48..52].copy_from_slice(&free_off.to_le_bytes());
+        // records area checksum
+        let records_area_crc = crc32fast::hash(&chunk[0x200..free_off as usize]);
+        chunk[52..56].copy_from_slice(&records_area_crc.to_le_bytes());
+        // record at 0x200
+        chunk[0x200..0x204].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+        chunk[0x204..0x208].copy_from_slice(&rec_size.to_le_bytes());
+        chunk[0x208..0x210].copy_from_slice(&record_id.to_le_bytes());
+        chunk[0x210..0x218].copy_from_slice(&timestamp.to_le_bytes());
+        let pl_end = 0x218 + payload.len();
+        chunk[0x218..pl_end].copy_from_slice(payload);
+        chunk[pl_end..pl_end + 4].copy_from_slice(&rec_size.to_le_bytes());
+        // recompute records area checksum now that record bytes are in place
+        let records_area_crc = crc32fast::hash(&chunk[0x200..free_off as usize]);
+        chunk[52..56].copy_from_slice(&records_area_crc.to_le_bytes());
+        // header checksum
+        let hdr_crc = crc32fast::hash(&chunk[0..0x78]);
+        chunk[0x78..0x7C].copy_from_slice(&hdr_crc.to_le_bytes());
+        chunk
+    }
+
+    #[test]
+    fn export_timestamp_corruption_zero_ts_record_populates_result_indicators() {
+        // Record with timestamp = 0 should trigger ExportTimestampCorruption
+        let data = make_chunk_with_record(7, 0, b"payload");
+        let result = carve_from_bytes(&data);
+        assert_eq!(result.chunks.len(), 1);
+        assert_eq!(result.chunks[0].records.len(), 1, "should recover one record");
+        let has_indicator = result.indicators.iter().any(|ind| {
+            matches!(ind, IntegrityIndicator::ExportTimestampCorruption { record_id: 7, .. })
+        });
+        assert!(
+            has_indicator,
+            "expected ExportTimestampCorruption(record_id=7) in result.indicators, got: {:?}",
+            result.indicators
+        );
+    }
+
+    #[test]
+    fn export_timestamp_corruption_nonzero_ts_returns_no_indicator() {
+        let data = make_chunk_with_record(1, 133_297_085_160_000_000, b"");
+        let result = carve_from_bytes(&data);
+        let has_export = result.indicators.iter().any(|ind| {
+            matches!(ind, IntegrityIndicator::ExportTimestampCorruption { .. })
+        });
+        assert!(
+            !has_export,
+            "non-zero ts should not produce ExportTimestampCorruption, got: {:?}",
+            result.indicators
+        );
+    }
+
+    // ── Feature 18: DanderSpritz surgical deletion wired into carve_from_bytes ─
+
+    fn make_chunk_with_inflated_record() -> Vec<u8> {
+        // Record 1 at 0x200 with size inflated to absorb record 2 (ghost).
+        // Record 1 payload = "absorber" (8 bytes), record 2 payload = "ghost" (5 bytes).
+        let sz1 = (4 + 4 + 8 + 8 + 8usize + 4) as u32; // 36
+        let sz2 = (4 + 4 + 8 + 8 + 5usize + 4) as u32; // 33
+        let inflated = sz1 + sz2;
+        let free_off = 0x200u32 + inflated;
+
+        let mut chunk = vec![0u8; 0x10000];
+        chunk[0..8].copy_from_slice(b"ElfChnk\0");
+        chunk[8..16].copy_from_slice(&1u64.to_le_bytes());
+        chunk[16..24].copy_from_slice(&1u64.to_le_bytes());
+        chunk[24..32].copy_from_slice(&1u64.to_le_bytes());
+        chunk[32..40].copy_from_slice(&1u64.to_le_bytes());
+        chunk[40..44].copy_from_slice(&0x80u32.to_le_bytes());
+        chunk[44..48].copy_from_slice(&0x200u32.to_le_bytes());
+        chunk[48..52].copy_from_slice(&free_off.to_le_bytes());
+
+        // Record 1 (absorbing)
+        chunk[0x200..0x204].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+        chunk[0x204..0x208].copy_from_slice(&inflated.to_le_bytes()); // inflated size
+        chunk[0x208..0x210].copy_from_slice(&1u64.to_le_bytes()); // record_id = 1
+        chunk[0x210..0x218].copy_from_slice(&100u64.to_le_bytes()); // timestamp
+        chunk[0x218..0x220].copy_from_slice(b"absorber"); // 8-byte payload
+        // Record 2 (ghost) at 0x200 + sz1 = 0x224
+        let ghost_off = 0x200usize + sz1 as usize;
+        chunk[ghost_off..ghost_off + 4].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+        chunk[ghost_off + 4..ghost_off + 8].copy_from_slice(&sz2.to_le_bytes());
+        chunk[ghost_off + 8..ghost_off + 16].copy_from_slice(&2u64.to_le_bytes());
+        chunk[ghost_off + 16..ghost_off + 24].copy_from_slice(&200u64.to_le_bytes());
+        chunk[ghost_off + 24..ghost_off + 29].copy_from_slice(b"ghost");
+        // Trailing size for inflated record 1
+        let trail = 0x200usize + inflated as usize - 4;
+        chunk[trail..trail + 4].copy_from_slice(&inflated.to_le_bytes());
+
+        // records area checksum
+        let recs_crc = crc32fast::hash(&chunk[0x200..free_off as usize]);
+        chunk[52..56].copy_from_slice(&recs_crc.to_le_bytes());
+        // header checksum
+        let hdr_crc = crc32fast::hash(&chunk[0..0x78]);
+        chunk[0x78..0x7C].copy_from_slice(&hdr_crc.to_le_bytes());
+        chunk
+    }
+
+    #[test]
+    fn danderspritz_inflated_record_populates_result_indicators() {
+        let data = make_chunk_with_inflated_record();
+        let result = carve_from_bytes(&data);
+        assert_eq!(result.chunks.len(), 1);
+        let has_surgical = result.indicators.iter().any(|ind| {
+            matches!(ind, IntegrityIndicator::SurgicalRecordDeletion { absorbing_record_id: 1, .. })
+        });
+        assert!(
+            has_surgical,
+            "expected SurgicalRecordDeletion(absorbing_record_id=1) in result.indicators, got: {:?}",
+            result.indicators
+        );
+    }
+
+    #[test]
+    fn danderspritz_normal_chunk_returns_no_surgical_deletion() {
+        let data = make_chunk_with_record(3, 133_297_085_160_000_000, b"normal");
+        let result = carve_from_bytes(&data);
+        let has_surgical = result.indicators.iter().any(|ind| {
+            matches!(ind, IntegrityIndicator::SurgicalRecordDeletion { .. })
+        });
+        assert!(
+            !has_surgical,
+            "normal chunk should not produce SurgicalRecordDeletion, got: {:?}",
+            result.indicators
+        );
+    }
 }
