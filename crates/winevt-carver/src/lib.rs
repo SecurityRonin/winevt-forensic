@@ -694,6 +694,102 @@ mod tests {
         assert!(result.is_err(), "expected Err for nonexistent path");
     }
 
+    // ---- Feature 10: BinXml validity heuristic ----
+
+    #[test]
+    fn is_likely_valid_binxml_valid_header_returns_true() {
+        let payload = vec![0x0F, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00];
+        assert!(is_likely_valid_binxml(&payload));
+    }
+
+    #[test]
+    fn is_likely_valid_binxml_empty_returns_false() {
+        assert!(!is_likely_valid_binxml(&[]));
+    }
+
+    #[test]
+    fn is_likely_valid_binxml_wrong_first_byte_returns_false() {
+        let payload = vec![0x00, 0x01, 0x01, 0x00];
+        assert!(!is_likely_valid_binxml(&payload));
+    }
+
+    #[test]
+    fn is_likely_valid_binxml_wrong_version_returns_false() {
+        let payload = vec![0x0F, 0x02, 0x01, 0x00]; // major version 2 — invalid
+        assert!(!is_likely_valid_binxml(&payload));
+    }
+
+    #[test]
+    fn is_likely_valid_binxml_null_run_in_first_32_returns_false() {
+        let mut payload = vec![0x0F, 0x01, 0x01, 0x00];
+        payload.extend(vec![0x00u8; 16]); // 16 consecutive nulls
+        assert!(!is_likely_valid_binxml(&payload));
+    }
+
+    #[test]
+    fn is_likely_valid_binxml_null_run_after_32_bytes_returns_true() {
+        // 0x0F 0x01 then non-zero bytes in first 32, then null run after
+        let mut payload = vec![0x0F, 0x01, 0x01, 0x00];
+        payload.extend(vec![0xAAu8; 28]); // fill out first 32 bytes, no null run
+        payload.extend(vec![0x00u8; 20]); // null run after first 32 — should not fail
+        assert!(is_likely_valid_binxml(&payload));
+    }
+
+    #[test]
+    fn aggressive_scan_filters_garbage_binxml_payloads() {
+        // Build a corrupt chunk with two records:
+        // record 1: valid BinXml payload (0x0F 0x01 ...)
+        // record 2: garbage payload (starts with 0x00)
+        let mut chunk = vec![0u8; 0x10000];
+        chunk[0..8].copy_from_slice(b"ElfChnk\0");
+        chunk[8..16].copy_from_slice(&1u64.to_le_bytes());
+        chunk[16..24].copy_from_slice(&2u64.to_le_bytes());
+        chunk[24..32].copy_from_slice(&1u64.to_le_bytes());
+        chunk[32..40].copy_from_slice(&2u64.to_le_bytes());
+        chunk[40..44].copy_from_slice(&0x80u32.to_le_bytes());
+        chunk[44..48].copy_from_slice(&0x200u32.to_le_bytes());
+        chunk[48..52].copy_from_slice(&0x200u32.to_le_bytes());
+        chunk[52..56].copy_from_slice(&0u32.to_le_bytes());
+        // CORRUPT header checksum to trigger aggressive scan
+        chunk[0x78..0x7C].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+
+        // Record 1 at 0x200: has valid BinXml payload
+        let rec1_payload: Vec<u8> = {
+            let mut p = vec![0x0F, 0x01, 0x01, 0x00]; // valid BinXml header
+            p.extend(vec![0xAAu8; 4]);
+            p
+        };
+        let rec1_bxml_len = rec1_payload.len();
+        let rec1_size = 24 + rec1_bxml_len + 4; // header + payload + copy-of-size
+        chunk[0x200..0x204].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+        chunk[0x204..0x208].copy_from_slice(&(rec1_size as u32).to_le_bytes());
+        chunk[0x208..0x210].copy_from_slice(&1u64.to_le_bytes()); // record_id
+        chunk[0x210..0x218].copy_from_slice(&100u64.to_le_bytes()); // timestamp
+        chunk[0x218..0x218 + rec1_bxml_len].copy_from_slice(&rec1_payload);
+        let end1 = 0x200 + rec1_size;
+        chunk[end1 - 4..end1].copy_from_slice(&(rec1_size as u32).to_le_bytes());
+
+        // Record 2 at 0x300: has garbage BinXml payload (starts with 0x00)
+        let rec2_payload = vec![0x00u8; 8]; // garbage — all zeros
+        let rec2_bxml_len = rec2_payload.len();
+        let rec2_size = 24 + rec2_bxml_len + 4;
+        chunk[0x300..0x304].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+        chunk[0x304..0x308].copy_from_slice(&(rec2_size as u32).to_le_bytes());
+        chunk[0x308..0x310].copy_from_slice(&2u64.to_le_bytes()); // record_id
+        chunk[0x310..0x318].copy_from_slice(&200u64.to_le_bytes()); // timestamp
+        chunk[0x318..0x318 + rec2_bxml_len].copy_from_slice(&rec2_payload);
+        let end2 = 0x300 + rec2_size;
+        chunk[end2 - 4..end2].copy_from_slice(&(rec2_size as u32).to_le_bytes());
+
+        let result = carve_from_bytes(&chunk);
+        assert_eq!(result.chunks.len(), 1);
+        let records = &result.chunks[0].records;
+        let ids: Vec<u64> = records.iter().map(|r| r.header.record_id).collect();
+        // Record 1 (valid BinXml) should be present, record 2 (garbage) filtered out
+        assert!(ids.contains(&1), "record 1 with valid BinXml should be kept, got ids: {:?}", ids);
+        assert!(!ids.contains(&2), "record 2 with garbage payload should be filtered, got ids: {:?}", ids);
+    }
+
     // ---- Feature 8: memmap2 ----
 
     #[test]
