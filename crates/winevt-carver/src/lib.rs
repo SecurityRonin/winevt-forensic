@@ -750,6 +750,26 @@ mod tests {
         assert!(result.is_err(), "expected Err for nonexistent path");
     }
 
+    // ---- E01/EWF forensic image support ----
+
+    #[test]
+    fn carve_from_ewf_nonexistent_path_returns_err() {
+        let path = std::path::Path::new("/nonexistent/disk.E01");
+        let result = carve_from_ewf(path);
+        assert!(result.is_err(), "expected Err for nonexistent E01 path");
+    }
+
+    #[test]
+    fn carve_from_ewf_nonexistent_returns_ewf_error_variant() {
+        let path = std::path::Path::new("/nonexistent/disk_ewf.E01");
+        let result = carve_from_ewf(path);
+        assert!(result.is_err());
+        // Either CarveError::Io or CarveError::EwfError is acceptable for a missing file
+        let err = result.unwrap_err();
+        let is_io_or_ewf = matches!(err, CarveError::Io(_) | CarveError::EwfError(_));
+        assert!(is_io_or_ewf, "expected Io or EwfError, got: {:?}", err);
+    }
+
     // ---- Feature 14: Offset base parameter ----
 
     #[test]
