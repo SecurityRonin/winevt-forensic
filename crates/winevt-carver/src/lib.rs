@@ -641,6 +641,34 @@ mod tests {
         assert!(result.is_err(), "expected Err for nonexistent path");
     }
 
+    // ---- Feature 1: thiserror / CarveError ----
+
+    #[test]
+    fn carve_from_file_nonexistent_returns_carve_error_io() {
+        let path = std::path::Path::new("/nonexistent/path/to/feature1.evtx");
+        let result = carve_from_file(path);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, CarveError::Io(_)),
+            "expected CarveError::Io, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn verify_integrity_nonexistent_returns_carve_error_io() {
+        let path = std::path::Path::new("/nonexistent/path/to/feature1b.evtx");
+        let result = verify_integrity(path);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, CarveError::Io(_)),
+            "expected CarveError::Io, got: {:?}",
+            err
+        );
+    }
+
     // ---- US-03: aggressive scan for corrupt chunks ----
 
     /// Build a corrupt chunk (bad header checksum) with two records placed at
