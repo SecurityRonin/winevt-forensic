@@ -377,4 +377,94 @@ mod tests {
         let json = serde_json::to_string(&session).expect("serialize RecoveredEtwSession");
         assert!(json.contains("EventLog-Security"));
     }
+
+    // ---- Feature 7: Missing/stopped ETW sessions + zero buffers ----
+
+    fn make_session(name: &str, is_running: bool, buffer_count: u32, log_mode: u32) -> RecoveredEtwSession {
+        RecoveredEtwSession {
+            logger_id: 1,
+            name: name.to_string(),
+            is_running,
+            buffer_count,
+            buffer_size: 64,
+            events_lost: 0,
+            log_mode,
+            buffer_events: vec![],
+        }
+    }
+
+    #[test]
+    fn detect_etw_tampering_all_expected_present_no_new_indicators() {
+        let sessions = vec![
+            make_session("EventLog-Security", true, 4, 0x101),
+            make_session("EventLog-System", true, 4, 0x101),
+            make_session("EventLog-Application", true, 4, 0x101),
+        ];
+        let indicators = detect_etw_tampering(&sessions);
+        let has_missing = indicators.iter().any(|i| matches!(i, EtwTamperingIndicator::MissingEventLogSession { .. }));
+        let has_stopped = indicators.iter().any(|i| matches!(i, EtwTamperingIndicator::SessionStopped { .. }));
+        let has_zero = indicators.iter().any(|i| matches!(i, EtwTamperingIndicator::ZeroBuffers { .. }));
+        assert!(!has_missing && !has_stopped && !has_zero,
+            "expected no missing/stopped/zero indicators, got: {:?}", indicators);
+    }
+
+    #[test]
+    fn detect_etw_tampering_missing_security_emits_missing_indicator() {
+        let sessions = vec![
+            make_session("EventLog-System", true, 4, 0x101),
+            make_session("EventLog-Application", true, 4, 0x101),
+        ];
+        let indicators = detect_etw_tampering(&sessions);
+        let has_missing = indicators.iter().any(|i| {
+            matches!(i, EtwTamperingIndicator::MissingEventLogSession { expected_name }
+                if expected_name == "EventLog-Security")
+        });
+        assert!(has_missing, "expected MissingEventLogSession for EventLog-Security, got: {:?}", indicators);
+    }
+
+    #[test]
+    fn detect_etw_tampering_stopped_session_emits_stopped_indicator() {
+        let sessions = vec![
+            make_session("EventLog-Security", false, 4, 0x101),
+            make_session("EventLog-System", true, 4, 0x101),
+            make_session("EventLog-Application", true, 4, 0x101),
+        ];
+        let indicators = detect_etw_tampering(&sessions);
+        let has_stopped = indicators.iter().any(|i| {
+            matches!(i, EtwTamperingIndicator::SessionStopped { session_name }
+                if session_name == "EventLog-Security")
+        });
+        assert!(has_stopped, "expected SessionStopped for EventLog-Security, got: {:?}", indicators);
+    }
+
+    #[test]
+    fn detect_etw_tampering_zero_buffers_running_emits_zero_indicator() {
+        let sessions = vec![
+            make_session("EventLog-Security", true, 0, 0x101),
+            make_session("EventLog-System", true, 4, 0x101),
+            make_session("EventLog-Application", true, 4, 0x101),
+        ];
+        let indicators = detect_etw_tampering(&sessions);
+        let has_zero = indicators.iter().any(|i| {
+            matches!(i, EtwTamperingIndicator::ZeroBuffers { session_name }
+                if session_name == "EventLog-Security")
+        });
+        assert!(has_zero, "expected ZeroBuffers for EventLog-Security (running, 0 buffers), got: {:?}", indicators);
+    }
+
+    #[test]
+    fn detect_etw_tampering_all_three_missing_when_no_sessions() {
+        let sessions: Vec<RecoveredEtwSession> = vec![];
+        let indicators = detect_etw_tampering(&sessions);
+        let missing_names: Vec<&str> = indicators.iter().filter_map(|i| {
+            if let EtwTamperingIndicator::MissingEventLogSession { expected_name } = i {
+                Some(expected_name.as_str())
+            } else {
+                None
+            }
+        }).collect();
+        assert!(missing_names.contains(&"EventLog-Security"));
+        assert!(missing_names.contains(&"EventLog-System"));
+        assert!(missing_names.contains(&"EventLog-Application"));
+    }
 }
