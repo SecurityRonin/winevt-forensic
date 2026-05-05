@@ -255,9 +255,9 @@ Records start at chunk offset `0x200`. Each chunk is exactly `0x10000` bytes.
 
 ## Acknowledgements
 
-**Eric Zimmerman** whose [EVTX Explorer](https://ericzimmerman.github.io/#!index.md) and [Timeline Explorer](https://ericzimmerman.github.io/#!index.md) tools established the gold standard for Windows event log analysis and documented the format in public tooling.
+**[Eric Zimmerman](https://www.linkedin.com/in/eric-zimmerman-6965b22/)** whose [EVTX Explorer](https://ericzimmerman.github.io/#!index.md) and [Timeline Explorer](https://ericzimmerman.github.io/#!index.md) tools established the gold standard for Windows event log analysis and documented the format in public tooling.
 
-**Omer Ben-Amram** whose [evtx](https://github.com/omerbenamram/evtx) Rust crate proved EVTX parsing in safe Rust was viable and provided an authoritative reference implementation.
+**[Omer Ben-Amram](https://github.com/omerbenamram)** whose [evtx](https://github.com/omerbenamram/evtx) Rust crate proved EVTX parsing in safe Rust was viable and provided an authoritative reference implementation.
 
 **The Rust [crc32fast](https://github.com/srijs/rust-crc32fast)** team for a correct, fast CRC32 implementation — EVTX uses standard ISO 3309 (same polynomial).
 
