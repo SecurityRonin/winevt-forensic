@@ -142,7 +142,8 @@ The problem this library solves is upstream: getting records out of files the ot
 | JSON output | ✓ | — | ✓ | — |
 | Sigma-based detection rules | — | — | ✓ | — |
 | MITRE ATT&CK tagging | — | — | ✓ | — |
-| Free & open source | ✓ | ✓ | ✓ | — |
+| Free (no cost) | ✓ | ✓ | ✓ | ✓ |
+| Open source | ✓ | ✓ | ✓ | — |
 
 ---
 
