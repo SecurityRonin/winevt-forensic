@@ -219,11 +219,20 @@ pub fn carve_from_bytes(data: &[u8]) -> CarveResult {
 
 /// Read an EVTX file from disk and carve chunks and records from it.
 ///
-/// Opens the file, reads it into memory, then delegates to [`carve_from_bytes`].
+/// Uses `memmap2` for zero-copy access to the file bytes, then delegates to
+/// [`carve_from_bytes`]. Sets `source_hash` to the SHA-256 of the file.
 pub fn carve_from_file(path: &Path) -> Result<CarveResult, CarveError> {
-    let data = std::fs::read(path)?;
-    let mut result = carve_from_bytes(&data);
-    result.source_hash = Some(compute_sha256(&data));
+    let file = std::fs::File::open(path)?;
+    let meta = file.metadata()?;
+    if meta.len() == 0 {
+        let mut result = carve_from_bytes(&[]);
+        result.source_hash = Some(compute_sha256(&[]));
+        return Ok(result);
+    }
+    // SAFETY: we never write to this mapping; file is opened read-only
+    let mmap = unsafe { memmap2::Mmap::map(&file)? };
+    let mut result = carve_from_bytes(&mmap);
+    result.source_hash = Some(compute_sha256(&mmap));
     Ok(result)
 }
 
