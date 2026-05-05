@@ -6,6 +6,7 @@
   <a href="https://crates.io/crates/winevt-core"><img src="https://img.shields.io/crates/v/winevt-core.svg" alt="Crates.io" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
   <a href="https://github.com/SecurityRonin/winevt-forensic/actions/workflows/ci.yml"><img src="https://github.com/SecurityRonin/winevt-forensic/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust 1.75+" /></a>
   <a href="https://github.com/sponsors/h4x0r"><img src="https://img.shields.io/badge/sponsor-h4x0r-ea4aaa?logo=github-sponsors" alt="Sponsor" /></a>
 </p>
 
@@ -15,20 +16,58 @@ Low-level EVTX forensic library suite. Recovers Windows Event Log records from c
 
 This is not an event viewer. It is what you use when the log file has been tampered with or the EVTX parser fails.
 
-```toml
-[dependencies]
-winevt-core         = "0.1"   # types + binary format
-winevt-integrity = "0.1"   # tampering detection
-winevt-carver       = "0.1"   # record carving from raw bytes
+---
+
+## Install
+
+**CLI binary**
+
+```bash
+cargo install wt-cli
 ```
 
-**For event correlation, session analysis, and frequency analysis → use [RapidTriage](https://github.com/SecurityRonin/rapidtriage), which depends on this library.**
+**Library crates**
+
+```bash
+cargo add winevt-core winevt-carver winevt-integrity
+```
+
+```toml
+[dependencies]
+winevt-core      = "0.1"   # types + binary format constants
+winevt-integrity = "0.1"   # tampering detection algorithms
+winevt-carver    = "0.1"   # record carving from files, bytes, disk images
+```
+
+**For event correlation, session analysis, and frequency analysis → use [RapidTriage](https://github.com/SecurityRonin/rapidtriage), which builds on this library.**
 
 ---
 
 ## Three Things You Do With This
 
-### Carve records from a corrupt or cleared EVTX file
+### 1. Carve records from a corrupt or cleared EVTX file
+
+**CLI**
+
+```bash
+wt carve /evidence/Security.evtx
+```
+
+```json
+{
+  "stats": {
+    "bytes_scanned": 1114112,
+    "chunks_found": 17,
+    "chunks_valid": 14,
+    "chunks_corrupt": 3,
+    "records_recovered": 4021,
+    "records_corrupt": 12
+  },
+  "anti_forensic": []
+}
+```
+
+**Library**
 
 ```rust
 use winevt_carver::{carve_from_file, Integrity};
@@ -52,7 +91,36 @@ for chunk in &result.chunks {
 
 Recovers records even from chunks where the header CRC32 has been tampered with. Falls back to aggressive magic-byte scan when sequential record walk fails.
 
-### Detect anti-forensic indicators
+---
+
+### 2. Verify integrity and detect tampering indicators
+
+**CLI**
+
+```bash
+wt verify /evidence/Security.evtx
+```
+
+```json
+[
+  {
+    "ChunkChecksumMismatch": {
+      "chunk_offset": 69632,
+      "computed": 2881145975,
+      "stored": 3735928559
+    }
+  },
+  {
+    "RecordIdGap": {
+      "chunk_offset": 135168,
+      "expected": 4097,
+      "found": 4201
+    }
+  }
+]
+```
+
+**Library**
 
 ```rust
 use winevt_carver::verify_integrity;
@@ -75,7 +143,9 @@ for ind in &indicators {
 }
 ```
 
-### Carve from raw bytes (disk image, memory dump, slack space)
+---
+
+### 3. Carve from raw bytes — disk image, memory dump, slack space
 
 ```rust
 use winevt_carver::carve_from_bytes;
@@ -95,34 +165,32 @@ println!("Scanned {} bytes, found {} chunks, recovered {} records",
 
 ---
 
-## Crate Architecture
+## CLI Quick Reference
 
-```
-winevt-forensic/
-└── crates/
-    ├── winevt-core          Zero external deps. Binary format constants and
-    │                        structs (EvtxFileHeader, EvtxChunkHeader,
-    │                        EvtxRecordHeader). Domain types: EvtxEvent,
-    │                        LogonSession, ProcessEvent. Lookup tables.
-    │                        IntegrityIndicator enum.
-    │
-    ├── winevt-integrity  Detection algorithms over parsed types. No raw
-    │                        bytes, no memory access. Consumed by both
-    │                        winevt-carver (disk) and memf-windows (memory).
-    │
-    ├── winevt-carver        Chunk discovery and record recovery from &[u8],
-    │                        file paths, and Read+Seek readers. Integrates
-    │                        anti-forensic checks post-carve.
-    │
-    └── winevt-memory        (in progress) Typed output for EVTX/ETW data
-                             recovered from memory dumps. No memory-reader
-                             dependency — populated by memf-windows.
-```
+| Command | Description |
+|---------|-------------|
+| `wt carve <path>` | Carve all recoverable records from an EVTX file; output `CarveResult` as JSON |
+| `wt verify <path>` | Check integrity and report tampering indicators as JSON |
+| `wt --help` | Show all subcommands |
+| `wt <subcommand> --help` | Show subcommand usage |
+
+---
+
+## Crate Structure
+
+| Crate | What it does |
+|-------|-------------|
+| `winevt-core` | Binary format constants, domain types (`EvtxEvent`, `LogonSession`), `IntegrityIndicator` enum. Zero external deps. |
+| `winevt-integrity` | Detection algorithms — gap detection, CRC32 checksums, timestamp monotonicity. |
+| `winevt-carver` | EVTX chunk/record recovery from corrupt files, raw bytes, disk images. |
+| `winevt-memory` | Types and analysis for EVTX/ETW data recovered from memory dumps. |
+| `wt-cli` | `wt` binary — wraps `winevt-carver`, outputs JSON. |
 
 **Dependency graph:**
+
 ```
-winevt-core  ←  winevt-integrity  ←  winevt-carver
-                                     ←  winevt-memory
+winevt-core  ←  winevt-integrity  ←  winevt-carver  ←  wt-cli
+                                   ←  winevt-memory
 ```
 
 ---
@@ -185,8 +253,8 @@ Records start at chunk offset `0x200`. Each chunk is exactly `0x10000` bytes.
 ## Related Projects
 
 - **[RapidTriage](https://github.com/SecurityRonin/rapidtriage)** — uses winevt-forensic for EVTX carving; provides session correlation, frequency analysis, and the `rt` CLI
-- **[evtx](https://github.com/omerbenamram/evtx)** — EVTX parser this library builds on top of for normal (non-corrupt) files
-- **[hayabusa](https://github.com/Yamato-Security/hayabusa)** — Sigma-based EVTX detection; complement to this library
+- **[evtx](https://github.com/omerbenamram/evtx)** — full EVTX parser for normal (non-corrupt) files
+- **[hayabusa](https://github.com/Yamato-Security/hayabusa)** — Sigma-based EVTX detection; complements this library
 
 ---
 
