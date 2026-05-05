@@ -78,11 +78,11 @@ The memory-forensic repo (`memf-windows`) handles memory-specific walkers (`Obje
 
 ## 4. Current State -- What's DONE
 
-### Workspace Structure (3 crates, all implemented)
+### Workspace Structure (5 crates, all implemented)
 
 ```
 winevt-forensic/
-  Cargo.toml                    # workspace: winevt-core, winevt-integrity, winevt-carver
+  Cargo.toml                    # workspace: winevt-core, winevt-integrity, winevt-carver, winevt-memory, wt-cli
   crates/
     winevt-core/src/
       lib.rs                    # EvtxEvent, LogonSession, ProcessEvent, ServiceEvent, lookups
@@ -91,8 +91,14 @@ winevt-forensic/
       lib.rs                    # detect_record_id_gaps, verify_chunk_header_checksum,
                                 # check_timestamp_monotonicity, check_file_header_consistency
     winevt-carver/src/
-      lib.rs                    # carve_from_bytes, CarveResult, CarvedChunk, RecoveredRecord,
+      lib.rs                    # carve_from_bytes, carve_from_file, verify_integrity,
+                                # CarveResult, CarvedChunk, RecoveredRecord,
                                 # Integrity, CarveStats, recover_records_from_slice
+    winevt-memory/src/
+      lib.rs                    # MemoryRecoveredChunk, RecoveredEtwSession, EtwTamperingIndicator,
+                                # identify_eventlog_sessions, detect_etw_tampering
+    wt-cli/src/
+      main.rs                   # wt carve <path>, wt verify <path> — JSON output via clap
 ```
 
 ### winevt-core (`crates/winevt-core`)
@@ -549,6 +555,8 @@ members = [
     "crates/winevt-core",
     "crates/winevt-integrity",
     "crates/winevt-carver",
+    "crates/winevt-memory",
+    "crates/wt-cli",
 ]
 
 [workspace.package]
@@ -559,21 +567,12 @@ repository = "https://github.com/SecurityRonin/winevt-forensic"
 
 [workspace.dependencies]
 chrono = { version = "0.4", default-features = false, features = ["alloc", "serde"] }
+clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 anyhow = "1"
-```
-
-After Phase 5:
-
-```toml
-members = [
-    "crates/winevt-core",
-    "crates/winevt-integrity",
-    "crates/winevt-carver",
-    "crates/winevt-memory",     # NEW
-]
+tempfile = "3"
 ```
 
 ---
