@@ -107,6 +107,25 @@ enum Cmd {
         /// Path to the EVTX file.
         path: PathBuf,
     },
+    /// Extract indicators of compromise (IOCs) from all events.
+    ///
+    /// Scans every event's data for SHA-256/SHA-1/MD5 hashes, IPv4 addresses,
+    /// and Windows file paths.  Outputs a JSON object with `events_scanned`
+    /// and an `iocs` array (`value`, `kind`, `count`, `first_seen`, `last_seen`).
+    IocExtract {
+        /// Path to the EVTX file.
+        path: PathBuf,
+    },
+    /// Map each event to its MITRE ATT&CK technique tags.
+    ///
+    /// Outputs a JSON array of objects with `event_id`, `record_id`,
+    /// `timestamp`, and an `attack_tags` array (`technique_id`, `technique_name`,
+    /// tactic).  Events with no known mapping are included with an empty
+    /// `attack_tags` array.
+    AttackTags {
+        /// Path to the EVTX file.
+        path: PathBuf,
+    },
 }
 
 /// Convert Windows FILETIME (100-ns intervals since 1601-01-01) to a UTC string.
@@ -335,6 +354,50 @@ fn main() {
         Cmd::Frequency { path } => match winevt_analyze::frequency(&path) {
             Ok(report) => {
                 match serde_json::to_string_pretty(&report) {
+                    Ok(json) => println!("{json}"),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(2);
+                    }
+                }
+                0
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                2
+            }
+        },
+        Cmd::IocExtract { path } => match winevt_analyze::ioc_extract(&path) {
+            Ok(report) => {
+                match serde_json::to_string_pretty(&report) {
+                    Ok(json) => println!("{json}"),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(2);
+                    }
+                }
+                0
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                2
+            }
+        },
+        Cmd::AttackTags { path } => match winevt_analyze::timeline(&path) {
+            Ok(entries) => {
+                let tagged: Vec<serde_json::Value> = entries
+                    .iter()
+                    .map(|e| {
+                        let tags = winevt_analyze::attack_tags_for_event_id(e.event_id);
+                        serde_json::json!({
+                            "record_id": e.record_id,
+                            "timestamp": e.timestamp,
+                            "event_id": e.event_id,
+                            "attack_tags": tags,
+                        })
+                    })
+                    .collect();
+                match serde_json::to_string_pretty(&tagged) {
                     Ok(json) => println!("{json}"),
                     Err(e) => {
                         eprintln!("error: {e}");
