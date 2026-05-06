@@ -71,6 +71,42 @@ enum Cmd {
         #[arg(long, short)]
         output: PathBuf,
     },
+    /// Output all events in chronological order as a JSON array.
+    ///
+    /// Each entry contains record_id, timestamp, event_id, level, channel,
+    /// computer, and provider.  Requires an intact or reconstructed EVTX file.
+    Timeline {
+        /// Path to the EVTX file.
+        path: PathBuf,
+    },
+    /// Reconstruct logon sessions from EID 4624 / 4634 / 4647 events.
+    ///
+    /// Outputs a JSON array of sessions, each with logon_id (LUID), username,
+    /// domain, logon_type, ip_address, logon_time, logoff_time, and
+    /// duration_secs.  Sessions without a matching logoff have null
+    /// logoff_time.
+    Sessions {
+        /// Path to the Security EVTX file.
+        path: PathBuf,
+    },
+    /// Reassemble PowerShell script blocks from EID 4104 events.
+    ///
+    /// Groups events by ScriptBlockId, sorts fragments by MessageNumber,
+    /// and concatenates ScriptBlockText.  Outputs a JSON array of script
+    /// blocks with their full reassembled text.
+    Powershell {
+        /// Path to the PowerShell Operational EVTX file.
+        path: PathBuf,
+    },
+    /// Compute event ID frequency distribution.
+    ///
+    /// Outputs a JSON object with total_events and a by_event_id array
+    /// sorted by count descending.  Useful for spotting brute-force
+    /// attacks (burst of 4625), Kerberoasting (4769), etc.
+    Frequency {
+        /// Path to the EVTX file.
+        path: PathBuf,
+    },
 }
 
 /// Convert Windows FILETIME (100-ns intervals since 1601-01-01) to a UTC string.
@@ -231,6 +267,70 @@ fn main() {
         Cmd::CarveEwf { path } => match winevt_carver::carve_from_ewf(&path) {
             Ok(result) => {
                 match serde_json::to_string_pretty(&result) {
+                    Ok(json) => println!("{json}"),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(2);
+                    }
+                }
+                0
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                2
+            }
+        },
+        Cmd::Timeline { path } => match winevt_analyze::timeline(&path) {
+            Ok(entries) => {
+                match serde_json::to_string_pretty(&entries) {
+                    Ok(json) => println!("{json}"),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(2);
+                    }
+                }
+                0
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                2
+            }
+        },
+        Cmd::Sessions { path } => match winevt_analyze::sessions(&path) {
+            Ok(sessions) => {
+                match serde_json::to_string_pretty(&sessions) {
+                    Ok(json) => println!("{json}"),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(2);
+                    }
+                }
+                0
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                2
+            }
+        },
+        Cmd::Powershell { path } => match winevt_analyze::powershell_blocks(&path) {
+            Ok(blocks) => {
+                match serde_json::to_string_pretty(&blocks) {
+                    Ok(json) => println!("{json}"),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(2);
+                    }
+                }
+                0
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                2
+            }
+        },
+        Cmd::Frequency { path } => match winevt_analyze::frequency(&path) {
+            Ok(report) => {
+                match serde_json::to_string_pretty(&report) {
                     Ok(json) => println!("{json}"),
                     Err(e) => {
                         eprintln!("error: {e}");

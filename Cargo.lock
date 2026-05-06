@@ -1749,6 +1749,7 @@ dependencies = [
  "crc32fast",
  "serde_json",
  "tempfile",
+ "winevt-analyze",
  "winevt-carver",
  "winevt-writer",
 ]
