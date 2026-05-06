@@ -803,6 +803,34 @@ mod tests {
         assert!(result.is_err(), "expected Err for nonexistent path");
     }
 
+    #[test]
+    fn verify_integrity_detects_danderspritz_on_inflated_record() {
+        let path = write_temp_evtx(&make_chunk_with_inflated_record());
+        let indicators = verify_integrity(&path).expect("verify_integrity ok");
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            indicators.iter().any(|ind| {
+                matches!(ind, IntegrityAnomaly::SurgicalRecordDeletion { absorbing_record_id: 1, .. })
+            }),
+            "expected SurgicalRecordDeletion in verify_integrity output, got: {:?}",
+            indicators
+        );
+    }
+
+    #[test]
+    fn verify_integrity_detects_export_corruption_on_zero_ts_record() {
+        let path = write_temp_evtx(&make_chunk_with_record(7, 0, b"payload"));
+        let indicators = verify_integrity(&path).expect("verify_integrity ok");
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            indicators.iter().any(|ind| {
+                matches!(ind, IntegrityAnomaly::ExportTimestampCorruption { record_id: 7, .. })
+            }),
+            "expected ExportTimestampCorruption(record_id=7) in verify_integrity output, got: {:?}",
+            indicators
+        );
+    }
+
     // ---- E01/EWF forensic image support ----
 
     #[test]
