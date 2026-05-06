@@ -1568,6 +1568,7 @@ name = "winevt-analyze"
 version = "0.1.0"
 dependencies = [
  "evtx",
+ "jiff",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

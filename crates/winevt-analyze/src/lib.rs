@@ -8,8 +8,10 @@
 //! `winevt_carver::carve_from_file` + `winevt_writer::records_to_evtx`,
 //! then pass the reconstructed path here.
 
+use std::collections::HashMap;
 use std::path::Path;
 use thiserror::Error;
+
 
 // ── Error type ────────────────────────────────────────────────────────────────
 
@@ -98,6 +100,33 @@ pub struct FrequencyReport {
     pub by_event_id: Vec<EventFrequency>,
 }
 
+// ── Helper: extract EventID from evtx JSON value ──────────────────────────────
+
+/// Extract the integer EventID from the `Event.System.EventID` field.
+///
+/// The `evtx` crate may represent this as:
+/// - `4624` (bare integer)
+/// - `{"#text": 4624, "#attributes": {"Qualifiers": 0}}` (with Qualifiers)
+fn event_id_from_system(system: &serde_json::Value) -> Option<u32> {
+    let raw = system.get("EventID")?;
+    if let Some(n) = raw.as_u64() {
+        return Some(n as u32);
+    }
+    // Object form: { "#text": N, ... }
+    raw.get("#text").and_then(serde_json::Value::as_u64).map(|n| n as u32)
+}
+
+/// Extract a string field from `EventData` by name.
+fn event_data_str<'a>(event_data: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    event_data.get("Data")?.as_array()?.iter().find_map(|item| {
+        if item.get("@Name")?.as_str()? == key {
+            item.get("#text").and_then(|v| v.as_str())
+        } else {
+            None
+        }
+    })
+}
+
 // ── Public functions ──────────────────────────────────────────────────────────
 
 /// Parse an EVTX file and return all events sorted by timestamp.
@@ -105,8 +134,66 @@ pub struct FrequencyReport {
 /// Records with unparseable timestamps are included with an empty string
 /// timestamp and sorted to the end.
 pub fn timeline(path: &Path) -> Result<Vec<TimelineEntry>, AnalyzeError> {
-    let _ = path;
-    todo!("implement in GREEN commit")
+    // Verify path is readable before handing to the evtx crate (gives a
+    // friendlier error via our AnalyzeError::Io variant).
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+
+    let mut parser = evtx::EvtxParser::from_path(path)
+        .map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut entries: Vec<TimelineEntry> = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue, // skip unparseable records
+        };
+        let system = record
+            .data
+            .get("Event")
+            .and_then(|e| e.get("System"));
+
+        let event_id = system
+            .and_then(event_id_from_system)
+            .unwrap_or(0);
+
+        let level = system
+            .and_then(|s| s.get("Level"))
+            .and_then(serde_json::Value::as_u64)
+            .map(|n| n as u8);
+
+        let channel = system
+            .and_then(|s| s.get("Channel"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+
+        let computer = system
+            .and_then(|s| s.get("Computer"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+
+        let provider = system
+            .and_then(|s| s.get("Provider"))
+            .and_then(|p| {
+                // Provider can be {"@Name": "...", "@Guid": "..."}
+                p.get("@Name").or_else(|| p.get("@Guid"))
+            })
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+
+        entries.push(TimelineEntry {
+            record_id: record.event_record_id,
+            timestamp: record.timestamp.to_string(),
+            event_id,
+            level,
+            channel,
+            computer,
+            provider,
+        });
+    }
+
+    // Sort by timestamp string (ISO-8601 sorts lexicographically)
+    entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    Ok(entries)
 }
 
 /// Reconstruct logon sessions from EID 4624 / 4634 / 4647 events.
@@ -116,8 +203,113 @@ pub fn timeline(path: &Path) -> Result<Vec<TimelineEntry>, AnalyzeError> {
 /// same `TargetLogonId`.  Sessions with no matching logoff have
 /// `logoff_time = None`.
 pub fn sessions(path: &Path) -> Result<Vec<LogonSession>, AnalyzeError> {
-    let _ = path;
-    todo!("implement in GREEN commit")
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+
+    let mut parser = evtx::EvtxParser::from_path(path)
+        .map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    // logon_id → LogonSession (open sessions)
+    let mut open: HashMap<String, LogonSession> = HashMap::new();
+    // Completed sessions (logoff matched)
+    let mut closed: Vec<LogonSession> = Vec::new();
+    // Preserve insertion order for open sessions
+    let mut insertion_order: Vec<String> = Vec::new();
+
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let event = &record.data;
+        let system = match event.get("Event").and_then(|e| e.get("System")) {
+            Some(s) => s,
+            None => continue,
+        };
+        let event_id = match event_id_from_system(system) {
+            Some(id) => id,
+            None => continue,
+        };
+        let ts = record.timestamp.to_string();
+        let event_data = event.get("Event").and_then(|e| e.get("EventData"));
+
+        match event_id {
+            // EID 4624 — An account was successfully logged on
+            4624 => {
+                let ed = match event_data {
+                    Some(d) => d,
+                    None => continue,
+                };
+                let logon_id = event_data_str(ed, "TargetLogonId")
+                    .unwrap_or("-")
+                    .to_owned();
+                let username = event_data_str(ed, "TargetUserName")
+                    .unwrap_or("-")
+                    .to_owned();
+                let domain = event_data_str(ed, "TargetDomainName")
+                    .unwrap_or("-")
+                    .to_owned();
+                let logon_type = event_data_str(ed, "LogonType")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+                let ip_raw = event_data_str(ed, "IpAddress").map(str::to_owned);
+                let ip_address = ip_raw.filter(|ip| ip != "-" && !ip.is_empty());
+
+                let session = LogonSession {
+                    logon_id: logon_id.clone(),
+                    username,
+                    domain,
+                    logon_type,
+                    ip_address,
+                    logon_time: Some(ts),
+                    logoff_time: None,
+                    duration_secs: None,
+                };
+                if !open.contains_key(&logon_id) {
+                    insertion_order.push(logon_id.clone());
+                }
+                open.insert(logon_id, session);
+            }
+            // EID 4634 — An account was logged off
+            // EID 4647 — User initiated logoff
+            4634 | 4647 => {
+                let ed = match event_data {
+                    Some(d) => d,
+                    None => continue,
+                };
+                let logon_id = match event_data_str(ed, "TargetLogonId") {
+                    Some(id) => id.to_owned(),
+                    None => continue,
+                };
+                if let Some(mut session) = open.remove(&logon_id) {
+                    session.logoff_time = Some(ts.clone());
+                    // Compute duration using jiff::Timestamp arithmetic
+                    if let (Some(logon), Some(logoff)) =
+                        (session.logon_time.as_deref(), session.logoff_time.as_deref())
+                    {
+                        if let (Ok(t0), Ok(t1)) = (
+                            logon.parse::<jiff::Timestamp>(),
+                            logoff.parse::<jiff::Timestamp>(),
+                        ) {
+                            let d = t1.duration_since(t0).as_secs();
+                            session.duration_secs = Some(d);
+                        }
+                    }
+                    closed.push(session);
+                    insertion_order.retain(|id| id != &logon_id);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Append still-open sessions in insertion order
+    let mut result = closed;
+    for id in &insertion_order {
+        if let Some(s) = open.remove(id) {
+            result.push(s);
+        }
+    }
+    Ok(result)
 }
 
 /// Reassemble PowerShell script blocks from EID 4104 events.
@@ -126,8 +318,69 @@ pub fn sessions(path: &Path) -> Result<Vec<LogonSession>, AnalyzeError> {
 /// and concatenates `ScriptBlockText` values.  Returns one `ScriptBlock`
 /// per unique GUID, in the order the first fragment was observed.
 pub fn powershell_blocks(path: &Path) -> Result<Vec<ScriptBlock>, AnalyzeError> {
-    let _ = path;
-    todo!("implement in GREEN commit")
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+
+    let mut parser = evtx::EvtxParser::from_path(path)
+        .map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    // script_block_id → (path, Vec<(message_number, text)>)
+    let mut blocks: HashMap<String, (Option<String>, Vec<(u32, String)>)> = HashMap::new();
+    let mut insertion_order: Vec<String> = Vec::new();
+
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let event = &record.data;
+        let system = match event.get("Event").and_then(|e| e.get("System")) {
+            Some(s) => s,
+            None => continue,
+        };
+        if event_id_from_system(system) != Some(4104) {
+            continue;
+        }
+        let event_data = match event.get("Event").and_then(|e| e.get("EventData")) {
+            Some(d) => d,
+            None => continue,
+        };
+
+        let script_id = match event_data_str(event_data, "ScriptBlockId") {
+            Some(id) => id.to_owned(),
+            None => continue,
+        };
+        let text = event_data_str(event_data, "ScriptBlockText")
+            .unwrap_or("")
+            .to_owned();
+        let msg_num: u32 = event_data_str(event_data, "MessageNumber")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1);
+        let script_path = event_data_str(event_data, "Path")
+            .filter(|p| !p.is_empty())
+            .map(str::to_owned);
+
+        let entry = blocks.entry(script_id.clone()).or_insert_with(|| {
+            insertion_order.push(script_id.clone());
+            (script_path, Vec::new())
+        });
+        entry.1.push((msg_num, text));
+    }
+
+    let mut result = Vec::with_capacity(blocks.len());
+    for id in insertion_order {
+        if let Some((path_val, mut parts)) = blocks.remove(&id) {
+            parts.sort_by_key(|(n, _)| *n);
+            let count = parts.len() as u32;
+            let text = parts.into_iter().map(|(_, t)| t).collect::<Vec<_>>().join("");
+            result.push(ScriptBlock {
+                script_block_id: id,
+                text,
+                path: path_val,
+                parts: count,
+            });
+        }
+    }
+    Ok(result)
 }
 
 /// Compute a frequency distribution of event IDs.
@@ -135,8 +388,36 @@ pub fn powershell_blocks(path: &Path) -> Result<Vec<ScriptBlock>, AnalyzeError> 
 /// Useful for spotting bursts of a single event ID that may indicate
 /// brute-force attacks, log flooding, or other anomalies.
 pub fn frequency(path: &Path) -> Result<FrequencyReport, AnalyzeError> {
-    let _ = path;
-    todo!("implement in GREEN commit")
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+
+    let mut parser = evtx::EvtxParser::from_path(path)
+        .map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut counts: HashMap<u32, usize> = HashMap::new();
+    let mut total = 0usize;
+
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        total += 1;
+        let event_id = record
+            .data
+            .get("Event")
+            .and_then(|e| e.get("System"))
+            .and_then(event_id_from_system)
+            .unwrap_or(0);
+        *counts.entry(event_id).or_insert(0) += 1;
+    }
+
+    let mut by_event_id: Vec<EventFrequency> = counts
+        .into_iter()
+        .map(|(event_id, count)| EventFrequency { event_id, count })
+        .collect();
+    by_event_id.sort_by(|a, b| b.count.cmp(&a.count).then(a.event_id.cmp(&b.event_id)));
+
+    Ok(FrequencyReport { total_events: total, by_event_id })
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

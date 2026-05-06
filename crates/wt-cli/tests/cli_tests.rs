@@ -363,3 +363,146 @@ fn wt_reconstruct_output_preserves_record_count() {
     let recovered: usize = result.chunks.iter().map(|c| c.records.len()).sum();
     assert_eq!(recovered, 5, "reconstructed file should contain 5 records");
 }
+
+// ── wt timeline tests ─────────────────────────────────────────────────────────
+
+#[test]
+fn wt_timeline_help_exits_success() {
+    let status = wt_bin()
+        .args(["timeline", "--help"])
+        .status()
+        .expect("run wt timeline --help");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn wt_timeline_nonexistent_exits_code_2() {
+    let status = wt_bin()
+        .args(["timeline", "/nonexistent/security.evtx"])
+        .status()
+        .expect("run wt timeline");
+    assert_eq!(status.code(), Some(2));
+}
+
+#[test]
+fn wt_timeline_valid_file_outputs_json_array() {
+    let path = write_evtx_with_records("timeline_valid", 3);
+    let output = wt_bin()
+        .args(["timeline", path.to_str().unwrap()])
+        .output()
+        .expect("run wt timeline");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(output.status.code(), Some(0), "expected exit 0");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("timeline output should be valid JSON");
+    assert!(v.is_array(), "timeline should output a JSON array");
+}
+
+// ── wt sessions tests ─────────────────────────────────────────────────────────
+
+#[test]
+fn wt_sessions_help_exits_success() {
+    let status = wt_bin()
+        .args(["sessions", "--help"])
+        .status()
+        .expect("run wt sessions --help");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn wt_sessions_nonexistent_exits_code_2() {
+    let status = wt_bin()
+        .args(["sessions", "/nonexistent/security.evtx"])
+        .status()
+        .expect("run wt sessions");
+    assert_eq!(status.code(), Some(2));
+}
+
+#[test]
+fn wt_sessions_valid_file_outputs_json_array() {
+    let path = write_evtx_with_records("sessions_valid", 2);
+    let output = wt_bin()
+        .args(["sessions", path.to_str().unwrap()])
+        .output()
+        .expect("run wt sessions");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(output.status.code(), Some(0), "expected exit 0");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("sessions output should be valid JSON");
+    assert!(v.is_array(), "sessions should output a JSON array");
+}
+
+// ── wt powershell tests ───────────────────────────────────────────────────────
+
+#[test]
+fn wt_powershell_help_exits_success() {
+    let status = wt_bin()
+        .args(["powershell", "--help"])
+        .status()
+        .expect("run wt powershell --help");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn wt_powershell_nonexistent_exits_code_2() {
+    let status = wt_bin()
+        .args(["powershell", "/nonexistent/ps.evtx"])
+        .status()
+        .expect("run wt powershell");
+    assert_eq!(status.code(), Some(2));
+}
+
+#[test]
+fn wt_powershell_valid_file_outputs_json_array() {
+    let path = write_evtx_with_records("powershell_valid", 2);
+    let output = wt_bin()
+        .args(["powershell", path.to_str().unwrap()])
+        .output()
+        .expect("run wt powershell");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(output.status.code(), Some(0), "expected exit 0");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("powershell output should be valid JSON");
+    assert!(v.is_array(), "powershell should output a JSON array");
+}
+
+// ── wt frequency tests ────────────────────────────────────────────────────────
+
+#[test]
+fn wt_frequency_help_exits_success() {
+    let status = wt_bin()
+        .args(["frequency", "--help"])
+        .status()
+        .expect("run wt frequency --help");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn wt_frequency_nonexistent_exits_code_2() {
+    let status = wt_bin()
+        .args(["frequency", "/nonexistent/security.evtx"])
+        .status()
+        .expect("run wt frequency");
+    assert_eq!(status.code(), Some(2));
+}
+
+#[test]
+fn wt_frequency_valid_file_outputs_json() {
+    let path = write_evtx_with_records("freq_valid", 3);
+    let output = wt_bin()
+        .args(["frequency", path.to_str().unwrap()])
+        .output()
+        .expect("run wt frequency");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(output.status.code(), Some(0), "expected exit 0");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("frequency output should be valid JSON");
+    assert!(
+        v.get("total_events").is_some(),
+        "frequency JSON should have 'total_events' field"
+    );
+}
