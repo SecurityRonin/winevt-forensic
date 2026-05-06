@@ -12,7 +12,7 @@
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use winevt_writer::{WriteRecord, records_to_evtx};
+use winevt_writer::{records_to_evtx, WriteRecord};
 
 /// EVTX forensic analysis tool.
 ///
@@ -63,7 +63,7 @@ enum Cmd {
     ///
     /// Carves all recoverable records from the input file, then writes them
     /// into a new, structurally valid EVTX file with correct checksums.
-    /// The output can be read by hayabusa, EvtxECmd, and other standard tools.
+    /// The output can be read by `hayabusa`, `EvtxECmd`, and other standard tools.
     Reconstruct {
         /// Path to the source EVTX file (may be corrupt or partial).
         path: PathBuf,
@@ -73,7 +73,7 @@ enum Cmd {
     },
     /// Output all events in chronological order as a JSON array.
     ///
-    /// Each entry contains record_id, timestamp, event_id, level, channel,
+    /// Each entry contains `record_id`, timestamp, `event_id`, level, channel,
     /// computer, and provider.  Requires an intact or reconstructed EVTX file.
     Timeline {
         /// Path to the EVTX file.
@@ -81,26 +81,26 @@ enum Cmd {
     },
     /// Reconstruct logon sessions from EID 4624 / 4634 / 4647 events.
     ///
-    /// Outputs a JSON array of sessions, each with logon_id (LUID), username,
-    /// domain, logon_type, ip_address, logon_time, logoff_time, and
-    /// duration_secs.  Sessions without a matching logoff have null
-    /// logoff_time.
+    /// Outputs a JSON array of sessions, each with `logon_id` (LUID), `username`,
+    /// `domain`, `logon_type`, `ip_address`, `logon_time`, `logoff_time`, and
+    /// `duration_secs`.  Sessions without a matching logoff have null
+    /// `logoff_time`.
     Sessions {
         /// Path to the Security EVTX file.
         path: PathBuf,
     },
-    /// Reassemble PowerShell script blocks from EID 4104 events.
+    /// Reassemble `PowerShell` script blocks from EID 4104 events.
     ///
-    /// Groups events by ScriptBlockId, sorts fragments by MessageNumber,
-    /// and concatenates ScriptBlockText.  Outputs a JSON array of script
+    /// Groups events by `ScriptBlockId`, sorts fragments by `MessageNumber`,
+    /// and concatenates `ScriptBlockText`.  Outputs a JSON array of script
     /// blocks with their full reassembled text.
     Powershell {
-        /// Path to the PowerShell Operational EVTX file.
+        /// Path to the `PowerShell` Operational EVTX file.
         path: PathBuf,
     },
     /// Compute event ID frequency distribution.
     ///
-    /// Outputs a JSON object with total_events and a by_event_id array
+    /// Outputs a JSON object with `total_events` and a `by_event_id` array
     /// sorted by count descending.  Useful for spotting brute-force
     /// attacks (burst of 4625), Kerberoasting (4769), etc.
     Frequency {
@@ -147,9 +147,10 @@ fn filetime_to_utc_string(ft: u64) -> String {
 }
 
 fn print_stats(path: &std::path::Path, result: &winevt_carver::CarveResult, as_json: bool) {
-    let file_name = path
-        .file_name()
-        .map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
+    let file_name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
     let hash = result.source_hash.as_deref().unwrap_or("N/A");
     let chunks_total = result.stats.chunks_found;
     let chunks_valid = result.stats.chunks_valid;
@@ -203,7 +204,9 @@ fn print_stats(path: &std::path::Path, result: &winevt_carver::CarveResult, as_j
     } else {
         println!("File:       {file_name}");
         println!("Hash:       {hash}");
-        println!("Chunks:     {chunks_total} total ({chunks_valid} valid, {chunks_corrupt} corrupt)");
+        println!(
+            "Chunks:     {chunks_total} total ({chunks_valid} valid, {chunks_corrupt} corrupt)"
+        );
         println!("Records:    {records_recovered} recovered ({records_corrupt} corrupt)");
         println!(
             "Time range: {} → {}",
@@ -219,6 +222,7 @@ fn print_stats(path: &std::path::Path, result: &winevt_carver::CarveResult, as_j
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     let cli = Cli::parse();
     let code = match cli.command {

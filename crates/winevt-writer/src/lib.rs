@@ -13,9 +13,9 @@
 
 // ── EVTX binary layout constants ─────────────────────────────────────────────
 
-/// Total size of the ElfFile header block (4 KiB).
+/// Total size of the `ElfFile` header block (4 KiB).
 pub const FILE_HEADER_SIZE: usize = 0x1000;
-/// Total size of one ElfChnk chunk (64 KiB).
+/// Total size of one `ElfChnk` chunk (64 KiB).
 pub const CHUNK_SIZE: usize = 0x1_0000;
 /// Byte offset where records start within a chunk.
 pub const RECORDS_OFFSET: usize = 0x200;
@@ -65,7 +65,7 @@ const REC_PAYLOAD: usize = 0x18; //                         variable
 pub struct WriteRecord {
     pub record_id: u64,
     pub timestamp: u64,
-    /// Raw BinXml payload bytes (everything between the 24-byte header
+    /// Raw `BinXml` payload bytes (everything between the 24-byte header
     /// and the trailing size field).
     pub payload: Vec<u8>,
 }
@@ -95,17 +95,19 @@ pub fn build_record_bytes(record: &WriteRecord) -> Vec<u8> {
     // Magic
     buf[REC_MAGIC..REC_MAGIC + 4].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
     // Size (u32 LE)
-    buf[REC_SIZE..REC_SIZE + 4].copy_from_slice(&(total as u32).to_le_bytes());
+    // total is bounded by MAX_RECORDS_AREA (< u32::MAX); cast is safe.
+    #[allow(clippy::cast_possible_truncation)]
+    let total_u32 = total as u32;
+    buf[REC_SIZE..REC_SIZE + 4].copy_from_slice(&total_u32.to_le_bytes());
     // Record ID (u64 LE)
     buf[REC_ID..REC_ID + 8].copy_from_slice(&record.record_id.to_le_bytes());
     // Timestamp (u64 LE)
     buf[REC_TIMESTAMP..REC_TIMESTAMP + 8].copy_from_slice(&record.timestamp.to_le_bytes());
     // Payload
-    buf[REC_PAYLOAD..REC_PAYLOAD + record.payload.len()]
-        .copy_from_slice(&record.payload);
+    buf[REC_PAYLOAD..REC_PAYLOAD + record.payload.len()].copy_from_slice(&record.payload);
     // Trailing size copy
     let tail = total - 4;
-    buf[tail..].copy_from_slice(&(total as u32).to_le_bytes());
+    buf[tail..].copy_from_slice(&total_u32.to_le_bytes());
 
     buf
 }
@@ -122,6 +124,8 @@ pub fn build_record_bytes(record: &WriteRecord) -> Vec<u8> {
 /// records area is silently dropped (callers must split batches beforehand
 /// via [`split_into_chunks`]).
 pub fn build_chunk(records: &[WriteRecord], chunk_number: u64) -> [u8; CHUNK_SIZE] {
+    // 64 KiB is intentional for EVTX chunk size; suppress large_stack_arrays.
+    #[allow(clippy::large_stack_arrays)]
     let mut buf = [0u8; CHUNK_SIZE];
 
     // --- write records into the records area first ---
@@ -149,6 +153,8 @@ pub fn build_chunk(records: &[WriteRecord], chunk_number: u64) -> [u8; CHUNK_SIZ
         write_pos += bytes.len();
     }
 
+    // write_pos is bounded by CHUNK_SIZE (65536 < u32::MAX); cast is safe.
+    #[allow(clippy::cast_possible_truncation)]
     let free_space_offset = write_pos as u32;
 
     // --- chunk header ---
@@ -178,38 +184,39 @@ pub fn build_chunk(records: &[WriteRecord], chunk_number: u64) -> [u8; CHUNK_SIZ
             }
             off += sz;
         }
-        off as u32
+        // off is bounded by CHUNK_SIZE; cast is safe.
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            off as u32
+        }
     } else {
-        RECORDS_OFFSET as u32
+        u32::try_from(RECORDS_OFFSET).expect("RECORDS_OFFSET fits u32")
     };
     buf[CH_LAST_REC_DATA_OFF..CH_LAST_REC_DATA_OFF + 4]
         .copy_from_slice(&last_data_offset.to_le_bytes());
 
     // Free space offset
-    buf[CH_FREE_SPACE_OFF..CH_FREE_SPACE_OFF + 4]
-        .copy_from_slice(&free_space_offset.to_le_bytes());
+    buf[CH_FREE_SPACE_OFF..CH_FREE_SPACE_OFF + 4].copy_from_slice(&free_space_offset.to_le_bytes());
 
     // Records area CRC32 (0x200..free_space_offset)
     let records_area = &buf[RECORDS_OFFSET..write_pos];
     let records_crc = crc32fast::hash(records_area);
-    buf[CH_RECORDS_CHECKSUM..CH_RECORDS_CHECKSUM + 4]
-        .copy_from_slice(&records_crc.to_le_bytes());
+    buf[CH_RECORDS_CHECKSUM..CH_RECORDS_CHECKSUM + 4].copy_from_slice(&records_crc.to_le_bytes());
 
     // Header CRC32 (0x00..0x78)
     let header_crc = crc32fast::hash(&buf[0x00..0x78]);
-    buf[CH_HEADER_CHECKSUM..CH_HEADER_CHECKSUM + 4]
-        .copy_from_slice(&header_crc.to_le_bytes());
+    buf[CH_HEADER_CHECKSUM..CH_HEADER_CHECKSUM + 4].copy_from_slice(&header_crc.to_le_bytes());
 
     buf
 }
 
 // ── Layer 3: file header construction ─────────────────────────────────────────
 
-/// Build the 4096-byte ElfFile header block.
+/// Build the 4096-byte `ElfFile` header block.
 ///
-/// `chunk_count` — number of ElfChnk blocks that follow.
+/// `chunk_count` — number of `ElfChnk` blocks that follow.
 /// `next_record_id` — the ID that the next new record would receive
-///   (= highest existing record_id + 1, or 1 if no records).
+///   (= highest existing `record_id` + 1, or 1 if no records).
 pub fn build_file_header(chunk_count: u16, next_record_id: u64) -> [u8; FILE_HEADER_SIZE] {
     let mut buf = [0u8; FILE_HEADER_SIZE];
 
@@ -217,14 +224,13 @@ pub fn build_file_header(chunk_count: u16, next_record_id: u64) -> [u8; FILE_HEA
 
     // first_chunk_number = 0, last_chunk_number = chunk_count - 1
     let last_chunk = if chunk_count > 0 {
-        (chunk_count - 1) as u64
+        u64::from(chunk_count - 1)
     } else {
         0
     };
     buf[FH_FIRST_CHUNK..FH_FIRST_CHUNK + 8].copy_from_slice(&0u64.to_le_bytes());
     buf[FH_LAST_CHUNK..FH_LAST_CHUNK + 8].copy_from_slice(&last_chunk.to_le_bytes());
-    buf[FH_NEXT_RECORD_ID..FH_NEXT_RECORD_ID + 8]
-        .copy_from_slice(&next_record_id.to_le_bytes());
+    buf[FH_NEXT_RECORD_ID..FH_NEXT_RECORD_ID + 8].copy_from_slice(&next_record_id.to_le_bytes());
 
     // header_size = 0x80 (128)
     buf[FH_HEADER_SIZE..FH_HEADER_SIZE + 4].copy_from_slice(&0x80u32.to_le_bytes());
@@ -276,21 +282,23 @@ pub fn split_into_chunks(records: &[WriteRecord]) -> Vec<Vec<WriteRecord>> {
 /// Reconstruct a well-formed EVTX byte stream from a slice of [`WriteRecord`]s.
 ///
 /// Returns a `Vec<u8>` whose layout is:
-/// - 4096-byte ElfFile header
-/// - N × 65536-byte ElfChnk blocks (one per chunk batch)
+/// - 4096-byte `ElfFile` header
+/// - N × 65536-byte `ElfChnk` blocks (one per chunk batch)
 ///
 /// The result can be written to a `.evtx` file and parsed by any conforming
-/// reader (hayabusa, evtx, EvtxECmd, …).
+/// reader (`hayabusa`, `evtx`, `EvtxECmd`, …).
 pub fn records_to_evtx(records: &[WriteRecord]) -> Vec<u8> {
     let batches = split_into_chunks(records);
+    // A valid EVTX file has at most 65535 chunks; truncation is not a
+    // realistic concern but we document the invariant explicitly.
+    #[allow(clippy::cast_possible_truncation)]
     let chunk_count = batches.len() as u16;
 
     let next_record_id = records
         .iter()
         .map(|r| r.record_id)
         .max()
-        .map(|id| id + 1)
-        .unwrap_or(1);
+        .map_or(1, |id| id + 1);
 
     let file_header = build_file_header(chunk_count, next_record_id);
 
@@ -359,8 +367,7 @@ mod tests {
         let r = make_record(5, 0, b"data");
         let bytes = build_record_bytes(&r);
         let leading = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
-        let trailing =
-            u32::from_le_bytes(bytes[bytes.len() - 4..].try_into().unwrap());
+        let trailing = u32::from_le_bytes(bytes[bytes.len() - 4..].try_into().unwrap());
         assert_eq!(leading, trailing);
     }
 
@@ -431,8 +438,16 @@ mod tests {
     #[test]
     fn file_header_version_is_3_1() {
         let hdr = build_file_header(0, 1);
-        let minor = u16::from_le_bytes(hdr[FH_MINOR_VERSION..FH_MINOR_VERSION + 2].try_into().unwrap());
-        let major = u16::from_le_bytes(hdr[FH_MAJOR_VERSION..FH_MAJOR_VERSION + 2].try_into().unwrap());
+        let minor = u16::from_le_bytes(
+            hdr[FH_MINOR_VERSION..FH_MINOR_VERSION + 2]
+                .try_into()
+                .unwrap(),
+        );
+        let major = u16::from_le_bytes(
+            hdr[FH_MAJOR_VERSION..FH_MAJOR_VERSION + 2]
+                .try_into()
+                .unwrap(),
+        );
         assert_eq!(minor, 1);
         assert_eq!(major, 3);
     }
@@ -456,8 +471,11 @@ mod tests {
     fn chunk_header_checksum_is_valid() {
         let r = make_record(1, 0, b"payload_data");
         let chunk = build_chunk(&[r], 0);
-        let stored =
-            u32::from_le_bytes(chunk[CH_HEADER_CHECKSUM..CH_HEADER_CHECKSUM + 4].try_into().unwrap());
+        let stored = u32::from_le_bytes(
+            chunk[CH_HEADER_CHECKSUM..CH_HEADER_CHECKSUM + 4]
+                .try_into()
+                .unwrap(),
+        );
         let computed = crc32fast::hash(&chunk[0x00..0x78]);
         assert_eq!(stored, computed, "chunk header CRC32 mismatch");
     }
@@ -488,10 +506,16 @@ mod tests {
             make_record(12, 300, b"c"),
         ];
         let chunk = build_chunk(&records, 0);
-        let first_id =
-            u64::from_le_bytes(chunk[CH_FIRST_REC_ID..CH_FIRST_REC_ID + 8].try_into().unwrap());
-        let last_id =
-            u64::from_le_bytes(chunk[CH_LAST_REC_ID..CH_LAST_REC_ID + 8].try_into().unwrap());
+        let first_id = u64::from_le_bytes(
+            chunk[CH_FIRST_REC_ID..CH_FIRST_REC_ID + 8]
+                .try_into()
+                .unwrap(),
+        );
+        let last_id = u64::from_le_bytes(
+            chunk[CH_LAST_REC_ID..CH_LAST_REC_ID + 8]
+                .try_into()
+                .unwrap(),
+        );
         assert_eq!(first_id, 10);
         assert_eq!(last_id, 12);
     }
@@ -515,8 +539,7 @@ mod tests {
 
     #[test]
     fn split_small_records_fit_in_one_chunk() {
-        let records: Vec<WriteRecord> =
-            (0..10).map(|i| make_record(i, i * 100, b"tiny")).collect();
+        let records: Vec<WriteRecord> = (0..10).map(|i| make_record(i, i * 100, b"tiny")).collect();
         let batches = split_into_chunks(&records);
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].len(), 10);
@@ -526,9 +549,7 @@ mod tests {
     fn split_large_payloads_span_multiple_chunks() {
         // Each record has a 32 KiB payload — two fit, three do not
         let big = vec![0xABu8; 32 * 1024];
-        let records: Vec<WriteRecord> = (0..3)
-            .map(|i| make_record(i, 0, &big))
-            .collect();
+        let records: Vec<WriteRecord> = (0..3).map(|i| make_record(i, 0, &big)).collect();
         let batches = split_into_chunks(&records);
         // First batch: record 0 + record 1 = 2 × 32776 ≈ 65552 > MAX_RECORDS_AREA (65024)?
         // Actually 32776 * 2 = 65552 > 65024, so each record gets its own chunk.
@@ -555,8 +576,7 @@ mod tests {
     fn records_to_evtx_file_header_checksum_valid() {
         let r = make_record(1, 0, b"abc");
         let bytes = records_to_evtx(&[r]);
-        let stored =
-            u32::from_le_bytes(bytes[FH_CHECKSUM..FH_CHECKSUM + 4].try_into().unwrap());
+        let stored = u32::from_le_bytes(bytes[FH_CHECKSUM..FH_CHECKSUM + 4].try_into().unwrap());
         let computed = crc32fast::hash(&bytes[0x00..0x78]);
         assert_eq!(stored, computed);
     }
@@ -581,7 +601,11 @@ mod tests {
         let result = carve_from_bytes(&bytes);
 
         // All three records recovered
-        let recovered: Vec<_> = result.chunks.iter().flat_map(|c| c.records.iter()).collect();
+        let recovered: Vec<_> = result
+            .chunks
+            .iter()
+            .flat_map(|c| c.records.iter())
+            .collect();
         assert_eq!(recovered.len(), 3, "expected 3 records in round-trip");
 
         // Record IDs preserved
