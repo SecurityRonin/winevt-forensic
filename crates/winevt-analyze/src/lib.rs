@@ -629,3 +629,261 @@ mod tests {
         }
     }
 }
+
+// ── IOC extraction types ──────────────────────────────────────────────────────
+
+/// Category of an extracted indicator of compromise.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IocKind {
+    /// IPv4 or IPv6 address.
+    IpAddress,
+    /// Domain name (e.g. `evil.example.com`).
+    Domain,
+    /// MD5 hash (32 hex chars).
+    Md5,
+    /// SHA-1 hash (40 hex chars).
+    Sha1,
+    /// SHA-256 hash (64 hex chars).
+    Sha256,
+    /// Windows filesystem path (e.g. `C:\Windows\System32\cmd.exe`).
+    FilePath,
+}
+
+/// A single extracted IOC with observation metadata.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Ioc {
+    /// The IOC value (IP, domain, hash, or path string).
+    pub value: String,
+    /// Category of this indicator.
+    pub kind: IocKind,
+    /// Number of events that contained this value.
+    pub count: usize,
+    /// ISO-8601 timestamp of the first event that contained it.
+    pub first_seen: Option<String>,
+    /// ISO-8601 timestamp of the last event that contained it.
+    pub last_seen: Option<String>,
+    /// Record IDs of the events that contained this value (capped at 10).
+    pub record_ids: Vec<u64>,
+}
+
+/// All IOCs extracted from an EVTX file.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct IocReport {
+    /// Total events scanned.
+    pub events_scanned: usize,
+    /// All extracted IOCs, sorted by count descending.
+    pub iocs: Vec<Ioc>,
+}
+
+/// Extract indicators of compromise from all string fields in an EVTX file.
+///
+/// Scans IPv4/IPv6 addresses, MD5/SHA-1/SHA-256 hashes, and Windows
+/// file paths from the EventData section of every event.  Results are
+/// deduplicated and sorted by observation count (descending).
+pub fn ioc_extract(path: &Path) -> Result<IocReport, AnalyzeError> {
+    let _ = path;
+    todo!("implement in GREEN commit")
+}
+
+// ── ATT&CK tagging types ──────────────────────────────────────────────────────
+
+/// A MITRE ATT&CK technique tag derived from an event.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct AttackTag {
+    /// ATT&CK technique ID, e.g. `"T1078"` or `"T1059.001"`.
+    pub technique_id: String,
+    /// Short name for the technique.
+    pub technique_name: String,
+    /// ATT&CK tactic (e.g. `"Initial Access"`, `"Defense Evasion"`).
+    pub tactic: String,
+}
+
+/// Return ATT&CK technique tags for the given Windows Event ID.
+///
+/// Returns an empty slice for event IDs that have no mapping.
+/// This is a static lookup — no file I/O is performed.
+pub fn attack_tags_for_event_id(event_id: u32) -> &'static [AttackTag] {
+    let _ = event_id;
+    todo!("implement in GREEN commit")
+}
+
+// ── ATT&CK tests ─────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod attack_tests {
+    use super::*;
+
+    #[test]
+    fn unknown_event_id_returns_empty() {
+        // EID 99999 has no mapping → empty slice
+        let tags = attack_tags_for_event_id(99999);
+        assert!(tags.is_empty(), "unknown EID should return no tags");
+    }
+
+    #[test]
+    fn eid_4104_maps_to_powershell_technique() {
+        // EID 4104 = PowerShell Script Block Logging → T1059.001
+        let tags = attack_tags_for_event_id(4104);
+        assert!(
+            tags.iter().any(|t| t.technique_id == "T1059.001"),
+            "EID 4104 should map to T1059.001 (PowerShell), got: {tags:?}"
+        );
+    }
+
+    #[test]
+    fn eid_4624_maps_to_valid_accounts() {
+        // EID 4624 = An account was successfully logged on → T1078 (Valid Accounts)
+        let tags = attack_tags_for_event_id(4624);
+        assert!(
+            tags.iter().any(|t| t.technique_id == "T1078"),
+            "EID 4624 should map to T1078 (Valid Accounts), got: {tags:?}"
+        );
+    }
+
+    #[test]
+    fn eid_4625_maps_to_brute_force() {
+        // EID 4625 = Account logon failure → T1110 (Brute Force)
+        let tags = attack_tags_for_event_id(4625);
+        assert!(
+            tags.iter().any(|t| t.technique_id == "T1110"),
+            "EID 4625 should map to T1110 (Brute Force), got: {tags:?}"
+        );
+    }
+
+    #[test]
+    fn eid_1102_maps_to_indicator_removal() {
+        // EID 1102 = Security log cleared → T1070.001 (Clear Windows Event Logs)
+        let tags = attack_tags_for_event_id(1102);
+        assert!(
+            tags.iter().any(|t| t.technique_id == "T1070.001"),
+            "EID 1102 should map to T1070.001, got: {tags:?}"
+        );
+    }
+
+    #[test]
+    fn eid_4698_maps_to_scheduled_task() {
+        // EID 4698 = A scheduled task was created → T1053.005
+        let tags = attack_tags_for_event_id(4698);
+        assert!(
+            tags.iter().any(|t| t.technique_id == "T1053.005"),
+            "EID 4698 should map to T1053.005 (Scheduled Task), got: {tags:?}"
+        );
+    }
+
+    #[test]
+    fn eid_7045_maps_to_windows_service() {
+        // EID 7045 = New service installed → T1543.003 (Windows Service)
+        let tags = attack_tags_for_event_id(7045);
+        assert!(
+            tags.iter().any(|t| t.technique_id == "T1543.003"),
+            "EID 7045 should map to T1543.003 (Windows Service), got: {tags:?}"
+        );
+    }
+
+    #[test]
+    fn attack_tag_fields_are_non_empty() {
+        let tags = attack_tags_for_event_id(4624);
+        for tag in tags {
+            assert!(!tag.technique_id.is_empty(), "technique_id should not be empty");
+            assert!(!tag.technique_name.is_empty(), "technique_name should not be empty");
+            assert!(!tag.tactic.is_empty(), "tactic should not be empty");
+        }
+    }
+
+    #[test]
+    fn attack_tag_serializes_to_json() {
+        let tag = AttackTag {
+            technique_id: "T1059.001".to_string(),
+            technique_name: "PowerShell".to_string(),
+            tactic: "Execution".to_string(),
+        };
+        let json = serde_json::to_string(&tag).expect("serialize AttackTag");
+        assert!(json.contains("T1059.001"));
+        assert!(json.contains("PowerShell"));
+    }
+}
+
+// ── IOC tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod ioc_tests {
+    use super::*;
+
+    #[test]
+    fn ioc_extract_nonexistent_path_returns_error() {
+        let result = ioc_extract(Path::new("/nonexistent/security.evtx"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn ioc_kind_variants_are_distinct() {
+        assert_ne!(IocKind::IpAddress, IocKind::Domain);
+        assert_ne!(IocKind::Md5, IocKind::Sha256);
+        assert_ne!(IocKind::FilePath, IocKind::IpAddress);
+    }
+
+    #[test]
+    fn ioc_report_fields_are_accessible() {
+        let r = IocReport {
+            events_scanned: 100,
+            iocs: vec![Ioc {
+                value: "192.168.1.1".to_string(),
+                kind: IocKind::IpAddress,
+                count: 5,
+                first_seen: Some("2017-12-08T12:00:00Z".to_string()),
+                last_seen: Some("2017-12-08T13:00:00Z".to_string()),
+                record_ids: vec![1, 2, 3],
+            }],
+        };
+        assert_eq!(r.events_scanned, 100);
+        assert_eq!(r.iocs[0].kind, IocKind::IpAddress);
+        assert_eq!(r.iocs[0].count, 5);
+    }
+
+    #[test]
+    fn ioc_report_serializes_to_json() {
+        let r = IocReport {
+            events_scanned: 50,
+            iocs: vec![],
+        };
+        let json = serde_json::to_string(&r).expect("serialize IocReport");
+        assert!(json.contains("events_scanned"));
+    }
+
+    fn foxitdata_path(filename: &str) -> std::path::PathBuf {
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.pop();
+        p.pop();
+        p.join("tests/data/fox-it-danderspritz").join(filename)
+    }
+
+    macro_rules! require_foxitdata {
+        ($filename:expr) => {{
+            let p = foxitdata_path($filename);
+            if !p.exists() {
+                eprintln!("SKIP: {} not found", p.display());
+                return;
+            }
+            p
+        }};
+    }
+
+    #[test]
+    fn pre_security_ioc_extract_returns_report() {
+        let path = require_foxitdata!("pre-Security.evtx");
+        let report = ioc_extract(&path).expect("ioc_extract on pre-Security.evtx");
+        assert!(report.events_scanned > 0, "should have scanned some events");
+    }
+
+    #[test]
+    fn pre_security_ioc_extract_finds_ip_addresses() {
+        let path = require_foxitdata!("pre-Security.evtx");
+        let report = ioc_extract(&path).expect("ioc_extract");
+        // Security.evtx logon events contain IpAddress fields
+        assert!(
+            report.iocs.iter().any(|ioc| ioc.kind == IocKind::IpAddress),
+            "Security.evtx should contain IP address IOCs"
+        );
+    }
+}

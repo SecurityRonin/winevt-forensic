@@ -1,0 +1,80 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Workspace members to check (default: all)
+targets = [
+    "x86_64-unknown-linux-musl",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+
+# ── Advisories ────────────────────────────────────────────────────────────────
+[advisories]
+# Reject crates with known security advisories
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+ignore = [
+    # Add advisory IDs to ignore here, with a comment explaining why.
+    # Example:
+    # "RUSTSEC-2021-0000",  # Not applicable: we don't use the affected feature
+]
+
+# ── Licenses ──────────────────────────────────────────────────────────────────
+[licenses]
+version = 2
+# Allow common permissive and copyleft-compatible licenses
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "Zlib",
+    "0BSD",
+]
+# Reject unknown/unlicensed crates
+unlicensed = "deny"
+# Warn on copyleft (we don't use any GPL, but surface it if introduced)
+copyleft = "warn"
+# Allow dual-licensed crates to use either license
+allow-osi-fsf-free = "neither"
+default = "deny"
+
+# ── Bans ──────────────────────────────────────────────────────────────────────
+[bans]
+# Deny multiple versions of the same crate when possible
+multiple-versions = "warn"
+# Deny wildcard dependencies
+wildcards = "deny"
+# Skip duplicate version checks for well-known crates that have unavoidable
+# dependency diamonds during the ecosystem transition period.
+skip = [
+    # Common crates that appear in multiple versions due to ecosystem churn
+    { name = "syn", reason = "proc-macro ecosystem split on syn 1.x vs 2.x" },
+    { name = "bitflags", reason = "bitflags 1.x vs 2.x split" },
+    { name = "rustix", reason = "multiple dependents lock to different minor versions" },
+    { name = "linux-raw-sys", reason = "paired with rustix" },
+]
+
+# Explicitly banned crates
+deny = [
+    # Unmaintained / known-bad crates
+    { name = "openssl", reason = "use rustls instead for cross-platform TLS" },
+    { name = "net2", reason = "unmaintained; use socket2" },
+    { name = "tempdir", reason = "unmaintained; use tempfile" },
+]
+
+# ── Sources ───────────────────────────────────────────────────────────────────
+[sources]
+# Only allow crates from crates.io and our own workspace
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

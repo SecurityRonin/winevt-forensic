@@ -1,0 +1,41 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "labels": ["dependencies"],
+  "commitMessagePrefix": "chore(deps):",
+  "packageRules": [
+    {
+      "description": "Pin GitHub Actions to commit SHAs for supply-chain security",
+      "matchManagers": ["github-actions"],
+      "pinDigests": true,
+      "automerge": false
+    },
+    {
+      "description": "Group all Rust dependency updates together",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Rust dependencies",
+      "automerge": false
+    },
+    {
+      "description": "Security advisories: always open a PR immediately",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["patch"],
+      "matchCategories": ["security"],
+      "automerge": false,
+      "prPriority": 10,
+      "labels": ["dependencies", "security"]
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"]
+  },
+  "cargo": {
+    "enabled": true
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 5am on Monday"]
+  }
+}
