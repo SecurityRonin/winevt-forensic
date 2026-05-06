@@ -320,23 +320,22 @@ pub fn carve_from_ewf(path: &Path) -> Result<CarveResult, CarveError> {
     Ok(result)
 }
 
-/// Verify the structural integrity of an EVTX file by checking all chunk header checksums.
+/// Verify the structural integrity of an EVTX file.
 ///
-/// Returns `Ok(Vec<IntegrityAnomaly>)` where the vec is empty for a sound file and
-/// contains `ChunkChecksumMismatch` indicators for any corrupted chunks.
+/// Returns `Ok(Vec<IntegrityAnomaly>)` — empty for a sound file, or containing any
+/// of: checksum mismatches, record ID gaps, timestamp anomalies, file-header
+/// inconsistencies, export timestamp corruption (Fox-IT 2019), and surgical record
+/// deletion (Fox-IT / DanderSpritz 2017).
+///
+/// Delegates to [`carve_from_bytes`] so every detection wired there is also
+/// available here without duplication.
 pub fn verify_integrity(path: &Path) -> Result<Vec<IntegrityAnomaly>, CarveError> {
     let data = std::fs::read(path)?;
-    let mut indicators = Vec::new();
-    let mut i = 0usize;
-    while i + 8 <= data.len() {
-        if data[i..i + 8] == ELFCHNK_MAGIC {
-            let chunk_end = (i + CHUNK_SIZE as usize).min(data.len());
-            let chunk_data = &data[i..chunk_end];
-            indicators.extend(verify_chunk_header_checksum(chunk_data, i as u64));
-            i += CHUNK_SIZE as usize;
-            continue;
-        }
-        i += 8;
+    let result = carve_from_bytes(&data);
+    // Collect file-level indicators plus per-chunk indicators (e.g. ChunkChecksumMismatch).
+    let mut indicators: Vec<IntegrityAnomaly> = result.indicators;
+    for chunk in &result.chunks {
+        indicators.extend(chunk.indicators.iter().cloned());
     }
     Ok(indicators)
 }
@@ -644,6 +643,9 @@ mod tests {
         hdr[38..40].copy_from_slice(&3u16.to_le_bytes()); // major_version
         hdr[40..42].copy_from_slice(&0u16.to_le_bytes()); // HeaderBlockSize padding
         hdr[42..44].copy_from_slice(&1u16.to_le_bytes()); // chunk_count
+        // File header checksum covers bytes 0x00..0x78; stored at 0x7C.
+        let crc = crc32fast::hash(&hdr[0..0x78]);
+        hdr[0x7C..0x80].copy_from_slice(&crc.to_le_bytes());
         hdr
     }
 
