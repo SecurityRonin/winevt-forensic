@@ -17,6 +17,7 @@ winevt-analyze.workspace = true
 winevt-triage.workspace = true
 clap.workspace = true
 anyhow.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

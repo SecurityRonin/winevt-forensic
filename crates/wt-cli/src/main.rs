@@ -14,6 +14,8 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use winevt_writer::{records_to_evtx, WriteRecord};
 
+mod report;
+
 /// EVTX forensic analysis tool.
 ///
 /// Carves records from corrupt or cleared EVTX files and reports
@@ -149,6 +151,12 @@ enum Cmd {
         /// Path to the hayabusa binary.  Defaults to `hayabusa` on `PATH`.
         #[arg(long)]
         hayabusa_bin: Option<PathBuf>,
+        /// Minimum Hayabusa detection level to load
+        /// (`informational`, `low`, `medium`, `high`, `critical`).
+        /// Lower levels are noisier; `medium` or `high` gives better SNR for triage.
+        /// Defaults to `informational` (all rules).
+        #[arg(long, default_value = "informational")]
+        min_level: String,
     },
 }
 
@@ -435,11 +443,29 @@ fn main() {
                 2
             }
         },
-        Cmd::Report { path, carved, output, hayabusa_bin } => {
-            let _ = (carved, output, hayabusa_bin);
-            eprintln!("error: wt report not yet implemented");
-            let _ = path;
-            2
+        Cmd::Report { path, carved, output, hayabusa_bin, min_level } => {
+            match report::run(
+                &path,
+                carved,
+                output.as_deref(),
+                hayabusa_bin.as_deref(),
+                Some(min_level.as_str()),
+            ) {
+                Ok(out) => {
+                    match serde_json::to_string_pretty(&out) {
+                        Ok(json) => println!("{json}"),
+                        Err(e) => {
+                            eprintln!("error: {e}");
+                            std::process::exit(2);
+                        }
+                    }
+                    0
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    2
+                }
+            }
         }
         Cmd::Reconstruct { path, output } => match winevt_carver::carve_from_file(&path) {
             Ok(result) => {

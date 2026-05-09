@@ -1953,10 +1953,12 @@ dependencies = [
  "anyhow",
  "clap",
  "crc32fast",
+ "serde",
  "serde_json",
  "tempfile",
  "winevt-analyze",
  "winevt-carver",
+ "winevt-triage",
  "winevt-writer",
 ]
 
