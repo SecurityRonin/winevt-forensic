@@ -155,7 +155,7 @@ enum Cmd {
         /// (`informational`, `low`, `medium`, `high`, `critical`).
         /// Lower levels are noisier; `medium` or `high` gives better SNR for triage.
         /// Defaults to `informational` (all rules).
-        #[arg(long, default_value = "informational")]
+        #[arg(long, default_value = "medium")]
         min_level: String,
     },
 }
