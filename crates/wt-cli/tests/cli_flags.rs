@@ -166,3 +166,110 @@ fn frequency_sort_desc_is_descending() {
         assert!(first >= last, "desc: first ({first}) must be >= last ({last})");
     }
 }
+
+// ── wt timeline --filter-eid ──────────────────────────────────────────────────
+
+#[test]
+fn timeline_filter_eid_returns_only_matching_events() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["timeline", "--filter-eid", "4624", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt timeline --filter-eid 4624");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let arr = json.as_array().expect("must be JSON array");
+    assert!(!arr.is_empty(), "4624 (logon) must appear in Security log");
+    for entry in arr {
+        assert_eq!(
+            entry["event_id"].as_u64().unwrap_or(0),
+            4624,
+            "all events must have event_id 4624; got: {entry}"
+        );
+    }
+}
+
+#[test]
+fn timeline_filter_eid_unknown_returns_empty() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["timeline", "--filter-eid", "9999999", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt timeline --filter-eid 9999999");
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert_eq!(
+        json.as_array().unwrap().len(),
+        0,
+        "EID 9999999 must return empty array"
+    );
+}
+
+// ── wt timeline --limit ───────────────────────────────────────────────────────
+
+#[test]
+fn timeline_limit_caps_output() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["timeline", "--limit", "5", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt timeline --limit 5");
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(
+        json.as_array().unwrap().len() <= 5,
+        "--limit 5 must return at most 5 events"
+    );
+}
+
+// ── wt sessions --logon-type ──────────────────────────────────────────────────
+
+#[test]
+fn sessions_logon_type_filters_results() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["sessions", "--logon-type", "3", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt sessions --logon-type 3");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(json.is_array());
+    for session in json.as_array().unwrap() {
+        assert_eq!(
+            session["logon_type"].as_u64().unwrap_or(999),
+            3,
+            "all returned sessions must have logon_type 3"
+        );
+    }
+}
+
+#[test]
+fn sessions_logon_type_999_returns_empty() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["sessions", "--logon-type", "999", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt sessions --logon-type 999");
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert_eq!(
+        json.as_array().unwrap().len(),
+        0,
+        "logon_type 999 must return empty array"
+    );
+}
