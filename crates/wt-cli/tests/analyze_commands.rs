@@ -199,15 +199,15 @@ fn logon_graph_mermaid_flag() {
     assert!(stdout.contains("graph"), "mermaid output must contain 'graph'");
 }
 
-// ── wt rare-process ───────────────────────────────────────────────────────────
+// ── wt frequency --by process ─────────────────────────────────────────────────
 
 #[test]
 fn rare_process_json_output() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["rare-process", evtx.to_str().unwrap()])
+        .args(["frequency", "--by", "process", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt rare-process");
+        .expect("run wt frequency --by process");
     assert_eq!(
         output.status.code(),
         Some(0),
@@ -216,18 +216,18 @@ fn rare_process_json_output() {
     );
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be JSON");
-    assert!(json.is_array(), "rare-process must output JSON array");
+    assert!(json.is_array(), "frequency --by process must output JSON array");
 }
 
 #[test]
 fn rare_process_threshold_999_returns_all() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let low = Command::new(wt_bin())
-        .args(["rare-process", "--threshold", "3", evtx.to_str().unwrap()])
+        .args(["frequency", "--by", "process", "--threshold", "3", evtx.to_str().unwrap()])
         .output()
         .expect("threshold 3");
     let high = Command::new(wt_bin())
-        .args(["rare-process", "--threshold", "999999", evtx.to_str().unwrap()])
+        .args(["frequency", "--by", "process", "--threshold", "999999", evtx.to_str().unwrap()])
         .output()
         .expect("threshold 999999");
     let low_json: serde_json::Value = serde_json::from_slice(&low.stdout).unwrap();
@@ -289,20 +289,20 @@ fn hunt_nonexistent_file_exits_3() {
     assert_eq!(status.code(), Some(3));
 }
 
-// ── wt anomaly ────────────────────────────────────────────────────────────────
+// ── wt frequency --anomaly ────────────────────────────────────────────────────
 
 #[test]
 fn anomaly_json_output() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["anomaly", evtx.to_str().unwrap()])
+        .args(["frequency", "--anomaly", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt anomaly");
+        .expect("run wt frequency --anomaly");
     let code = output.status.code().unwrap_or(-1);
-    assert!(code == 0 || code == 1, "anomaly must exit 0 or 1, got {code}");
+    assert!(code == 0 || code == 1, "frequency --anomaly must exit 0 or 1, got {code}");
     let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("anomaly must output JSON");
-    assert!(json.is_array(), "anomaly must output JSON array");
+        serde_json::from_slice(&output.stdout).expect("frequency --anomaly must output JSON");
+    assert!(json.is_array(), "frequency --anomaly must output JSON array");
     if let Some(arr) = json.as_array() {
         if !arr.is_empty() {
             let first = &arr[0];
@@ -317,13 +317,13 @@ fn anomaly_json_output() {
 fn anomaly_high_min_z_returns_fewer_results() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let low = Command::new(wt_bin())
-        .args(["anomaly", "--min-z", "0", evtx.to_str().unwrap()])
+        .args(["frequency", "--anomaly", "--min-z", "0", evtx.to_str().unwrap()])
         .output()
-        .expect("anomaly min-z 0");
+        .expect("frequency --anomaly min-z 0");
     let high = Command::new(wt_bin())
-        .args(["anomaly", "--min-z", "999", evtx.to_str().unwrap()])
+        .args(["frequency", "--anomaly", "--min-z", "999", evtx.to_str().unwrap()])
         .output()
-        .expect("anomaly min-z 999");
+        .expect("frequency --anomaly min-z 999");
     let low_json: serde_json::Value = serde_json::from_slice(&low.stdout).unwrap();
     let high_json: serde_json::Value = serde_json::from_slice(&high.stdout).unwrap();
     assert!(
@@ -335,9 +335,9 @@ fn anomaly_high_min_z_returns_fewer_results() {
 #[test]
 fn anomaly_nonexistent_exits_3() {
     let status = Command::new(wt_bin())
-        .args(["anomaly", "/nonexistent/Security.evtx"])
+        .args(["frequency", "--anomaly", "/nonexistent/Security.evtx"])
         .status()
-        .expect("run wt anomaly nonexistent");
+        .expect("run wt frequency --anomaly nonexistent");
     assert_eq!(status.code(), Some(3));
 }
 
@@ -387,23 +387,23 @@ fn extract_nonexistent_file_exits_3() {
     assert_eq!(status.code(), Some(3));
 }
 
-// ── wt summary ────────────────────────────────────────────────────────────────
+// ── wt info ───────────────────────────────────────────────────────────────────
 
 #[test]
 fn summary_json_has_required_fields() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["summary", evtx.to_str().unwrap()])
+        .args(["info", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt summary");
+        .expect("run wt info");
     assert_eq!(
         output.status.code(),
         Some(0),
-        "summary must exit 0; stderr: {}",
+        "info must exit 0; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("summary must output JSON");
+        serde_json::from_slice(&output.stdout).expect("info must output JSON");
     assert!(json.get("file").is_some(), "must have 'file'");
     assert!(json.get("total_events").is_some(), "must have 'total_events'");
     assert!(json.get("time_range").is_some(), "must have 'time_range'");
@@ -416,9 +416,9 @@ fn summary_json_has_required_fields() {
 fn summary_top_event_ids_has_at_most_5() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["summary", evtx.to_str().unwrap()])
+        .args(["info", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt summary");
+        .expect("run wt info");
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be JSON");
     let top = json["top_event_ids"].as_array().expect("top_event_ids must be array");
@@ -428,8 +428,8 @@ fn summary_top_event_ids_has_at_most_5() {
 #[test]
 fn summary_nonexistent_exits_3() {
     let status = Command::new(wt_bin())
-        .args(["summary", "/nonexistent/Security.evtx"])
+        .args(["info", "/nonexistent/Security.evtx"])
         .status()
-        .expect("run wt summary nonexistent");
+        .expect("run wt info nonexistent");
     assert_eq!(status.code(), Some(3));
 }
