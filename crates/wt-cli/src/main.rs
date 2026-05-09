@@ -1,7 +1,7 @@
 //! `wt` — EVTX forensic analysis CLI.
 //!
 //! Subcommands:
-//! - `wt carve <path>`        — carve EVTX records from file, output JSON
+//! - `wt carve <path>`        — carve EVTX records from raw blob (disk image, memory dump), output JSON
 //! - `wt verify <path>`       — verify EVTX integrity, output JSON indicators
 //! - `wt stats [--json] <path>` — print file statistics
 //!
@@ -29,12 +29,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Carve EVTX records from a file, including corrupt or cleared files.
+    /// Carve EVTX records from a raw blob (disk image, memory dump, unallocated slice).
     ///
     /// Scans for `ElfChnk` magic, recovers records from each chunk,
     /// and runs integrity checks. Outputs a `CarveResult` as JSON.
+    ///
+    /// Example: `wt carve /evidence/hdd001.dd`
     Carve {
-        /// Path to the EVTX file (or raw disk image slice).
+        /// Path to the raw blob (disk image, memory dump, or any binary file).
         path: PathBuf,
     },
     /// Verify the integrity of an EVTX file and report tampering indicators.
