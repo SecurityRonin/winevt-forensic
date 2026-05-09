@@ -1,0 +1,290 @@
+//! Integration tests for new analysis subcommands:
+//! pivot, diff, process-tree, logon-graph, rare-process, hunt.
+
+use std::path::PathBuf;
+use std::process::Command;
+
+fn wt_bin() -> PathBuf {
+    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    p.push("../../target/debug/wt");
+    p
+}
+
+fn workspace_root() -> PathBuf {
+    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    p.pop();
+    p.pop();
+    p
+}
+
+fn foxitdata(name: &str) -> PathBuf {
+    workspace_root().join("tests/data/fox-it-danderspritz").join(name)
+}
+
+macro_rules! require_foxitdata {
+    ($name:expr) => {{
+        let p = foxitdata($name);
+        if !p.exists() {
+            eprintln!("SKIP: {} not found", p.display());
+            return;
+        }
+        p
+    }};
+}
+
+// ── wt pivot ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn pivot_finds_matching_events() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    // "Security" appears in channel/provider fields of almost every Security event
+    let output = Command::new(wt_bin())
+        .args(["pivot", "Security", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt pivot");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "pivot with matches must exit 1; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("pivot must output JSON");
+    assert!(json.is_array(), "pivot output must be array");
+    assert!(!json.as_array().unwrap().is_empty(), "expected matches");
+}
+
+#[test]
+fn pivot_no_match_exits_0() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["pivot", "ZZZTHISSHOULDNOTMATCHANYTHING_XYZ_9999", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt pivot no-match");
+    assert_eq!(output.status.code(), Some(0), "no-match pivot must exit 0");
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert_eq!(json.as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn pivot_stream_flag() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["pivot", "--stream", "Security", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt pivot --stream");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.trim_start().starts_with('['), "--stream must not be a JSON array");
+    for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
+        let _: serde_json::Value = serde_json::from_str(line)
+            .unwrap_or_else(|_| panic!("not JSON: {line}"));
+    }
+}
+
+#[test]
+fn pivot_nonexistent_exits_3() {
+    let status = Command::new(wt_bin())
+        .args(["pivot", "anything", "/nonexistent/file.evtx"])
+        .status()
+        .expect("run wt pivot nonexistent");
+    assert_eq!(status.code(), Some(3));
+}
+
+// ── wt diff ──────────────────────────────────────────────────────────────────
+
+#[test]
+fn diff_identical_file_exits_0() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["diff", evtx.to_str().unwrap(), evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt diff identical");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "diffing a file with itself must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert_eq!(json["added"].as_array().unwrap().len(), 0);
+    assert_eq!(json["removed"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn diff_different_files_exits_1() {
+    let a = require_foxitdata!("pre-Security.evtx");
+    let b = require_foxitdata!("post-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["diff", a.to_str().unwrap(), b.to_str().unwrap()])
+        .output()
+        .expect("run wt diff different");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "diffing different files must exit 1; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(json.get("added").is_some() && json.get("removed").is_some());
+}
+
+// ── wt process-tree ───────────────────────────────────────────────────────────
+
+#[test]
+fn process_tree_json_output() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["process-tree", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt process-tree");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(json.is_array(), "process-tree must output JSON array");
+}
+
+#[test]
+fn process_tree_mermaid_flag() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["process-tree", "--mermaid", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt process-tree --mermaid");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("graph"),
+        "mermaid output must contain 'graph'; got: {stdout}"
+    );
+}
+
+// ── wt logon-graph ────────────────────────────────────────────────────────────
+
+#[test]
+fn logon_graph_json_output() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["logon-graph", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt logon-graph");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(json.get("nodes").is_some(), "logon-graph must have 'nodes'");
+    assert!(json.get("edges").is_some(), "logon-graph must have 'edges'");
+}
+
+#[test]
+fn logon_graph_mermaid_flag() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["logon-graph", "--mermaid", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt logon-graph --mermaid");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("graph"), "mermaid output must contain 'graph'");
+}
+
+// ── wt rare-process ───────────────────────────────────────────────────────────
+
+#[test]
+fn rare_process_json_output() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["rare-process", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt rare-process");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(json.is_array(), "rare-process must output JSON array");
+}
+
+#[test]
+fn rare_process_threshold_999_returns_all() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let low = Command::new(wt_bin())
+        .args(["rare-process", "--threshold", "3", evtx.to_str().unwrap()])
+        .output()
+        .expect("threshold 3");
+    let high = Command::new(wt_bin())
+        .args(["rare-process", "--threshold", "999999", evtx.to_str().unwrap()])
+        .output()
+        .expect("threshold 999999");
+    let low_json: serde_json::Value = serde_json::from_slice(&low.stdout).unwrap();
+    let high_json: serde_json::Value = serde_json::from_slice(&high.stdout).unwrap();
+    let low_len = low_json.as_array().unwrap().len();
+    let high_len = high_json.as_array().unwrap().len();
+    assert!(
+        high_len >= low_len,
+        "higher threshold must return >= results ({high_len} vs {low_len})"
+    );
+}
+
+// ── wt hunt ──────────────────────────────────────────────────────────────────
+
+#[test]
+fn hunt_unknown_name_exits_2() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let status = Command::new(wt_bin())
+        .args(["hunt", "this-hunt-does-not-exist", evtx.to_str().unwrap()])
+        .status()
+        .expect("run wt hunt unknown");
+    assert_eq!(status.code(), Some(2), "unknown hunt must exit 2");
+}
+
+#[test]
+fn hunt_kerberoast_exits_cleanly() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["hunt", "kerberoast", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt hunt kerberoast");
+    let code = output.status.code().unwrap_or(-1);
+    assert!(
+        code == 0 || code == 1,
+        "hunt kerberoast must exit 0 or 1, got {code}; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let _: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+}
+
+#[test]
+fn hunt_scheduled_task_exits_cleanly() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["hunt", "scheduled-task", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt hunt scheduled-task");
+    let code = output.status.code().unwrap_or(-1);
+    assert!(code == 0 || code == 1, "hunt must exit 0 or 1, got {code}");
+}
+
+#[test]
+fn hunt_nonexistent_file_exits_3() {
+    let status = Command::new(wt_bin())
+        .args(["hunt", "kerberoast", "/nonexistent/Security.evtx"])
+        .status()
+        .expect("run wt hunt nonexistent");
+    assert_eq!(status.code(), Some(3));
+}
