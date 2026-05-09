@@ -102,10 +102,7 @@ pub fn check_chunk_count(header_count: u16, actual_count: usize) -> Vec<Integrit
 /// Verify the event records area CRC32 for a chunk.
 /// Records area = bytes `0x200..free_space_offset` (from chunk header field at bytes 48..52).
 /// CRC32 compared with `event_records_checksum` at bytes 52..56.
-pub fn verify_records_area_checksum(
-    chunk_data: &[u8],
-    chunk_offset: u64,
-) -> Vec<IntegrityAnomaly> {
+pub fn verify_records_area_checksum(chunk_data: &[u8], chunk_offset: u64) -> Vec<IntegrityAnomaly> {
     if chunk_data.len() < 0x38 {
         return vec![];
     }
@@ -157,18 +154,16 @@ pub fn check_file_header_consistency(
 /// Reference: Wassenaar, Fox-IT BV (2019).
 /// "Export corrupts Windows Event Log files"
 /// <https://blog.fox-it.com/2019/06/04/export-corrupts-windows-event-log-files/>
-pub fn detect_export_timestamp_corruption(
-    records: &[(u64, u64, u64)],
-) -> Vec<IntegrityAnomaly> {
+pub fn detect_export_timestamp_corruption(records: &[(u64, u64, u64)]) -> Vec<IntegrityAnomaly> {
     records
         .iter()
         .filter(|&&(_, _, ts)| ts == 0)
-        .map(|&(record_id, chunk_offset, _)| {
-            IntegrityAnomaly::ExportTimestampCorruption {
+        .map(
+            |&(record_id, chunk_offset, _)| IntegrityAnomaly::ExportTimestampCorruption {
                 record_id,
                 chunk_offset,
-            }
-        })
+            },
+        )
         .collect()
 }
 
@@ -191,10 +186,7 @@ pub fn detect_export_timestamp_corruption(
 /// Reference implementation (Python, MIT License): fox-it/danderspritz-evtx
 /// <https://github.com/fox-it/danderspritz-evtx>
 /// Algorithm independently re-implemented in Rust.
-pub fn detect_danderspritz_deletion(
-    chunk_data: &[u8],
-    chunk_offset: u64,
-) -> Vec<IntegrityAnomaly> {
+pub fn detect_danderspritz_deletion(chunk_data: &[u8], chunk_offset: u64) -> Vec<IntegrityAnomaly> {
     const RECORD_MAGIC: [u8; 4] = [0x2A, 0x2A, 0x00, 0x00];
     const RECORDS_START: usize = 0x200;
     const FREE_SPACE_OFF_FIELD: usize = 0x30; // bytes 48..52 in chunk header
@@ -221,18 +213,16 @@ pub fn detect_danderspritz_deletion(
             break;
         }
 
-        let stated_size = u32::from_le_bytes(
-            chunk_data[pos + 4..pos + 8].try_into().unwrap_or([0; 4]),
-        ) as usize;
+        let stated_size =
+            u32::from_le_bytes(chunk_data[pos + 4..pos + 8].try_into().unwrap_or([0; 4])) as usize;
 
         // Minimum well-formed record: 4 magic + 4 size + 8 id + 8 ts + 0 payload + 4 tail = 28
         if stated_size < 28 || pos + stated_size > free_space_offset {
             break;
         }
 
-        let record_id = u64::from_le_bytes(
-            chunk_data[pos + 8..pos + 16].try_into().unwrap_or([0; 8]),
-        );
+        let record_id =
+            u64::from_le_bytes(chunk_data[pos + 8..pos + 16].try_into().unwrap_or([0; 8]));
 
         // Body = bytes after the 24-byte header, before the 4-byte trailing size field.
         let body_start = pos + 24;
@@ -241,10 +231,7 @@ pub fn detect_danderspritz_deletion(
         // Search the body for a nested record-magic pattern.
         if body_end > body_start {
             let body = &chunk_data[body_start..body_end];
-            if let Some(rel) = body
-                .windows(4)
-                .position(|w| w == RECORD_MAGIC)
-            {
+            if let Some(rel) = body.windows(4).position(|w| w == RECORD_MAGIC) {
                 let ghost_offset_in_chunk = (body_start + rel) as u64;
                 indicators.push(IntegrityAnomaly::SurgicalRecordDeletion {
                     chunk_offset,
@@ -539,7 +526,10 @@ mod tests {
         assert!(
             matches!(
                 &indicators[0],
-                IntegrityAnomaly::RecordChecksumMismatch { chunk_offset: 0x10000, .. }
+                IntegrityAnomaly::RecordChecksumMismatch {
+                    chunk_offset: 0x10000,
+                    ..
+                }
             ),
             "expected RecordChecksumMismatch, got: {:?}",
             indicators
@@ -568,8 +558,8 @@ mod tests {
     fn export_corruption_first_record_zero_ts_detected() {
         let records = vec![
             (1u64, 0x10000u64, 0u64),
-            (2,    0x10000,    200),
-            (3,    0x10000,    300),
+            (2, 0x10000, 200),
+            (3, 0x10000, 300),
         ];
         let indicators = detect_export_timestamp_corruption(&records);
         assert_eq!(indicators.len(), 1);
@@ -581,7 +571,8 @@ mod tests {
                     chunk_offset: 0x10000,
                 }
             ),
-            "got: {:?}", indicators
+            "got: {:?}",
+            indicators
         );
     }
 
@@ -618,10 +609,18 @@ mod tests {
     // fox-it/danderspritz-evtx — https://github.com/fox-it/danderspritz-evtx
     // Algorithm independently re-implemented in Rust.
 
-    fn write_record_at(buf: &mut Vec<u8>, offset: usize, record_id: u64, ts: u64, payload: &[u8]) -> u32 {
+    fn write_record_at(
+        buf: &mut Vec<u8>,
+        offset: usize,
+        record_id: u64,
+        ts: u64,
+        payload: &[u8],
+    ) -> u32 {
         let size = (4 + 4 + 8 + 8 + payload.len() + 4) as u32;
         let end = offset + size as usize;
-        if buf.len() < end { buf.resize(end, 0); }
+        if buf.len() < end {
+            buf.resize(end, 0);
+        }
         buf[offset..offset + 4].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
         buf[offset + 4..offset + 8].copy_from_slice(&size.to_le_bytes());
         buf[offset + 8..offset + 16].copy_from_slice(&record_id.to_le_bytes());
@@ -677,8 +676,138 @@ mod tests {
         assert_eq!(indicators.len(), 1, "got: {:?}", indicators);
         assert!(matches!(
             &indicators[0],
-            IntegrityAnomaly::SurgicalRecordDeletion { absorbing_record_id: 1, .. }
+            IntegrityAnomaly::SurgicalRecordDeletion {
+                absorbing_record_id: 1,
+                ..
+            }
         ));
+    }
+
+    // ── §2 extra: check_chunk_data_length ────────────────────────────────────
+
+    #[test]
+    fn chunk_data_length_valid_returns_empty() {
+        assert!(check_chunk_data_length(4096).is_empty());
+        assert!(check_chunk_data_length(512).is_empty());
+        assert!(check_chunk_data_length(65536).is_empty());
+    }
+
+    #[test]
+    fn chunk_data_length_too_small_returns_indicator() {
+        let v = check_chunk_data_length(256);
+        assert_eq!(v.len(), 1, "length 256 is below minimum 512");
+        assert!(matches!(&v[0], IntegrityAnomaly::InvalidChunkDataLength(256)));
+    }
+
+    #[test]
+    fn chunk_data_length_too_large_returns_indicator() {
+        let v = check_chunk_data_length(65537);
+        assert_eq!(v.len(), 1, "length 65537 is above maximum 65536");
+        assert!(matches!(&v[0], IntegrityAnomaly::InvalidChunkDataLength(65537)));
+    }
+
+    #[test]
+    fn chunk_data_length_zero_returns_indicator() {
+        let v = check_chunk_data_length(0);
+        assert_eq!(v.len(), 1);
+    }
+
+    // ── §2 extra: check_log_file_guid_consistency ─────────────────────────────
+
+    #[test]
+    fn guid_consistency_all_same_returns_empty() {
+        let guid = [0xABu8; 16];
+        let guids = vec![guid, guid, guid];
+        assert!(check_log_file_guid_consistency(&guids).is_empty());
+    }
+
+    #[test]
+    fn guid_consistency_empty_returns_empty() {
+        assert!(check_log_file_guid_consistency(&[]).is_empty());
+    }
+
+    #[test]
+    fn guid_consistency_single_returns_empty() {
+        assert!(check_log_file_guid_consistency(&[[0u8; 16]]).is_empty());
+    }
+
+    #[test]
+    fn guid_consistency_mismatch_returns_indicator() {
+        let g1 = [0xAAu8; 16];
+        let g2 = [0xBBu8; 16];
+        let guids = vec![g1, g1, g2];
+        let v = check_log_file_guid_consistency(&guids);
+        assert_eq!(v.len(), 1, "one mismatch expected; got {:?}", v);
+        assert!(
+            matches!(&v[0], IntegrityAnomaly::LogFileGuidMismatch { chunk_index: 2, .. }),
+            "mismatch should be at chunk_index 2; got {:?}", v
+        );
+    }
+
+    #[test]
+    fn guid_consistency_multiple_mismatches_all_reported() {
+        let g1 = [0x01u8; 16];
+        let g2 = [0x02u8; 16];
+        let g3 = [0x03u8; 16];
+        let guids = vec![g1, g2, g3];
+        let v = check_log_file_guid_consistency(&guids);
+        assert_eq!(v.len(), 2, "chunks 1 and 2 differ from chunk 0; got {:?}", v);
+    }
+
+    // ── §3: detect_phantom_records ────────────────────────────────────────────
+
+    #[test]
+    fn phantom_contiguous_records_returns_empty() {
+        // record_id, timestamp_ns (must be nanoseconds as i64)
+        let records: &[(u64, i64)] = &[(1, 100), (2, 200), (3, 300)];
+        assert!(detect_phantom_records(records).is_empty());
+    }
+
+    #[test]
+    fn phantom_empty_returns_empty() {
+        assert!(detect_phantom_records(&[]).is_empty());
+    }
+
+    #[test]
+    fn phantom_single_record_returns_empty() {
+        assert!(detect_phantom_records(&[(5, 1_000_000)]).is_empty());
+    }
+
+    #[test]
+    fn phantom_gap_with_no_time_gap_is_suspicious() {
+        // record_ids 1, 2, 10 — gap of 8 between 2 and 10, timestamps contiguous
+        let records: &[(u64, i64)] = &[(1, 1_000_000), (2, 2_000_000), (10, 3_000_000)];
+        let alerts = detect_phantom_records(records);
+        assert_eq!(alerts.len(), 1, "one gap expected; got {:?}", alerts);
+        assert!(alerts[0].suspicious, "timestamp doesn't explain the gap → suspicious");
+        assert_eq!(alerts[0].gap_start_id, 3, "gap starts at 3 (next after 2)");
+        assert_eq!(alerts[0].gap_end_id, 9, "gap ends at 9 (just before 10)");
+    }
+
+    #[test]
+    fn phantom_gap_with_proportional_time_gap_is_not_suspicious() {
+        // record_ids 1..10..20 — gap of 10, but large time jump
+        let records: &[(u64, i64)] = &[
+            (1, 1_000_000_000),
+            (10, 1_000_000_000),   // same ts as record 1
+            (20, 100_000_000_000), // large ts jump
+        ];
+        let alerts = detect_phantom_records(records);
+        // Two gaps: 2..9 (no time gap → suspicious) and 11..19 (large time gap → not suspicious)
+        let suspicious_count = alerts.iter().filter(|a| a.suspicious).count();
+        let not_suspicious_count = alerts.iter().filter(|a| !a.suspicious).count();
+        assert!(suspicious_count >= 1, "gap 2..9 has no time gap → suspicious");
+        assert!(not_suspicious_count >= 1, "gap 11..19 has large time gap → not suspicious");
+    }
+
+    #[test]
+    fn phantom_no_alerts_on_contiguous_records_with_time_gaps() {
+        let records: &[(u64, i64)] = &[
+            (1, 0),
+            (2, 60_000_000_000),   // 60s gap
+            (3, 120_000_000_000),  // 60s gap
+        ];
+        assert!(detect_phantom_records(records).is_empty());
     }
 
     #[test]
@@ -695,8 +824,11 @@ mod tests {
         let indicators = detect_danderspritz_deletion(&chunk, 0x20000);
         assert_eq!(indicators.len(), 1);
         if let IntegrityAnomaly::SurgicalRecordDeletion {
-            chunk_offset, ghost_offset_in_chunk, ..
-        } = &indicators[0] {
+            chunk_offset,
+            ghost_offset_in_chunk,
+            ..
+        } = &indicators[0]
+        {
             assert_eq!(*chunk_offset, 0x20000);
             assert_eq!(*ghost_offset_in_chunk, 0x200 + sz1 as u64);
         } else {
