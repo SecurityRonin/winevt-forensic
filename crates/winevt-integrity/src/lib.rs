@@ -1,5 +1,8 @@
 use winevt_core::binary::IntegrityAnomaly;
 
+pub mod provider_heuristics;
+pub use provider_heuristics::{check_provider_consistency, ProviderAnomaly};
+
 /// Given (first_record_number, last_record_number) per chunk in order,
 /// detect gaps between adjacent chunks.
 pub fn detect_record_id_gaps(chunks: &[(u64, u64)]) -> Vec<IntegrityAnomaly> {
