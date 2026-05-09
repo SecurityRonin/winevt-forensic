@@ -96,7 +96,7 @@ fn hayabusa_help_exits_success() {
     assert!(status.success(), "hayabusa help should exit 0");
 }
 
-/// wt reconstruct → hayabusa pipeline completes without error for a
+/// wt repair → hayabusa pipeline completes without error for a
 /// synthetic EVTX fixture.
 ///
 /// Does not assert any specific detection (that would require bundling
@@ -117,7 +117,7 @@ fn hayabusa_parses_reconstructed_evtx() {
         .collect();
     let input = write_evtx_fixture("pipeline_in", &records);
 
-    // 2. Reconstruct via wt reconstruct.
+    // 2. Repair (CRC fixup) via wt repair — produces a structurally valid EVTX.
     let mut recon_path = std::env::temp_dir();
     recon_path.push(format!(
         "wt_hayabusa_recon_{}.evtx",
@@ -129,16 +129,16 @@ fn hayabusa_parses_reconstructed_evtx() {
 
     let recon_status = Command::new(wt_bin())
         .args([
-            "reconstruct",
+            "repair",
             "--output",
             recon_path.to_str().unwrap(),
             input.to_str().unwrap(),
         ])
         .status()
-        .expect("run wt reconstruct");
+        .expect("run wt repair");
     let _ = std::fs::remove_file(&input);
 
-    assert_eq!(recon_status.code(), Some(0), "wt reconstruct should exit 0");
+    assert_eq!(recon_status.code(), Some(0), "wt repair should exit 0");
 
     // 3. Feed reconstructed file to hayabusa --json-timeline (or equivalent).
     //    hayabusa 2.x: `hayabusa json-timeline -f <path> -o <output>`
@@ -175,11 +175,11 @@ fn hayabusa_parses_reconstructed_evtx() {
     );
 }
 
-/// Corrupt EVTX → carve → reconstruct → hayabusa full pipeline.
+/// Corrupt EVTX → repair → hayabusa full pipeline.
 ///
 /// Creates an EVTX, zeroes the middle third (simulating corruption/partial
-/// encryption), runs `wt reconstruct` on the damaged file, then verifies
-/// hayabusa can still process the output.
+/// encryption), runs `wt repair` on the damaged file to fix checksums, then
+/// verifies hayabusa can still process the output.
 #[test]
 fn hayabusa_processes_corrupted_then_reconstructed_evtx() {
     let bin = require_hayabusa!();
@@ -204,7 +204,7 @@ fn hayabusa_processes_corrupted_then_reconstructed_evtx() {
     let corrupt_path = write_evtx_fixture("corrupt", &[]);
     std::fs::write(&corrupt_path, &corrupted).expect("write corrupt evtx");
 
-    // 3. Reconstruct.
+    // 3. Repair (CRC fixup).
     let mut recon_path = std::env::temp_dir();
     recon_path.push(format!(
         "wt_hayabusa_recon_corrupt_{}.evtx",
@@ -216,22 +216,22 @@ fn hayabusa_processes_corrupted_then_reconstructed_evtx() {
 
     let recon_status = Command::new(wt_bin())
         .args([
-            "reconstruct",
+            "repair",
             "--output",
             recon_path.to_str().unwrap(),
             corrupt_path.to_str().unwrap(),
         ])
         .status()
-        .expect("run wt reconstruct on corrupt file");
+        .expect("run wt repair on corrupt file");
     let _ = std::fs::remove_file(&corrupt_path);
 
     assert_eq!(
         recon_status.code(),
         Some(0),
-        "wt reconstruct on corrupt file should exit 0"
+        "wt repair on corrupt file should exit 0"
     );
 
-    // 4. hayabusa on the reconstructed file.
+    // 4. hayabusa on the repaired file.
     let mut haya_out = std::env::temp_dir();
     haya_out.push(format!(
         "wt_hayabusa_corrupt_out_{}.jsonl",

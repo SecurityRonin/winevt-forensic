@@ -18,7 +18,6 @@ const EXIT_NOT_FOUND: i32 = 3;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use winevt_writer::{records_to_evtx, WriteRecord};
 
 mod report;
 
@@ -68,18 +67,6 @@ enum Cmd {
     CarveEwf {
         /// Path to the E01 image (first segment).
         path: PathBuf,
-    },
-    /// Reconstruct a valid EVTX file from a corrupt or partial one.
-    ///
-    /// Carves all recoverable records from the input file, then writes them
-    /// into a new, structurally valid EVTX file with correct checksums.
-    /// The output can be read by `hayabusa`, `EvtxECmd`, and other standard tools.
-    Reconstruct {
-        /// Path to the source EVTX file (may be corrupt or partial).
-        path: PathBuf,
-        /// Path to write the reconstructed EVTX file.
-        #[arg(long, short)]
-        output: PathBuf,
     },
     /// Output all events in chronological order as a JSON array.
     ///
@@ -169,32 +156,6 @@ enum Cmd {
         #[arg(long, default_value_t = 2.0)]
         min_z: f64,
     },
-    /// Extract indicators of compromise (IOCs) from all events.
-    ///
-    /// Scans every event's data for SHA-256/SHA-1/MD5 hashes, IPv4 addresses,
-    /// and Windows file paths.  Outputs a JSON object with `events_scanned`
-    /// and an `iocs` array (`value`, `kind`, `count`, `first_seen`, `last_seen`).
-    /// Exits 1 when IOCs are found.
-    IocExtract {
-        /// Path to the EVTX file.
-        path: PathBuf,
-        /// Emit one Ioc JSON object per line (NDJSON).
-        #[arg(long)]
-        stream: bool,
-    },
-    /// Map each event to its MITRE ATT&CK technique tags.
-    ///
-    /// Outputs a JSON array of objects with `event_id`, `record_id`,
-    /// `timestamp`, and an `attack_tags` array (`technique_id`, `technique_name`,
-    /// tactic).  Events with no known mapping are included with an empty
-    /// `attack_tags` array.  Exits 1 when any tags are found.
-    AttackTags {
-        /// Path to the EVTX file.
-        path: PathBuf,
-        /// Emit one JSON object per line (NDJSON).
-        #[arg(long)]
-        stream: bool,
-    },
     /// Fix bad EVTX checksums and write the repaired file.
     ///
     /// Recomputes per-chunk header CRC32 and records-area CRC32 where wrong.
@@ -243,27 +204,26 @@ enum Cmd {
         #[arg(long)]
         mermaid: bool,
     },
-    /// Run a named threat hunt. Exits 1 if detections found, 2 on error.
+    /// Extract unique field values or IOCs from all events.
     ///
-    /// Available hunts: kerberoast, asrep, dcsync, lateral-smb,
-    /// wmi-persistence, scheduled-task, lsass-access, defender-tamper
-    Hunt {
-        /// Hunt name (see above).
-        name: String,
-        /// Path to the EVTX file.
-        path: PathBuf,
-        /// Emit one JSON object per line (NDJSON).
-        #[arg(long)]
-        stream: bool,
-    },
-    /// Extract unique values of a named field across all events.
+    /// Without `--ioc`: extracts all unique values for the given field name,
+    /// output as a JSON array of `{value, count}` sorted by frequency.
+    /// Usage: `wt extract <PATH> <FIELD>`
     ///
-    /// Outputs a JSON array of `{value, count}` objects sorted by frequency.
+    /// With `--ioc`: scans every event for SHA-256/SHA-1/MD5 hashes, IPv4
+    /// addresses, and Windows file paths. Outputs a JSON object with
+    /// `events_scanned` and an `iocs` array. Exits 1 when IOCs are found.
+    /// Usage: `wt extract --ioc <PATH>`
     Extract {
-        /// Field name to search for in event data (e.g. `SubjectUserName`).
-        field: String,
-        /// Path to the EVTX file.
+        /// Path to the EVTX file (always required).
         path: PathBuf,
+        /// Field name to search for in event data (e.g. `SubjectUserName`).
+        /// Required unless `--ioc` is given.
+        #[arg(required_unless_present = "ioc")]
+        field: Option<String>,
+        /// Extract indicators of compromise instead of a named field.
+        #[arg(long)]
+        ioc: bool,
     },
     /// One-line forensic overview of an EVTX file.
     ///
@@ -653,70 +613,6 @@ fn main() {
                 }
             }
         }
-        Cmd::IocExtract { path, stream } => {
-            if !path.exists() {
-                eprintln!("error: path not found: {}", path.display());
-                std::process::exit(EXIT_NOT_FOUND);
-            }
-            match winevt_analyze::ioc_extract(&path) {
-                Ok(report) => {
-                    let has_iocs = !report.iocs.is_empty();
-                    if stream {
-                        for ioc in &report.iocs {
-                            if let Ok(line) = serde_json::to_string(ioc) {
-                                println!("{line}");
-                            }
-                        }
-                    } else {
-                        match serde_json::to_string_pretty(&report) {
-                            Ok(json) => println!("{json}"),
-                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                        }
-                    }
-                    if has_iocs { EXIT_DETECTIONS } else { EXIT_CLEAN }
-                }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
-            }
-        }
-        Cmd::AttackTags { path, stream } => {
-            if !path.exists() {
-                eprintln!("error: path not found: {}", path.display());
-                std::process::exit(EXIT_NOT_FOUND);
-            }
-            match winevt_analyze::timeline(&path) {
-                Ok(entries) => {
-                    let tagged: Vec<serde_json::Value> = entries
-                        .iter()
-                        .map(|e| {
-                            let tags = winevt_analyze::attack_tags_for_event_id(e.event_id);
-                            serde_json::json!({
-                                "record_id": e.record_id,
-                                "timestamp": e.timestamp,
-                                "event_id": e.event_id,
-                                "attack_tags": tags,
-                            })
-                        })
-                        .collect();
-                    let has_tags = tagged.iter().any(|v| {
-                        v["attack_tags"].as_array().map_or(false, |a| !a.is_empty())
-                    });
-                    if stream {
-                        for v in &tagged {
-                            if let Ok(line) = serde_json::to_string(v) {
-                                println!("{line}");
-                            }
-                        }
-                    } else {
-                        match serde_json::to_string_pretty(&tagged) {
-                            Ok(json) => println!("{json}"),
-                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                        }
-                    }
-                    if has_tags { EXIT_DETECTIONS } else { EXIT_CLEAN }
-                }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
-            }
-        }
         Cmd::Repair { path, output } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
@@ -833,49 +729,35 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Hunt { name, path, stream } => {
+        Cmd::Extract { field, path, ioc } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
-            match winevt_analyze::hunt(&path, &name) {
-                Ok(hits) => {
-                    let has_hits = !hits.is_empty();
-                    if stream {
-                        for h in &hits {
-                            if let Ok(line) = serde_json::to_string(h) {
-                                println!("{line}");
-                            }
-                        }
-                    } else {
-                        match serde_json::to_string_pretty(&hits) {
+            if ioc {
+                match winevt_analyze::ioc_extract(&path) {
+                    Ok(report) => {
+                        let has_iocs = !report.iocs.is_empty();
+                        match serde_json::to_string_pretty(&report) {
                             Ok(json) => println!("{json}"),
                             Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
                         }
+                        if has_iocs { EXIT_DETECTIONS } else { EXIT_CLEAN }
                     }
-                    if has_hits { EXIT_DETECTIONS } else { EXIT_CLEAN }
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
-                Err(winevt_analyze::AnalyzeError::UnknownHunt(n)) => {
-                    eprintln!("error: unknown hunt '{n}'. Available: kerberoast, asrep, dcsync, lateral-smb, wmi-persistence, scheduled-task, lsass-access, defender-tamper");
-                    EXIT_ERROR
-                }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
-            }
-        }
-        Cmd::Extract { field, path } => {
-            if !path.exists() {
-                eprintln!("error: path not found: {}", path.display());
-                std::process::exit(EXIT_NOT_FOUND);
-            }
-            match winevt_analyze::extract_field(&path, &field) {
-                Ok(values) => {
-                    match serde_json::to_string_pretty(&values) {
-                        Ok(json) => println!("{json}"),
-                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+            } else {
+                let field_name = field.as_deref().unwrap_or("");
+                match winevt_analyze::extract_field(&path, field_name) {
+                    Ok(values) => {
+                        match serde_json::to_string_pretty(&values) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
+                        EXIT_CLEAN
                     }
-                    EXIT_CLEAN
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
         Cmd::Info { path } => {
@@ -956,39 +838,6 @@ fn main() {
                 }
             }
         }
-        Cmd::Reconstruct { path, output } => match winevt_carver::carve_from_file(&path) {
-            Ok(result) => {
-                let write_records: Vec<WriteRecord> = result
-                    .chunks
-                    .iter()
-                    .flat_map(|c| c.records.iter())
-                    .map(|r| WriteRecord {
-                        record_id: r.header.record_id,
-                        timestamp: r.header.timestamp,
-                        payload: r.bxml_payload.clone(),
-                    })
-                    .collect();
-                let evtx_bytes = records_to_evtx(&write_records);
-                match std::fs::write(&output, &evtx_bytes) {
-                    Ok(()) => {
-                        eprintln!(
-                            "reconstructed {} records → {}",
-                            write_records.len(),
-                            output.display()
-                        );
-                        0
-                    }
-                    Err(e) => {
-                        eprintln!("error writing output: {e}");
-                        2
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("error: {e}");
-                2
-            }
-        },
     };
     std::process::exit(code);
 }

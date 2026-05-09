@@ -309,7 +309,7 @@ fn anomaly_nonexistent_exits_3() {
 fn extract_known_field_returns_json_array() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["extract", "SubjectUserName", evtx.to_str().unwrap()])
+        .args(["extract", evtx.to_str().unwrap(), "SubjectUserName"])
         .output()
         .expect("run wt extract");
     assert_eq!(
@@ -327,7 +327,7 @@ fn extract_known_field_returns_json_array() {
 fn extract_unknown_field_returns_empty_array() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["extract", "ZZZNOFIELD999XYZ", evtx.to_str().unwrap()])
+        .args(["extract", evtx.to_str().unwrap(), "ZZZNOFIELD999XYZ"])
         .output()
         .expect("run wt extract unknown field");
     assert_eq!(output.status.code(), Some(0));
@@ -343,7 +343,7 @@ fn extract_unknown_field_returns_empty_array() {
 #[test]
 fn extract_nonexistent_file_exits_3() {
     let status = Command::new(wt_bin())
-        .args(["extract", "SubjectUserName", "/nonexistent/Security.evtx"])
+        .args(["extract", "/nonexistent/Security.evtx", "SubjectUserName"])
         .status()
         .expect("run wt extract nonexistent");
     assert_eq!(status.code(), Some(3));
