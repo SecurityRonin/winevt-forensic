@@ -386,3 +386,50 @@ fn extract_nonexistent_file_exits_3() {
         .expect("run wt extract nonexistent");
     assert_eq!(status.code(), Some(3));
 }
+
+// ── wt summary ────────────────────────────────────────────────────────────────
+
+#[test]
+fn summary_json_has_required_fields() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["summary", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt summary");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "summary must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("summary must output JSON");
+    assert!(json.get("file").is_some(), "must have 'file'");
+    assert!(json.get("total_events").is_some(), "must have 'total_events'");
+    assert!(json.get("time_range").is_some(), "must have 'time_range'");
+    assert!(json.get("top_event_ids").is_some(), "must have 'top_event_ids'");
+    assert!(json.get("integrity_indicators").is_some(), "must have 'integrity_indicators'");
+    assert!(json.get("ioc_count").is_some(), "must have 'ioc_count'");
+}
+
+#[test]
+fn summary_top_event_ids_has_at_most_5() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["summary", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt summary");
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let top = json["top_event_ids"].as_array().expect("top_event_ids must be array");
+    assert!(top.len() <= 5, "top_event_ids must have at most 5 entries, got {}", top.len());
+}
+
+#[test]
+fn summary_nonexistent_exits_3() {
+    let status = Command::new(wt_bin())
+        .args(["summary", "/nonexistent/Security.evtx"])
+        .status()
+        .expect("run wt summary nonexistent");
+    assert_eq!(status.code(), Some(3));
+}
