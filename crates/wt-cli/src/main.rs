@@ -131,13 +131,17 @@ enum Cmd {
         /// Emit one JSON object per line (NDJSON).
         #[arg(long)]
         stream: bool,
-        /// Decode base64 `-EncodedCommand` payloads found in script block text.
+        /// Suppress automatic decoding of base64 `-EncodedCommand` payloads.
+        /// By default, detected encoded commands are decoded and added as
+        /// `decoded_command` to each script block object.
         #[arg(long)]
-        deobfuscate: bool,
+        no_deobfuscate: bool,
     },
-    /// Compute event ID frequency distribution.
+    /// Compute event ID frequency distribution, rare-process analysis, or z-score anomaly detection.
     ///
-    /// Outputs a JSON object with `total_events` and a `by_event_id` array.
+    /// Default (no flags): JSON object with `total_events` and `by_event_id` array.
+    /// `--by process`  : JSON array of rare process images (those seen < `--threshold` times).
+    /// `--anomaly`     : JSON array of event IDs with |z_score| >= `--min-z` (default 2.0).
     /// Use `--sort asc` for least-frequent-first (LFO) threat-hunting output.
     Frequency {
         /// Path to the EVTX file.
@@ -148,9 +152,22 @@ enum Cmd {
         /// Emit one JSON object per line (NDJSON) — one EventFrequency per line.
         #[arg(long)]
         stream: bool,
-        /// Return only the top N entries after sorting.
+        /// Return only the top N entries after sorting (standard mode only).
         #[arg(long, value_name = "N")]
         top: Option<usize>,
+        /// Group by dimension: `event` (default) or `process`.
+        /// `--by process` surfaces rare process images from EID 4688 events.
+        #[arg(long, value_name = "DIM")]
+        by: Option<String>,
+        /// Count threshold for `--by process`; images seen < N times are reported.
+        #[arg(long, default_value_t = 3)]
+        threshold: usize,
+        /// Score event IDs by z-score and return those with |z| >= `--min-z`.
+        #[arg(long)]
+        anomaly: bool,
+        /// Minimum absolute z-score threshold when `--anomaly` is active (default 2.0).
+        #[arg(long, default_value_t = 2.0)]
+        min_z: f64,
     },
     /// Extract indicators of compromise (IOCs) from all events.
     ///
@@ -226,15 +243,6 @@ enum Cmd {
         #[arg(long)]
         mermaid: bool,
     },
-    /// Surface process images seen fewer than `--threshold` times (default 3).
-    /// Useful for spotting rare binaries and LOLBins.
-    RareProcess {
-        /// Path to the EVTX file (Security or Sysmon).
-        path: PathBuf,
-        /// Count threshold; processes seen < N times are reported.
-        #[arg(long, default_value_t = 3)]
-        threshold: usize,
-    },
     /// Run a named threat hunt. Exits 1 if detections found, 2 on error.
     ///
     /// Available hunts: kerberoast, asrep, dcsync, lateral-smb,
@@ -247,16 +255,6 @@ enum Cmd {
         /// Emit one JSON object per line (NDJSON).
         #[arg(long)]
         stream: bool,
-    },
-    /// Score each event ID by z-score frequency anomaly. Exits 1 if any anomalies found.
-    ///
-    /// Computes mean and std-dev of event ID counts; returns IDs with |z_score| >= min_z.
-    Anomaly {
-        /// Path to the EVTX file.
-        path: PathBuf,
-        /// Minimum absolute z-score to include in output (default 2.0).
-        #[arg(long, default_value_t = 2.0)]
-        min_z: f64,
     },
     /// Extract unique values of a named field across all events.
     ///
@@ -272,7 +270,7 @@ enum Cmd {
     /// Outputs a JSON object with `file`, `total_events`, `time_range` (first/last),
     /// `top_event_ids` (up to 5 most frequent), `integrity_indicators` (count),
     /// and `ioc_count`. Ideal for the first look at an unknown file.
-    Summary {
+    Info {
         /// Path to the EVTX file.
         path: PathBuf,
     },
@@ -561,17 +559,17 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Powershell { path, stream, deobfuscate } => {
+        Cmd::Powershell { path, stream, no_deobfuscate } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
             match winevt_analyze::powershell_blocks(&path) {
                 Ok(blocks) => {
-                    // Enrich blocks with decoded_command when --deobfuscate is set.
+                    // Enrich blocks with decoded_command unless --no-deobfuscate.
                     let enriched: Vec<serde_json::Value> = blocks.iter().map(|b| {
                         let mut v = serde_json::to_value(b).unwrap_or(serde_json::Value::Null);
-                        if deobfuscate {
+                        if !no_deobfuscate {
                             if let Some(decoded) = winevt_analyze::deobfuscate_ps(&b.text) {
                                 if let Some(obj) = v.as_object_mut() {
                                     obj.insert("decoded_command".to_string(), serde_json::Value::String(decoded));
@@ -597,34 +595,62 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Frequency { path, sort, stream, top } => {
+        Cmd::Frequency { path, sort, stream, top, by, threshold, anomaly, min_z } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
-            match winevt_analyze::frequency(&path) {
-                Ok(mut report) => {
-                    if sort == "asc" {
-                        report.by_event_id.sort_by_key(|f| f.count);
-                    }
-                    if let Some(n) = top {
-                        report.by_event_id.truncate(n);
-                    }
-                    if stream {
-                        for f in &report.by_event_id {
-                            if let Ok(line) = serde_json::to_string(f) {
-                                println!("{line}");
-                            }
-                        }
-                    } else {
-                        match serde_json::to_string_pretty(&report) {
+            // --by process: rare-process mode
+            if by.as_deref() == Some("process") {
+                match winevt_analyze::rare_processes(&path, threshold) {
+                    Ok(procs) => {
+                        match serde_json::to_string_pretty(&procs) {
                             Ok(json) => println!("{json}"),
                             Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
                         }
+                        EXIT_CLEAN
                     }
-                    EXIT_CLEAN
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+            } else if anomaly {
+                // --anomaly: z-score anomaly detection mode
+                match winevt_analyze::anomaly(&path, min_z) {
+                    Ok(entries) => {
+                        let has_anomalies = !entries.is_empty();
+                        match serde_json::to_string_pretty(&entries) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
+                        if has_anomalies { EXIT_DETECTIONS } else { EXIT_CLEAN }
+                    }
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                }
+            } else {
+                // standard event-ID frequency mode
+                match winevt_analyze::frequency(&path) {
+                    Ok(mut report) => {
+                        if sort == "asc" {
+                            report.by_event_id.sort_by_key(|f| f.count);
+                        }
+                        if let Some(n) = top {
+                            report.by_event_id.truncate(n);
+                        }
+                        if stream {
+                            for f in &report.by_event_id {
+                                if let Ok(line) = serde_json::to_string(f) {
+                                    println!("{line}");
+                                }
+                            }
+                        } else {
+                            match serde_json::to_string_pretty(&report) {
+                                Ok(json) => println!("{json}"),
+                                Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                            }
+                        }
+                        EXIT_CLEAN
+                    }
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                }
             }
         }
         Cmd::IocExtract { path, stream } => {
@@ -807,22 +833,6 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::RareProcess { path, threshold } => {
-            if !path.exists() {
-                eprintln!("error: path not found: {}", path.display());
-                std::process::exit(EXIT_NOT_FOUND);
-            }
-            match winevt_analyze::rare_processes(&path, threshold) {
-                Ok(procs) => {
-                    match serde_json::to_string_pretty(&procs) {
-                        Ok(json) => println!("{json}"),
-                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                    }
-                    EXIT_CLEAN
-                }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
-            }
-        }
         Cmd::Hunt { name, path, stream } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
@@ -852,23 +862,6 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Anomaly { path, min_z } => {
-            if !path.exists() {
-                eprintln!("error: path not found: {}", path.display());
-                std::process::exit(EXIT_NOT_FOUND);
-            }
-            match winevt_analyze::anomaly(&path, min_z) {
-                Ok(entries) => {
-                    let has_anomalies = !entries.is_empty();
-                    match serde_json::to_string_pretty(&entries) {
-                        Ok(json) => println!("{json}"),
-                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                    }
-                    if has_anomalies { EXIT_DETECTIONS } else { EXIT_CLEAN }
-                }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
-            }
-        }
         Cmd::Extract { field, path } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
@@ -885,7 +878,7 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Summary { path } => {
+        Cmd::Info { path } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
