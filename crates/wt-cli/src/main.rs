@@ -91,6 +91,12 @@ enum Cmd {
         /// Emit one JSON object per line (NDJSON) instead of a pretty-printed array.
         #[arg(long)]
         stream: bool,
+        /// Only include events with this event ID (may be repeated for multiple IDs).
+        #[arg(long, value_name = "EID")]
+        filter_eid: Vec<u32>,
+        /// Return at most N events (applied after --filter-eid).
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
     },
     /// Reconstruct logon sessions from EID 4624 / 4634 / 4647 events.
     ///
@@ -104,6 +110,9 @@ enum Cmd {
         /// Emit one JSON object per line (NDJSON).
         #[arg(long)]
         stream: bool,
+        /// Only include sessions with this logon type (e.g. 3 = Network, 10 = RemoteInteractive).
+        #[arg(long, value_name = "TYPE")]
+        logon_type: Option<u32>,
     },
     /// Reassemble `PowerShell` script blocks from EID 4104 events.
     ///
@@ -474,21 +483,27 @@ fn main() {
                 2
             }
         },
-        Cmd::Timeline { path, stream } => {
+        Cmd::Timeline { path, stream, filter_eid, limit } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
             match winevt_analyze::timeline(&path) {
-                Ok(entries) => {
+                Ok(all_entries) => {
+                    // Apply --filter-eid then --limit.
+                    let filtered: Vec<_> = all_entries
+                        .into_iter()
+                        .filter(|e| filter_eid.is_empty() || filter_eid.contains(&e.event_id))
+                        .take(limit.unwrap_or(usize::MAX))
+                        .collect();
                     if stream {
-                        for e in &entries {
+                        for e in &filtered {
                             if let Ok(line) = serde_json::to_string(e) {
                                 println!("{line}");
                             }
                         }
                     } else {
-                        match serde_json::to_string_pretty(&entries) {
+                        match serde_json::to_string_pretty(&filtered) {
                             Ok(json) => println!("{json}"),
                             Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
                         }
@@ -498,21 +513,25 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Sessions { path, stream } => {
+        Cmd::Sessions { path, stream, logon_type } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
             match winevt_analyze::sessions(&path) {
-                Ok(sessions) => {
+                Ok(all_sessions) => {
+                    let filtered: Vec<_> = all_sessions
+                        .into_iter()
+                        .filter(|s| logon_type.map_or(true, |lt| s.logon_type == lt))
+                        .collect();
                     if stream {
-                        for s in &sessions {
+                        for s in &filtered {
                             if let Ok(line) = serde_json::to_string(s) {
                                 println!("{line}");
                             }
                         }
                     } else {
-                        match serde_json::to_string_pretty(&sessions) {
+                        match serde_json::to_string_pretty(&filtered) {
                             Ok(json) => println!("{json}"),
                             Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
                         }
