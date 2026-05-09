@@ -1,7 +1,63 @@
 // winevt-memory: types and analysis functions for EVTX/ETW data recovered from memory dumps.
 // No dependency on memory readers — provides types that memf-windows populates.
 
-pub use winevt_core::binary::{EvtxChunkHeader, IntegrityAnomaly};
+pub use winevt_core::binary::{EvtxChunkHeader, IntegrityAnomaly, RECORD_MAGIC};
+
+/// A record found by scanning a raw memory buffer for EVTX record magic.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MemoryCarvedRecord {
+    /// Byte offset of the record magic within the input buffer.
+    pub offset: usize,
+    /// Raw bytes of the candidate record (from magic through trailing size field).
+    pub raw: Vec<u8>,
+    /// True when the BinXML payload starts with a valid FragmentHeader token (0x0F).
+    pub binxml_valid: bool,
+}
+
+/// Scan an arbitrary byte buffer for EVTX record magic and recover plausible records.
+///
+/// Uses a three-phase approach:
+/// 1. Byte-scan for `0x2A 0x2A 0x00 0x00` (record magic).
+/// 2. Validate `record_length` field: must be in `[28, 65536]` and fit within the buffer.
+/// 3. Check BinXML token at `payload[0]` (must be `0x0F` FragmentHeader).
+///
+/// Records whose size field would extend beyond the buffer are silently skipped.
+pub fn scan_memory_buffer(buf: &[u8]) -> Vec<MemoryCarvedRecord> {
+    const MIN_RECORD: usize = 28;   // 4 magic + 4 size + 8 id + 8 ts + 0 payload + 4 tail
+    const MAX_RECORD: usize = 65536;
+    const FRAGMENT_HEADER: u8 = 0x0F;
+
+    if buf.len() < 8 {
+        return vec![];
+    }
+
+    let mut out = Vec::new();
+    let mut pos = 0usize;
+
+    while pos + 8 <= buf.len() {
+        if buf[pos..pos + 4] != RECORD_MAGIC {
+            pos += 1;
+            continue;
+        }
+        let size = u32::from_le_bytes(
+            buf[pos + 4..pos + 8].try_into().unwrap_or([0; 4]),
+        ) as usize;
+        if size < MIN_RECORD || size > MAX_RECORD {
+            pos += 1;
+            continue;
+        }
+        if pos + size > buf.len() {
+            pos += 1;
+            continue;
+        }
+        let raw = buf[pos..pos + size].to_vec();
+        // BinXML payload starts at offset 24 (after 24-byte record header)
+        let binxml_valid = raw.len() > 24 && raw[24] == FRAGMENT_HEADER;
+        out.push(MemoryCarvedRecord { offset: pos, raw, binxml_valid });
+        pos += size;
+    }
+    out
+}
 
 /// An ETW event recovered from a session buffer in kernel memory.
 #[derive(Debug, Clone, serde::Serialize)]
