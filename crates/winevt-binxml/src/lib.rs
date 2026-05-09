@@ -4,6 +4,87 @@
 //! commonly needed fields by scanning byte patterns in the `BinXml` System element.
 //! Returns `None` for any field that cannot be reliably determined.
 
+/// Structural error returned by [`validate_binxml`].
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum BinXmlError {
+    #[error("payload too short: {len} bytes, minimum is 4")]
+    TooShort { len: usize },
+    #[error("invalid fragment header at offset {offset}: got {got:#04x}, expected 0x0F")]
+    InvalidFragmentHeader { offset: usize, got: u8 },
+    #[error("unknown BinXML opcode {opcode:#04x} at offset {offset}")]
+    UnknownOpcode { opcode: u8, offset: usize },
+    #[error("string table name_offset {offset} exceeds chunk boundary {chunk_size}")]
+    StringTableOverflow { offset: usize, chunk_size: usize },
+    #[error("payload truncated at offset {offset}")]
+    Truncated { offset: usize },
+}
+
+/// Maximum EVTX chunk size (65 536 bytes) — string table offsets must be within this.
+const CHUNK_BOUNDARY: u32 = 0x1_0000;
+
+/// BinXML token bytes — values outside [0x00, 0x0F] are invalid.
+const MAX_TOKEN: u8 = 0x0F;
+
+/// Validate the structural integrity of a BinXML payload.
+///
+/// Performs three checks:
+/// 1. Minimum size (≥ 4 bytes) and `FragmentHeader` token (`0x0F`) at offset 0.
+/// 2. Token walk: each token byte must be in `[0x00, 0x0F]`.
+/// 3. `OpenStartElement` (0x01): the 4-byte `name_offset` field must be ≤ 65536.
+///
+/// Returns `Ok(())` on success, or the first `BinXmlError` encountered.
+pub fn validate_binxml(bytes: &[u8]) -> Result<(), BinXmlError> {
+    if bytes.len() < 4 {
+        return Err(BinXmlError::TooShort { len: bytes.len() });
+    }
+    if bytes[0] != 0x0F {
+        return Err(BinXmlError::InvalidFragmentHeader { offset: 0, got: bytes[0] });
+    }
+    // Walk tokens starting after the 4-byte fragment header (token + major + minor + flags)
+    let mut pos = 4usize;
+    while pos < bytes.len() {
+        let token = bytes[pos];
+        if token == 0x00 {
+            // EndOfStream — valid termination
+            return Ok(());
+        }
+        // Strip the "has-more" flag bit (bit 6 in some token encodings) — base token is low 6 bits
+        // However, the standard EVTX tokens are in [0x01..0x0F]; > 0x0F is invalid.
+        if token > MAX_TOKEN {
+            return Err(BinXmlError::UnknownOpcode { opcode: token, offset: pos });
+        }
+        match token {
+            0x01 => {
+                // OpenStartElement: flags(1) + dependency_id(2) + attribute_count(2) + name_offset(4)
+                let field_start = pos + 1;
+                let name_off_start = field_start + 5; // skip flags(1) + dep_id(2) + attr_count(2)
+                if bytes.len() < name_off_start + 4 {
+                    return Err(BinXmlError::Truncated { offset: pos });
+                }
+                let name_offset = u32::from_le_bytes(
+                    bytes[name_off_start..name_off_start + 4].try_into().unwrap_or([0; 4]),
+                );
+                if name_offset > CHUNK_BOUNDARY {
+                    return Err(BinXmlError::StringTableOverflow {
+                        offset: name_offset as usize,
+                        chunk_size: CHUNK_BOUNDARY as usize,
+                    });
+                }
+                pos += 1 + 1 + 2 + 2 + 4; // token + flags + dep_id + attr_count + name_offset
+            }
+            0x02 | 0x03 | 0x04 => {
+                // CloseStartElement, CloseEmptyElement, EndElement — no data
+                pos += 1;
+            }
+            _ => {
+                // Other known tokens — advance by 1; a full parser would handle each
+                pos += 1;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Summary of fields extracted from a `BinXml` event payload.
 #[derive(Debug, Clone)]
 pub struct BinXmlSummary {
