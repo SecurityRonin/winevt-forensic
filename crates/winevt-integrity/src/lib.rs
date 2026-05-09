@@ -140,6 +140,85 @@ pub fn check_file_header_consistency(
     }
 }
 
+/// Validate that a chunk's data-length field is within the legal EVTX range [512, 65536].
+///
+/// Chunk data lengths outside this range indicate a structurally corrupt or hand-crafted chunk.
+pub fn check_chunk_data_length(length: u32) -> Vec<IntegrityAnomaly> {
+    if length < 512 || length > 65536 {
+        vec![IntegrityAnomaly::InvalidChunkDataLength(length)]
+    } else {
+        vec![]
+    }
+}
+
+/// Check that the `log_file_guid` is identical across all chunks.
+///
+/// `guids` is a slice of 16-byte GUIDs, one per chunk in file order.  A mismatch at any index
+/// implies the chunk was transplanted from a different log file, which is an anti-forensic
+/// indicator.  Returns one `LogFileGuidMismatch` per mismatching chunk (compared to chunk 0).
+pub fn check_log_file_guid_consistency(guids: &[[u8; 16]]) -> Vec<IntegrityAnomaly> {
+    if guids.len() <= 1 {
+        return vec![];
+    }
+    let first = guids[0];
+    guids.iter().enumerate().skip(1)
+        .filter(|(_, g)| **g != first)
+        .map(|(i, g)| IntegrityAnomaly::LogFileGuidMismatch {
+            chunk_index: i,
+            expected: u128::from_le_bytes(first),
+            actual: u128::from_le_bytes(*g),
+        })
+        .collect()
+}
+
+/// A suspicious gap in the record ID sequence that may indicate phantom record injection.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PhantomAlert {
+    /// First record ID in the gap (inclusive).
+    pub gap_start_id: u64,
+    /// Last record ID in the gap (inclusive).
+    pub gap_end_id: u64,
+    /// Timestamp (nanoseconds) of the record immediately before the gap.
+    pub prev_timestamp_ns: i64,
+    /// Timestamp (nanoseconds) of the record immediately after the gap.
+    pub next_timestamp_ns: i64,
+    /// True when the timestamp gap does not proportionally explain the record ID gap,
+    /// suggesting records were injected without advancing the clock.
+    pub suspicious: bool,
+}
+
+/// Detect phantom record injection by correlating record-ID gaps with timestamp gaps.
+///
+/// `records` is a slice of `(record_id, timestamp_ns)` pairs sorted by `record_id`.
+///
+/// A record-ID gap where the elapsed nanoseconds per missing record is less than 1 ms
+/// (1_000_000 ns) is flagged as suspicious — real log activity cannot normally produce
+/// millions of events per second.  A large timestamp jump alongside the gap (≥ 1 ms per
+/// missing ID) is treated as a normal cleared-log or ring-buffer rollover period.
+pub fn detect_phantom_records(records: &[(u64, i64)]) -> Vec<PhantomAlert> {
+    // 1 ms per missing record: below this rate the gap is suspicious.
+    const MIN_NS_PER_MISSING_RECORD: i64 = 1_000_000;
+
+    let mut out = Vec::new();
+    for window in records.windows(2) {
+        let (prev_id, prev_ts) = window[0];
+        let (next_id, next_ts) = window[1];
+        if next_id != prev_id + 1 {
+            let gap_count = (next_id - prev_id - 1) as i64;
+            let ts_gap = next_ts - prev_ts;
+            let suspicious = ts_gap <= 0 || ts_gap / gap_count < MIN_NS_PER_MISSING_RECORD;
+            out.push(PhantomAlert {
+                gap_start_id: prev_id + 1,
+                gap_end_id: next_id - 1,
+                prev_timestamp_ns: prev_ts,
+                next_timestamp_ns: next_ts,
+                suspicious,
+            });
+        }
+    }
+    out
+}
+
 /// Detect the wevtutil / Event Viewer export timestamp corruption described by Fox-IT.
 ///
 /// When `wevtutil epl` or "Save As…" exports an EVTX, each record's header timestamp is

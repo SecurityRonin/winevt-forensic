@@ -193,8 +193,16 @@ pub enum IntegrityAnomaly {
         /// record's body.
         ghost_offset_in_chunk: u64,
     },
+    /// Chunk data length field falls outside the valid EVTX range [512, 65536].
+    InvalidChunkDataLength(u32),
+    /// The `log_file_guid` field in a chunk header differs from the first chunk's GUID,
+    /// indicating the chunk was transplanted from a different log file.
+    LogFileGuidMismatch {
+        chunk_index: usize,
+        expected: u128,
+        actual: u128,
+    },
 }
-
 
 #[cfg(test)]
 mod tests {
