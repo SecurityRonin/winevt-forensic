@@ -285,105 +285,19 @@ fn wt_carve_nonexistent_exits_code_2() {
     );
 }
 
-// ── Feature 17: wt reconstruct subcommand ─────────────────────────────────────
+// ── wt reconstruct: removed — merged into wt repair ──────────────────────────
 
 #[test]
-fn wt_reconstruct_help_exits_success() {
+fn wt_reconstruct_is_removed() {
+    // reconstruct is no longer a valid subcommand; repair subsumes it.
     let status = wt_bin()
         .args(["reconstruct", "--help"])
         .status()
         .expect("run wt reconstruct --help");
-    assert!(status.success(), "wt reconstruct --help should exit 0");
-}
-
-#[test]
-fn wt_reconstruct_nonexistent_input_exits_code_2() {
-    let out = temp_evtx("recon_out");
-    let status = wt_bin()
-        .args([
-            "reconstruct",
-            "--output",
-            out.to_str().unwrap(),
-            "/nonexistent/no_such.evtx",
-        ])
-        .status()
-        .expect("run wt reconstruct");
-    let _ = std::fs::remove_file(&out);
-    assert_eq!(status.code(), Some(2), "nonexistent input should exit 2");
-}
-
-#[test]
-fn wt_reconstruct_valid_input_exits_code_0() {
-    let input = write_evtx_with_records("recon_in", 3);
-    let output = temp_evtx("recon_out");
-    let status = wt_bin()
-        .args([
-            "reconstruct",
-            "--output",
-            output.to_str().unwrap(),
-            input.to_str().unwrap(),
-        ])
-        .status()
-        .expect("run wt reconstruct");
-    let _ = std::fs::remove_file(&input);
-    let _ = std::fs::remove_file(&output);
-    assert_eq!(
-        status.code(),
-        Some(0),
-        "wt reconstruct on valid input should exit 0"
+    assert!(
+        !status.success(),
+        "wt reconstruct must no longer exist (exit non-zero)"
     );
-}
-
-#[test]
-fn wt_reconstruct_output_is_valid_evtx() {
-    let input = write_evtx_with_records("recon_valid_in", 3);
-    let output = temp_evtx("recon_valid_out");
-    let status = wt_bin()
-        .args([
-            "reconstruct",
-            "--output",
-            output.to_str().unwrap(),
-            input.to_str().unwrap(),
-        ])
-        .status()
-        .expect("run wt reconstruct");
-    assert_eq!(status.code(), Some(0));
-
-    // Output must start with ElfFile magic
-    let bytes = std::fs::read(&output).expect("read output");
-    let _ = std::fs::remove_file(&input);
-    let _ = std::fs::remove_file(&output);
-    assert_eq!(
-        &bytes[0..8],
-        b"ElfFile\0",
-        "output must start with ElfFile magic"
-    );
-}
-
-#[test]
-fn wt_reconstruct_output_preserves_record_count() {
-    use winevt_carver::carve_from_bytes;
-
-    let input = write_evtx_with_records("recon_rcount_in", 5);
-    let output = temp_evtx("recon_rcount_out");
-    let status = wt_bin()
-        .args([
-            "reconstruct",
-            "--output",
-            output.to_str().unwrap(),
-            input.to_str().unwrap(),
-        ])
-        .status()
-        .expect("run wt reconstruct");
-    assert_eq!(status.code(), Some(0));
-
-    let out_bytes = std::fs::read(&output).expect("read output");
-    let _ = std::fs::remove_file(&input);
-    let _ = std::fs::remove_file(&output);
-
-    let result = carve_from_bytes(&out_bytes);
-    let recovered: usize = result.chunks.iter().map(|c| c.records.len()).sum();
-    assert_eq!(recovered, 5, "reconstructed file should contain 5 records");
 }
 
 // ── wt timeline tests ─────────────────────────────────────────────────────────
@@ -529,79 +443,72 @@ fn wt_frequency_valid_file_outputs_json() {
     );
 }
 
-// ── wt ioc-extract tests ──────────────────────────────────────────────────────
+// ── wt extract --ioc (replaces wt ioc-extract) ───────────────────────────────
 
 #[test]
-fn wt_ioc_extract_help_exits_success() {
+fn wt_extract_ioc_help_exits_success() {
     let status = wt_bin()
-        .args(["ioc-extract", "--help"])
+        .args(["extract", "--ioc", "--help"])
         .status()
-        .expect("run wt ioc-extract --help");
+        .expect("run wt extract --ioc --help");
     assert_eq!(status.code(), Some(0));
 }
 
 #[test]
-fn wt_ioc_extract_nonexistent_exits_code_3() {
+fn wt_extract_ioc_nonexistent_exits_code_3() {
     let status = wt_bin()
-        .args(["ioc-extract", "/nonexistent/security.evtx"])
+        .args(["extract", "--ioc", "/nonexistent/security.evtx"])
         .status()
-        .expect("run wt ioc-extract");
+        .expect("run wt extract --ioc nonexistent");
     assert_eq!(status.code(), Some(3));
 }
 
 #[test]
-fn wt_ioc_extract_valid_file_outputs_json_object() {
+fn wt_extract_ioc_valid_file_outputs_json_object() {
     let path = write_evtx_with_records("ioc_valid", 2);
     let output = wt_bin()
-        .args(["ioc-extract", path.to_str().unwrap()])
+        .args(["extract", "--ioc", path.to_str().unwrap()])
         .output()
-        .expect("run wt ioc-extract");
+        .expect("run wt extract --ioc");
     let _ = std::fs::remove_file(&path);
     assert_eq!(output.status.code(), Some(0), "expected exit 0");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let v: serde_json::Value =
-        serde_json::from_str(&stdout).expect("ioc-extract output should be valid JSON");
+        serde_json::from_str(&stdout).expect("extract --ioc output should be valid JSON");
     assert!(
         v.get("events_scanned").is_some(),
-        "ioc-extract JSON should have 'events_scanned' field"
+        "extract --ioc JSON should have 'events_scanned' field"
     );
     assert!(
         v.get("iocs").is_some(),
-        "ioc-extract JSON should have 'iocs' field"
+        "extract --ioc JSON should have 'iocs' field"
     );
 }
 
-// ── wt attack-tags tests ──────────────────────────────────────────────────────
+// ── wt attack-tags: removed — use hayabusa/chainsaw for detection ─────────────
 
 #[test]
-fn wt_attack_tags_help_exits_success() {
+fn wt_attack_tags_is_removed() {
     let status = wt_bin()
         .args(["attack-tags", "--help"])
         .status()
         .expect("run wt attack-tags --help");
-    assert_eq!(status.code(), Some(0));
+    assert!(
+        !status.success(),
+        "wt attack-tags must no longer exist (detection delegated to hayabusa/chainsaw)"
+    );
 }
 
+// ── wt hunt: removed — use hayabusa/chainsaw for detection ───────────────────
+
 #[test]
-fn wt_attack_tags_nonexistent_exits_code_3() {
+fn wt_hunt_is_removed() {
     let status = wt_bin()
-        .args(["attack-tags", "/nonexistent/security.evtx"])
+        .args(["hunt", "--help"])
         .status()
-        .expect("run wt attack-tags");
-    assert_eq!(status.code(), Some(3));
-}
-
-#[test]
-fn wt_attack_tags_valid_file_outputs_json_array() {
-    let path = write_evtx_with_records("attack_tags_valid", 2);
-    let output = wt_bin()
-        .args(["attack-tags", path.to_str().unwrap()])
-        .output()
-        .expect("run wt attack-tags");
-    let _ = std::fs::remove_file(&path);
-    assert_eq!(output.status.code(), Some(0), "expected exit 0");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let v: serde_json::Value =
-        serde_json::from_str(&stdout).expect("attack-tags output should be valid JSON");
-    assert!(v.is_array(), "attack-tags should output a JSON array");
+        .expect("run wt hunt --help");
+    assert!(
+        !status.success(),
+        "wt hunt must no longer exist (detection delegated to hayabusa/chainsaw)"
+    );
 }

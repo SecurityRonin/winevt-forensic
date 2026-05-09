@@ -240,53 +240,15 @@ fn rare_process_threshold_999_returns_all() {
     );
 }
 
-// ── wt hunt ──────────────────────────────────────────────────────────────────
+// ── wt hunt (removed — detection delegated to hayabusa/chainsaw) ─────────────
 
 #[test]
-fn hunt_unknown_name_exits_2() {
-    let evtx = require_foxitdata!("pre-Security.evtx");
+fn wt_hunt_is_removed() {
     let status = Command::new(wt_bin())
-        .args(["hunt", "this-hunt-does-not-exist", evtx.to_str().unwrap()])
+        .args(["hunt", "--help"])
         .status()
-        .expect("run wt hunt unknown");
-    assert_eq!(status.code(), Some(2), "unknown hunt must exit 2");
-}
-
-#[test]
-fn hunt_kerberoast_exits_cleanly() {
-    let evtx = require_foxitdata!("pre-Security.evtx");
-    let output = Command::new(wt_bin())
-        .args(["hunt", "kerberoast", evtx.to_str().unwrap()])
-        .output()
-        .expect("run wt hunt kerberoast");
-    let code = output.status.code().unwrap_or(-1);
-    assert!(
-        code == 0 || code == 1,
-        "hunt kerberoast must exit 0 or 1, got {code}; stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let _: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-}
-
-#[test]
-fn hunt_scheduled_task_exits_cleanly() {
-    let evtx = require_foxitdata!("pre-Security.evtx");
-    let output = Command::new(wt_bin())
-        .args(["hunt", "scheduled-task", evtx.to_str().unwrap()])
-        .output()
-        .expect("run wt hunt scheduled-task");
-    let code = output.status.code().unwrap_or(-1);
-    assert!(code == 0 || code == 1, "hunt must exit 0 or 1, got {code}");
-}
-
-#[test]
-fn hunt_nonexistent_file_exits_3() {
-    let status = Command::new(wt_bin())
-        .args(["hunt", "kerberoast", "/nonexistent/Security.evtx"])
-        .status()
-        .expect("run wt hunt nonexistent");
-    assert_eq!(status.code(), Some(3));
+        .expect("run wt hunt --help");
+    assert!(!status.success(), "wt hunt must no longer exist");
 }
 
 // ── wt frequency --anomaly ────────────────────────────────────────────────────

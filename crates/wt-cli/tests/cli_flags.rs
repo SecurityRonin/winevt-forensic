@@ -54,9 +54,9 @@ fn timeline_nonexistent_exits_3() {
 #[test]
 fn ioc_extract_nonexistent_exits_3() {
     let status = Command::new(wt_bin())
-        .args(["ioc-extract", "/nonexistent/Security.evtx"])
+        .args(["extract", "--ioc", "/nonexistent/Security.evtx"])
         .status()
-        .expect("run wt ioc-extract nonexistent");
+        .expect("run wt extract --ioc nonexistent");
     assert_eq!(status.code(), Some(3));
 }
 
@@ -66,13 +66,13 @@ fn ioc_extract_nonexistent_exits_3() {
 fn ioc_extract_with_iocs_exits_1() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let status = Command::new(wt_bin())
-        .args(["ioc-extract", evtx.to_str().unwrap()])
+        .args(["extract", "--ioc", evtx.to_str().unwrap()])
         .status()
-        .expect("run wt ioc-extract");
+        .expect("run wt extract --ioc");
     assert_eq!(
         status.code(),
         Some(1),
-        "ioc-extract with IOCs present must exit 1"
+        "extract --ioc with IOCs present must exit 1"
     );
 }
 
