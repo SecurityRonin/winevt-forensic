@@ -94,9 +94,15 @@ enum Cmd {
         /// Only include events with this event ID (may be repeated for multiple IDs).
         #[arg(long, value_name = "EID")]
         filter_eid: Vec<u32>,
-        /// Return at most N events (applied after --filter-eid).
+        /// Return at most N events (applied after --filter-eid and time filters).
         #[arg(long, value_name = "N")]
         limit: Option<usize>,
+        /// Only include events with timestamp >= this value (ISO 8601 UTC string).
+        #[arg(long, value_name = "TS")]
+        after: Option<String>,
+        /// Only include events with timestamp < this value (ISO 8601 UTC string).
+        #[arg(long, value_name = "TS")]
+        before: Option<String>,
     },
     /// Reconstruct logon sessions from EID 4624 / 4634 / 4647 events.
     ///
@@ -142,6 +148,9 @@ enum Cmd {
         /// Emit one JSON object per line (NDJSON) — one EventFrequency per line.
         #[arg(long)]
         stream: bool,
+        /// Return only the top N entries after sorting.
+        #[arg(long, value_name = "N")]
+        top: Option<usize>,
     },
     /// Extract indicators of compromise (IOCs) from all events.
     ///
@@ -483,17 +492,19 @@ fn main() {
                 2
             }
         },
-        Cmd::Timeline { path, stream, filter_eid, limit } => {
+        Cmd::Timeline { path, stream, filter_eid, limit, after, before } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
             match winevt_analyze::timeline(&path) {
                 Ok(all_entries) => {
-                    // Apply --filter-eid then --limit.
+                    // Apply --filter-eid, --after, --before, then --limit.
                     let filtered: Vec<_> = all_entries
                         .into_iter()
                         .filter(|e| filter_eid.is_empty() || filter_eid.contains(&e.event_id))
+                        .filter(|e| after.as_deref().map_or(true, |a| e.timestamp.as_str() >= a))
+                        .filter(|e| before.as_deref().map_or(true, |b| e.timestamp.as_str() < b))
                         .take(limit.unwrap_or(usize::MAX))
                         .collect();
                     if stream {
@@ -577,7 +588,7 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Frequency { path, sort, stream } => {
+        Cmd::Frequency { path, sort, stream, top } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
@@ -586,6 +597,9 @@ fn main() {
                 Ok(mut report) => {
                     if sort == "asc" {
                         report.by_event_id.sort_by_key(|f| f.count);
+                    }
+                    if let Some(n) = top {
+                        report.by_event_id.truncate(n);
                     }
                     if stream {
                         for f in &report.by_event_id {
