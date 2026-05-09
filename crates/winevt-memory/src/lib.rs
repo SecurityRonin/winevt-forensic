@@ -455,7 +455,12 @@ mod tests {
 
     // ---- Feature 7: Missing/stopped ETW sessions + zero buffers ----
 
-    fn make_session(name: &str, is_running: bool, buffer_count: u32, log_mode: u32) -> RecoveredEtwSession {
+    fn make_session(
+        name: &str,
+        is_running: bool,
+        buffer_count: u32,
+        log_mode: u32,
+    ) -> RecoveredEtwSession {
         RecoveredEtwSession {
             logger_id: 1,
             name: name.to_string(),
@@ -476,11 +481,20 @@ mod tests {
             make_session("EventLog-Application", true, 4, 0x101),
         ];
         let indicators = detect_etw_tampering(&sessions);
-        let has_missing = indicators.iter().any(|i| matches!(i, EtwTamperingIndicator::MissingEventLogSession { .. }));
-        let has_stopped = indicators.iter().any(|i| matches!(i, EtwTamperingIndicator::SessionStopped { .. }));
-        let has_zero = indicators.iter().any(|i| matches!(i, EtwTamperingIndicator::ZeroBuffers { .. }));
-        assert!(!has_missing && !has_stopped && !has_zero,
-            "expected no missing/stopped/zero indicators, got: {:?}", indicators);
+        let has_missing = indicators
+            .iter()
+            .any(|i| matches!(i, EtwTamperingIndicator::MissingEventLogSession { .. }));
+        let has_stopped = indicators
+            .iter()
+            .any(|i| matches!(i, EtwTamperingIndicator::SessionStopped { .. }));
+        let has_zero = indicators
+            .iter()
+            .any(|i| matches!(i, EtwTamperingIndicator::ZeroBuffers { .. }));
+        assert!(
+            !has_missing && !has_stopped && !has_zero,
+            "expected no missing/stopped/zero indicators, got: {:?}",
+            indicators
+        );
     }
 
     #[test]
@@ -494,7 +508,11 @@ mod tests {
             matches!(i, EtwTamperingIndicator::MissingEventLogSession { expected_name }
                 if expected_name == "EventLog-Security")
         });
-        assert!(has_missing, "expected MissingEventLogSession for EventLog-Security, got: {:?}", indicators);
+        assert!(
+            has_missing,
+            "expected MissingEventLogSession for EventLog-Security, got: {:?}",
+            indicators
+        );
     }
 
     #[test]
@@ -509,7 +527,11 @@ mod tests {
             matches!(i, EtwTamperingIndicator::SessionStopped { session_name }
                 if session_name == "EventLog-Security")
         });
-        assert!(has_stopped, "expected SessionStopped for EventLog-Security, got: {:?}", indicators);
+        assert!(
+            has_stopped,
+            "expected SessionStopped for EventLog-Security, got: {:?}",
+            indicators
+        );
     }
 
     #[test]
@@ -524,22 +546,120 @@ mod tests {
             matches!(i, EtwTamperingIndicator::ZeroBuffers { session_name }
                 if session_name == "EventLog-Security")
         });
-        assert!(has_zero, "expected ZeroBuffers for EventLog-Security (running, 0 buffers), got: {:?}", indicators);
+        assert!(
+            has_zero,
+            "expected ZeroBuffers for EventLog-Security (running, 0 buffers), got: {:?}",
+            indicators
+        );
     }
 
     #[test]
     fn detect_etw_tampering_all_three_missing_when_no_sessions() {
         let sessions: Vec<RecoveredEtwSession> = vec![];
         let indicators = detect_etw_tampering(&sessions);
-        let missing_names: Vec<&str> = indicators.iter().filter_map(|i| {
-            if let EtwTamperingIndicator::MissingEventLogSession { expected_name } = i {
-                Some(expected_name.as_str())
-            } else {
-                None
-            }
-        }).collect();
+        let missing_names: Vec<&str> = indicators
+            .iter()
+            .filter_map(|i| {
+                if let EtwTamperingIndicator::MissingEventLogSession { expected_name } = i {
+                    Some(expected_name.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert!(missing_names.contains(&"EventLog-Security"));
         assert!(missing_names.contains(&"EventLog-System"));
         assert!(missing_names.contains(&"EventLog-Application"));
+    }
+
+    // ── §8: scan_memory_buffer ────────────────────────────────────────────────
+
+    fn make_raw_record(record_id: u64, ts: u64, payload: &[u8]) -> Vec<u8> {
+        let size = (4 + 4 + 8 + 8 + payload.len() + 4) as u32;
+        let mut rec = vec![0u8; size as usize];
+        rec[0..4].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+        rec[4..8].copy_from_slice(&size.to_le_bytes());
+        rec[8..16].copy_from_slice(&record_id.to_le_bytes());
+        rec[16..24].copy_from_slice(&ts.to_le_bytes());
+        rec[24..24 + payload.len()].copy_from_slice(payload);
+        let tail = size as usize - 4;
+        rec[tail..].copy_from_slice(&size.to_le_bytes());
+        rec
+    }
+
+    fn valid_binxml_payload() -> Vec<u8> {
+        // Minimal BinXML fragment header: 0x0F 0x01 ...
+        vec![0x0Fu8, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00]
+    }
+
+    #[test]
+    fn scan_empty_buffer_returns_empty() {
+        let records = scan_memory_buffer(&[]);
+        assert!(records.is_empty(), "empty buffer must return empty");
+    }
+
+    #[test]
+    fn scan_buffer_with_no_magic_returns_empty() {
+        let buf = vec![0xFFu8; 256];
+        let records = scan_memory_buffer(&buf);
+        assert!(records.is_empty(), "buffer with no record magic must return empty");
+    }
+
+    #[test]
+    fn scan_buffer_with_injected_record_finds_it() {
+        let payload = valid_binxml_payload();
+        let rec = make_raw_record(42, 100_000, &payload);
+        let mut buf = vec![0u8; 64];
+        buf.extend_from_slice(&rec);
+        buf.extend_from_slice(&[0u8; 64]);
+        let records = scan_memory_buffer(&buf);
+        assert_eq!(records.len(), 1, "should find exactly one record; got {}", records.len());
+        assert_eq!(records[0].offset, 64, "record should be at offset 64");
+    }
+
+    #[test]
+    fn scan_ignores_random_bytes_matching_magic_only() {
+        // Magic bytes with invalid record_length (0 bytes)
+        let mut buf = vec![0u8; 128];
+        buf[10] = 0x2A;
+        buf[11] = 0x2A;
+        buf[12] = 0x00;
+        buf[13] = 0x00;
+        // size field at [14..18] = 0 (invalid — below minimum 28)
+        let records = scan_memory_buffer(&buf);
+        assert!(
+            records.is_empty(),
+            "magic with invalid size must be ignored; got {} records", records.len()
+        );
+    }
+
+    #[test]
+    fn scan_multi_record_buffer_finds_all() {
+        let payload = valid_binxml_payload();
+        let rec1 = make_raw_record(1, 100, &payload);
+        let rec2 = make_raw_record(2, 200, &payload);
+        let rec3 = make_raw_record(3, 300, &payload);
+        let mut buf = vec![0u8; 32];
+        buf.extend_from_slice(&rec1);
+        buf.extend_from_slice(&rec2);
+        buf.extend_from_slice(&rec3);
+        let records = scan_memory_buffer(&buf);
+        assert_eq!(records.len(), 3, "should find 3 records; got {}", records.len());
+        assert_eq!(records[0].offset, 32);
+        assert!(records[1].offset > records[0].offset);
+        assert!(records[2].offset > records[1].offset);
+    }
+
+    #[test]
+    fn scan_record_beyond_buffer_end_is_ignored() {
+        // Record whose size field claims more bytes than available
+        let mut buf = vec![0x2A, 0x2A, 0x00, 0x00];
+        buf.extend_from_slice(&65000u32.to_le_bytes()); // very large size
+        buf.extend_from_slice(&[0u8; 20]);
+        let records = scan_memory_buffer(&buf);
+        assert!(
+            records.is_empty(),
+            "record extending beyond buffer must be ignored"
+        );
     }
 }
