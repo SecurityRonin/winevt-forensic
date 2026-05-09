@@ -288,3 +288,101 @@ fn hunt_nonexistent_file_exits_3() {
         .expect("run wt hunt nonexistent");
     assert_eq!(status.code(), Some(3));
 }
+
+// ── wt anomaly ────────────────────────────────────────────────────────────────
+
+#[test]
+fn anomaly_json_output() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["anomaly", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt anomaly");
+    let code = output.status.code().unwrap_or(-1);
+    assert!(code == 0 || code == 1, "anomaly must exit 0 or 1, got {code}");
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("anomaly must output JSON");
+    assert!(json.is_array(), "anomaly must output JSON array");
+    if let Some(arr) = json.as_array() {
+        if !arr.is_empty() {
+            let first = &arr[0];
+            assert!(first.get("event_id").is_some(), "must have event_id");
+            assert!(first.get("count").is_some(), "must have count");
+            assert!(first.get("z_score").is_some(), "must have z_score");
+        }
+    }
+}
+
+#[test]
+fn anomaly_high_min_z_returns_fewer_results() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let low = Command::new(wt_bin())
+        .args(["anomaly", "--min-z", "0", evtx.to_str().unwrap()])
+        .output()
+        .expect("anomaly min-z 0");
+    let high = Command::new(wt_bin())
+        .args(["anomaly", "--min-z", "999", evtx.to_str().unwrap()])
+        .output()
+        .expect("anomaly min-z 999");
+    let low_json: serde_json::Value = serde_json::from_slice(&low.stdout).unwrap();
+    let high_json: serde_json::Value = serde_json::from_slice(&high.stdout).unwrap();
+    assert!(
+        high_json.as_array().unwrap().len() <= low_json.as_array().unwrap().len(),
+        "higher min-z must return <= results"
+    );
+}
+
+#[test]
+fn anomaly_nonexistent_exits_3() {
+    let status = Command::new(wt_bin())
+        .args(["anomaly", "/nonexistent/Security.evtx"])
+        .status()
+        .expect("run wt anomaly nonexistent");
+    assert_eq!(status.code(), Some(3));
+}
+
+// ── wt extract ────────────────────────────────────────────────────────────────
+
+#[test]
+fn extract_known_field_returns_json_array() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract", "SubjectUserName", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "extract must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("extract must output JSON");
+    assert!(json.is_array(), "extract must output JSON array");
+}
+
+#[test]
+fn extract_unknown_field_returns_empty_array() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract", "ZZZNOFIELD999XYZ", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract unknown field");
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert_eq!(
+        json.as_array().unwrap().len(),
+        0,
+        "unknown field must return empty array"
+    );
+}
+
+#[test]
+fn extract_nonexistent_file_exits_3() {
+    let status = Command::new(wt_bin())
+        .args(["extract", "SubjectUserName", "/nonexistent/Security.evtx"])
+        .status()
+        .expect("run wt extract nonexistent");
+    assert_eq!(status.code(), Some(3));
+}

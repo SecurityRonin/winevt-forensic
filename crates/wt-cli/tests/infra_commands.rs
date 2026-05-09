@@ -239,3 +239,25 @@ fn report_directory_returns_all_evtx_files() {
         "concurrent triage must not drop or duplicate files"
     );
 }
+
+// ── wt powershell --deobfuscate ───────────────────────────────────────────────
+
+#[test]
+fn powershell_deobfuscate_flag_exits_cleanly() {
+    // pre-Security.evtx has no EID 4104 events, so the output is an empty JSON
+    // array — but the flag must be accepted and the command must exit 0.
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["powershell", "--deobfuscate", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt powershell --deobfuscate");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "--deobfuscate must be accepted; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(json.is_array(), "--deobfuscate output must be JSON array");
+}

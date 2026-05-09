@@ -1584,4 +1584,39 @@ mod ioc_tests {
         assert!(ips.iter().any(|(_, v)| v == "10.0.0.42"));
         assert!(ips.iter().any(|(_, v)| v == "192.168.1.100"));
     }
+
+    // ── deobfuscate_ps ────────────────────────────────────────────────────────
+
+    #[test]
+    fn deobfuscate_ps_encoded_command_flag() {
+        // "hello" encoded as UTF-16LE base64
+        let result = deobfuscate_ps("powershell.exe -EncodedCommand aABlAGwAbABvAA==");
+        assert_eq!(result, Some("hello".to_string()));
+    }
+
+    #[test]
+    fn deobfuscate_ps_short_flag_ec() {
+        let result = deobfuscate_ps("powershell -ec aABlAGwAbABvAA==");
+        assert_eq!(result, Some("hello".to_string()));
+    }
+
+    #[test]
+    fn deobfuscate_ps_no_encoding_returns_none() {
+        let result = deobfuscate_ps("Get-Process | Where-Object CPU -gt 10");
+        assert_eq!(result, None);
+    }
+
+    // ── anomaly + extract_field (error paths) ─────────────────────────────────
+
+    #[test]
+    fn anomaly_nonexistent_path_returns_error() {
+        let result = anomaly(Path::new("/nonexistent/security.evtx"), 2.0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extract_field_nonexistent_path_returns_error() {
+        let result = extract_field(Path::new("/nonexistent/security.evtx"), "SubjectUserName");
+        assert!(result.is_err());
+    }
 }
