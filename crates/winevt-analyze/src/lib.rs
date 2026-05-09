@@ -21,6 +21,8 @@ pub enum AnalyzeError {
     Io(#[from] std::io::Error),
     #[error("EVTX parse error: {0}")]
     Parse(String),
+    #[error("unknown hunt name: '{0}'")]
+    UnknownHunt(String),
 }
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -998,6 +1000,401 @@ fn build_attack_map() -> HashMap<u32, Vec<AttackTag>> {
 pub fn attack_tags_for_event_id(event_id: u32) -> &'static [AttackTag] {
     let map = ATTACK_MAP.get_or_init(build_attack_map);
     map.get(&event_id).map(Vec::as_slice).unwrap_or(&[])
+}
+
+// ── Pivot / Diff / Process-tree / Logon-graph / Rare-process / Hunt ──────────
+
+/// Diff result: records present in one file but not the other.
+#[derive(Debug, serde::Serialize)]
+pub struct EvtxDiff {
+    pub added: Vec<TimelineEntry>,
+    pub removed: Vec<TimelineEntry>,
+}
+
+/// A single process-creation event, from EID 4688 or Sysmon EID 1.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProcessNode {
+    pub pid: u64,
+    pub parent_pid: u64,
+    pub image: String,
+    pub command_line: String,
+    pub timestamp: String,
+}
+
+/// A directed logon edge: source host → target host via a logon type.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LogonEdge {
+    pub source: String,
+    pub target: String,
+    pub logon_type: u32,
+    pub count: usize,
+}
+
+/// The full logon source–target graph extracted from EID 4624 events.
+#[derive(Debug, serde::Serialize)]
+pub struct LogonGraph {
+    pub nodes: Vec<String>,
+    pub edges: Vec<LogonEdge>,
+}
+
+/// A process image path seen fewer times than a given threshold.
+#[derive(Debug, serde::Serialize)]
+pub struct RareProcess {
+    pub image: String,
+    pub count: usize,
+    pub first_seen: String,
+    pub last_seen: String,
+}
+
+/// Search all string values in every event's JSON blob for a case-insensitive
+/// substring match.  Returns matching `TimelineEntry` objects.
+/// Exits with detections semantics (caller should use exit 1 if non-empty).
+pub fn pivot(path: &Path, query: &str) -> Result<Vec<TimelineEntry>, AnalyzeError> {
+    let query_lower = query.to_ascii_lowercase();
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut entries = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        if !value_contains_str(&record.data, &query_lower) {
+            continue;
+        }
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        entries.push(TimelineEntry {
+            record_id: record.event_record_id,
+            timestamp: record.timestamp.to_string(),
+            event_id: system.and_then(event_id_from_system).unwrap_or(0),
+            level: system
+                .and_then(|s| s.get("Level"))
+                .and_then(serde_json::Value::as_u64)
+                .map(|n| n as u8),
+            channel: system
+                .and_then(|s| s.get("Channel"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            computer: system
+                .and_then(|s| s.get("Computer"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            provider: system
+                .and_then(|s| s.get("Provider"))
+                .and_then(|p| p.get("@Name").or_else(|| p.get("@Guid")))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+        });
+    }
+    Ok(entries)
+}
+
+fn value_contains_str(v: &serde_json::Value, query: &str) -> bool {
+    match v {
+        serde_json::Value::String(s) => s.to_ascii_lowercase().contains(query),
+        serde_json::Value::Array(arr) => arr.iter().any(|item| value_contains_str(item, query)),
+        serde_json::Value::Object(map) => {
+            map.values().any(|val| value_contains_str(val, query))
+        }
+        _ => false,
+    }
+}
+
+/// Compare two EVTX files by record ID.  Returns added (in B not A) and
+/// removed (in A not B) entries.  Exit 1 when the diff is non-empty.
+pub fn diff(a: &Path, b: &Path) -> Result<EvtxDiff, AnalyzeError> {
+    let entries_a = timeline(a)?;
+    let entries_b = timeline(b)?;
+    let ids_a: std::collections::HashSet<u64> =
+        entries_a.iter().map(|e| e.record_id).collect();
+    let ids_b: std::collections::HashSet<u64> =
+        entries_b.iter().map(|e| e.record_id).collect();
+    let added = entries_b
+        .into_iter()
+        .filter(|e| !ids_a.contains(&e.record_id))
+        .collect();
+    let removed = entries_a
+        .into_iter()
+        .filter(|e| !ids_b.contains(&e.record_id))
+        .collect();
+    Ok(EvtxDiff { added, removed })
+}
+
+/// Extract process-creation events (Security EID 4688 and Sysmon EID 1) and
+/// return a flat list of `ProcessNode` records with PID/PPID/image/cmdline.
+pub fn process_tree(path: &Path) -> Result<Vec<ProcessNode>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut nodes = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = system.and_then(event_id_from_system).unwrap_or(0);
+        if event_id != 4688 && event_id != 1 {
+            continue;
+        }
+        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
+            Some(d) => d,
+            None => continue,
+        };
+        let (pid, parent_pid, image, command_line) = if event_id == 4688 {
+            let pid = event_data_str(ed, "NewProcessId")
+                .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+                .unwrap_or(0);
+            let ppid = event_data_str(ed, "ProcessId")
+                .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+                .unwrap_or(0);
+            let image = event_data_str(ed, "NewProcessName").unwrap_or("-").to_owned();
+            let cmdline = event_data_str(ed, "CommandLine").unwrap_or("").to_owned();
+            (pid, ppid, image, cmdline)
+        } else {
+            // Sysmon EID 1
+            let pid = event_data_str(ed, "ProcessId")
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            let ppid = event_data_str(ed, "ParentProcessId")
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            let image = event_data_str(ed, "Image").unwrap_or("-").to_owned();
+            let cmdline = event_data_str(ed, "CommandLine").unwrap_or("").to_owned();
+            (pid, ppid, image, cmdline)
+        };
+        nodes.push(ProcessNode {
+            pid,
+            parent_pid,
+            image,
+            command_line,
+            timestamp: record.timestamp.to_string(),
+        });
+    }
+    Ok(nodes)
+}
+
+/// Build a logon source→target graph from EID 4624 events.
+pub fn logon_graph(path: &Path) -> Result<LogonGraph, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut edge_map: HashMap<(String, String, u32), usize> = HashMap::new();
+
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        if system.and_then(event_id_from_system) != Some(4624) {
+            continue;
+        }
+        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
+            Some(d) => d,
+            None => continue,
+        };
+        let computer = system
+            .and_then(|s| s.get("Computer"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("-")
+            .to_owned();
+        let workstation =
+            event_data_str(ed, "WorkstationName").unwrap_or("").to_owned();
+        let ip = event_data_str(ed, "IpAddress").unwrap_or("").to_owned();
+        let logon_type: u32 = event_data_str(ed, "LogonType")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+
+        let source = if !workstation.is_empty() && workstation != "-" {
+            workstation
+        } else if !ip.is_empty()
+            && ip != "-"
+            && ip != "::1"
+            && ip != "127.0.0.1"
+        {
+            ip
+        } else {
+            continue;
+        };
+
+        *edge_map.entry((source, computer, logon_type)).or_insert(0) += 1;
+    }
+
+    let mut node_set = std::collections::HashSet::new();
+    let mut edges = Vec::new();
+    for ((source, target, logon_type), count) in edge_map {
+        node_set.insert(source.clone());
+        node_set.insert(target.clone());
+        edges.push(LogonEdge { source, target, logon_type, count });
+    }
+
+    let mut nodes: Vec<String> = node_set.into_iter().collect();
+    nodes.sort();
+    edges.sort_by(|a, b| a.source.cmp(&b.source));
+
+    Ok(LogonGraph { nodes, edges })
+}
+
+/// Return process images seen fewer than `threshold` times (EID 4688 / Sysmon 1).
+pub fn rare_processes(path: &Path, threshold: usize) -> Result<Vec<RareProcess>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    // image → (count, first_seen, last_seen)
+    let mut freq: HashMap<String, (usize, String, String)> = HashMap::new();
+
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = system.and_then(event_id_from_system).unwrap_or(0);
+        if event_id != 4688 && event_id != 1 {
+            continue;
+        }
+        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
+            Some(d) => d,
+            None => continue,
+        };
+        let image_opt = if event_id == 4688 {
+            event_data_str(ed, "NewProcessName")
+        } else {
+            event_data_str(ed, "Image")
+        };
+        if let Some(img) = image_opt {
+            let img = img.to_owned();
+            let ts = record.timestamp.to_string();
+            let entry = freq.entry(img).or_insert_with(|| (0, ts.clone(), ts.clone()));
+            entry.0 += 1;
+            if ts < entry.1 {
+                entry.1 = ts.clone();
+            }
+            if ts > entry.2 {
+                entry.2 = ts;
+            }
+        }
+    }
+
+    let mut result: Vec<RareProcess> = freq
+        .into_iter()
+        .filter(|(_, (count, _, _))| *count < threshold)
+        .map(|(image, (count, first_seen, last_seen))| RareProcess {
+            image,
+            count,
+            first_seen,
+            last_seen,
+        })
+        .collect();
+    result.sort_by_key(|r| r.count);
+    Ok(result)
+}
+
+/// Run a named threat hunt against an EVTX file.
+///
+/// Supported names: `kerberoast`, `asrep`, `dcsync`, `lateral-smb`,
+/// `wmi-persistence`, `scheduled-task`, `lsass-access`, `defender-tamper`.
+///
+/// Returns `Err(AnalyzeError::UnknownHunt)` for unrecognised names.
+/// Returns exit-code-1 semantics when the result vec is non-empty.
+pub fn hunt(path: &Path, name: &str) -> Result<Vec<TimelineEntry>, AnalyzeError> {
+    let hunt_eids: &[u32] = match name {
+        "kerberoast" => &[4769],
+        "asrep" => &[4768],
+        "dcsync" => &[4662],
+        "lateral-smb" => &[5140, 5145],
+        "wmi-persistence" => &[5860, 5861],
+        "scheduled-task" => &[4698, 4702],
+        "lsass-access" => &[10],
+        "defender-tamper" => &[5007, 5001],
+        _ => return Err(AnalyzeError::UnknownHunt(name.to_owned())),
+    };
+
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut hits = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(id) => id,
+            None => continue,
+        };
+        if !hunt_eids.contains(&event_id) {
+            continue;
+        }
+        let ed = record.data.get("Event").and_then(|e| e.get("EventData"));
+
+        let matches = match name {
+            "kerberoast" => ed
+                .and_then(|d| event_data_str(d, "TicketEncryptionType"))
+                .map(|enc| enc == "0x17" || enc == "0x12" || enc == "23" || enc == "18")
+                .unwrap_or(false),
+            "asrep" => ed
+                .and_then(|d| event_data_str(d, "PreAuthType"))
+                .map(|t| t == "0")
+                .unwrap_or(false),
+            "dcsync" => ed
+                .map(|d| {
+                    let access = event_data_str(d, "AccessMask").unwrap_or("");
+                    let obj_server =
+                        event_data_str(d, "ObjectServer").unwrap_or("");
+                    obj_server.contains("Directory Service") || access.contains("0x100")
+                })
+                .unwrap_or(false),
+            "lateral-smb" => ed
+                .and_then(|d| event_data_str(d, "ShareName"))
+                .map(|share| {
+                    let s = share.to_ascii_uppercase();
+                    s.contains("ADMIN$") || s.contains("\\C$") || s.contains("IPC$")
+                })
+                .unwrap_or(false),
+            "lsass-access" => ed
+                .and_then(|d| event_data_str(d, "TargetImage"))
+                .map(|img| img.to_ascii_lowercase().contains("lsass"))
+                .unwrap_or(false),
+            // EID match is sufficient for these hunts
+            "wmi-persistence" | "scheduled-task" | "defender-tamper" => true,
+            _ => false,
+        };
+
+        if matches {
+            hits.push(TimelineEntry {
+                record_id: record.event_record_id,
+                timestamp: record.timestamp.to_string(),
+                event_id,
+                level: system
+                    .and_then(|s| s.get("Level"))
+                    .and_then(serde_json::Value::as_u64)
+                    .map(|n| n as u8),
+                channel: system
+                    .and_then(|s| s.get("Channel"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned),
+                computer: system
+                    .and_then(|s| s.get("Computer"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned),
+                provider: system
+                    .and_then(|s| s.get("Provider"))
+                    .and_then(|p| p.get("@Name").or_else(|| p.get("@Guid")))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned),
+            });
+        }
+    }
+    Ok(hits)
 }
 
 // ── ATT&CK tests ─────────────────────────────────────────────────────────────

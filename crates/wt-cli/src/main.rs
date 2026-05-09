@@ -157,6 +157,65 @@ enum Cmd {
         #[arg(long)]
         stream: bool,
     },
+    /// Search all event fields for a substring (case-insensitive).
+    /// Exits 1 if matches found, 0 if none.
+    Pivot {
+        /// Case-insensitive search query.
+        query: String,
+        /// Path to the EVTX file.
+        path: PathBuf,
+        /// Emit one JSON object per line (NDJSON).
+        #[arg(long)]
+        stream: bool,
+    },
+    /// Diff two EVTX files by record ID.
+    /// Outputs `{"added": [...], "removed": [...]}`. Exits 1 if differences found.
+    Diff {
+        /// First (baseline) EVTX file.
+        a: PathBuf,
+        /// Second (comparison) EVTX file.
+        b: PathBuf,
+    },
+    /// Extract process-creation events and show parent-child relationships.
+    /// Outputs a JSON array of nodes or a Mermaid diagram with `--mermaid`.
+    ProcessTree {
+        /// Path to the EVTX file (Security or Sysmon).
+        path: PathBuf,
+        /// Emit a Mermaid `graph LR` diagram instead of JSON.
+        #[arg(long)]
+        mermaid: bool,
+    },
+    /// Build a logon source→target graph from EID 4624 events.
+    /// Outputs JSON `{nodes, edges}` or a Mermaid diagram with `--mermaid`.
+    LogonGraph {
+        /// Path to the Security EVTX file.
+        path: PathBuf,
+        /// Emit a Mermaid `graph LR` diagram instead of JSON.
+        #[arg(long)]
+        mermaid: bool,
+    },
+    /// Surface process images seen fewer than `--threshold` times (default 3).
+    /// Useful for spotting rare binaries and LOLBins.
+    RareProcess {
+        /// Path to the EVTX file (Security or Sysmon).
+        path: PathBuf,
+        /// Count threshold; processes seen < N times are reported.
+        #[arg(long, default_value_t = 3)]
+        threshold: usize,
+    },
+    /// Run a named threat hunt. Exits 1 if detections found, 2 on error.
+    ///
+    /// Available hunts: kerberoast, asrep, dcsync, lateral-smb,
+    /// wmi-persistence, scheduled-task, lsass-access, defender-tamper
+    Hunt {
+        /// Hunt name (see above).
+        name: String,
+        /// Path to the EVTX file.
+        path: PathBuf,
+        /// Emit one JSON object per line (NDJSON).
+        #[arg(long)]
+        stream: bool,
+    },
     /// One-click triage: extract EVTX, verify integrity, run Hayabusa.
     ///
     /// Accepts:
@@ -187,6 +246,15 @@ enum Cmd {
         #[arg(long, default_value = "medium")]
         min_level: String,
     },
+}
+
+/// Sanitize a string for use as a Mermaid node label (no spaces or special chars).
+fn sanitize_mermaid(s: &str) -> String {
+    // Keep only the last path component for readability
+    let base = s.rsplit(['/', '\\']).next().unwrap_or(s);
+    base.chars()
+        .map(|c| if c.is_alphanumeric() || c == '_' || c == '.' { c } else { '_' })
+        .collect()
 }
 
 /// Convert Windows FILETIME (100-ns intervals since 1601-01-01) to a UTC string.
@@ -529,6 +597,151 @@ fn main() {
                         }
                     }
                     if has_tags { EXIT_DETECTIONS } else { EXIT_CLEAN }
+                }
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+            }
+        }
+        Cmd::Pivot { query, path, stream } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_analyze::pivot(&path, &query) {
+                Ok(entries) => {
+                    let has_matches = !entries.is_empty();
+                    if stream {
+                        for e in &entries {
+                            if let Ok(line) = serde_json::to_string(e) {
+                                println!("{line}");
+                            }
+                        }
+                    } else {
+                        match serde_json::to_string_pretty(&entries) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
+                    }
+                    if has_matches { EXIT_DETECTIONS } else { EXIT_CLEAN }
+                }
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+            }
+        }
+        Cmd::Diff { a, b } => {
+            if !a.exists() {
+                eprintln!("error: path not found: {}", a.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            if !b.exists() {
+                eprintln!("error: path not found: {}", b.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_analyze::diff(&a, &b) {
+                Ok(d) => {
+                    let is_different = !d.added.is_empty() || !d.removed.is_empty();
+                    match serde_json::to_string_pretty(&d) {
+                        Ok(json) => println!("{json}"),
+                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    }
+                    if is_different { EXIT_DETECTIONS } else { EXIT_CLEAN }
+                }
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+            }
+        }
+        Cmd::ProcessTree { path, mermaid } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_analyze::process_tree(&path) {
+                Ok(nodes) => {
+                    if mermaid {
+                        println!("graph LR");
+                        for n in &nodes {
+                            let label = sanitize_mermaid(&n.image);
+                            let parent_label = format!("PID_{}", n.parent_pid);
+                            let node_label = format!("PID_{}", n.pid);
+                            println!("  {parent_label}[\"{label}\"] --> {node_label}");
+                        }
+                    } else {
+                        match serde_json::to_string_pretty(&nodes) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
+                    }
+                    EXIT_CLEAN
+                }
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+            }
+        }
+        Cmd::LogonGraph { path, mermaid } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_analyze::logon_graph(&path) {
+                Ok(g) => {
+                    if mermaid {
+                        println!("graph LR");
+                        for edge in &g.edges {
+                            let src = sanitize_mermaid(&edge.source);
+                            let tgt = sanitize_mermaid(&edge.target);
+                            println!(
+                                "  {} -->|\"Type {} x{}\"| {}",
+                                src, edge.logon_type, edge.count, tgt
+                            );
+                        }
+                    } else {
+                        match serde_json::to_string_pretty(&g) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
+                    }
+                    EXIT_CLEAN
+                }
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+            }
+        }
+        Cmd::RareProcess { path, threshold } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_analyze::rare_processes(&path, threshold) {
+                Ok(procs) => {
+                    match serde_json::to_string_pretty(&procs) {
+                        Ok(json) => println!("{json}"),
+                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    }
+                    EXIT_CLEAN
+                }
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+            }
+        }
+        Cmd::Hunt { name, path, stream } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_analyze::hunt(&path, &name) {
+                Ok(hits) => {
+                    let has_hits = !hits.is_empty();
+                    if stream {
+                        for h in &hits {
+                            if let Ok(line) = serde_json::to_string(h) {
+                                println!("{line}");
+                            }
+                        }
+                    } else {
+                        match serde_json::to_string_pretty(&hits) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
+                    }
+                    if has_hits { EXIT_DETECTIONS } else { EXIT_CLEAN }
+                }
+                Err(winevt_analyze::AnalyzeError::UnknownHunt(n)) => {
+                    eprintln!("error: unknown hunt '{n}'. Available: kerberoast, asrep, dcsync, lateral-smb, wmi-persistence, scheduled-task, lsass-access, defender-tamper");
+                    EXIT_ERROR
                 }
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
