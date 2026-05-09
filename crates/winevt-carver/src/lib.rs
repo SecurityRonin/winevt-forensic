@@ -438,6 +438,88 @@ pub fn repair_evtx(input: &Path, output: &Path) -> Result<RepairReport, CarveErr
     Ok(RepairReport { chunks_checked, chunks_repaired, header_repaired })
 }
 
+/// Confidence level for a free-space carved record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum CarveConfidence {
+    /// Magic found, size plausible, and BinXML header looks valid.
+    Definite,
+    /// Magic found and size plausible, but BinXML content failed heuristic checks.
+    Probable,
+}
+
+/// A record recovered from the free-space (slack) region of an EVTX chunk.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FreeSpaceCarvedRecord {
+    /// Byte offset of the containing chunk within the source file.
+    pub chunk_offset: u64,
+    /// Byte offset of this record within the chunk (after `free_space_offset`).
+    pub record_offset_within_chunk: u16,
+    /// Raw bytes of the record (from magic to trailing size field).
+    pub raw: Vec<u8>,
+    /// BinXML validity confidence.
+    pub confidence: CarveConfidence,
+}
+
+/// Scan the free-space region of an EVTX chunk for deleted records.
+///
+/// `chunk_data` must be the full 65 536-byte chunk starting at `ElfChnk` magic.
+/// `chunk_offset` is the byte offset of the chunk in the source file.
+///
+/// The live-record area (`0x200..free_space_offset`) is skipped; only bytes
+/// from `free_space_offset` onward are searched for record magic
+/// (`0x2A 0x2A 0x00 0x00`).
+pub fn carve_chunk_free_space(chunk_data: &[u8], chunk_offset: u64) -> Vec<FreeSpaceCarvedRecord> {
+    if chunk_data.len() < 0x38 {
+        return vec![];
+    }
+    let free_space_offset =
+        u32::from_le_bytes(chunk_data[48..52].try_into().unwrap_or([0; 4])) as usize;
+    let records_start = CHUNK_RECORDS_OFFSET as usize;
+
+    // If free_space_offset is invalid or there's no free space, bail.
+    if free_space_offset < records_start || free_space_offset >= chunk_data.len() {
+        return vec![];
+    }
+    let free_space = &chunk_data[free_space_offset..];
+    if free_space.is_empty() {
+        return vec![];
+    }
+
+    let mut out = Vec::new();
+    let mut pos = 0usize;
+    while pos + 8 <= free_space.len() {
+        if free_space[pos..pos + 4] != RECORD_MAGIC {
+            pos += 1;
+            continue;
+        }
+        let size = u32::from_le_bytes(
+            free_space[pos + 4..pos + 8].try_into().unwrap_or([0; 4]),
+        ) as usize;
+        // Minimum valid record: 4 magic + 4 size + 8 id + 8 ts + 0 payload + 4 tail = 28
+        if size < 28 || pos + size > free_space.len() {
+            pos += 1;
+            continue;
+        }
+        let raw = free_space[pos..pos + size].to_vec();
+        // BinXML payload starts at offset 24 (after record header), ends before trailing 4-byte size
+        let payload = &raw[24..raw.len().saturating_sub(4)];
+        let confidence = if is_likely_valid_binxml(payload) {
+            CarveConfidence::Definite
+        } else {
+            CarveConfidence::Probable
+        };
+        let record_offset_within_chunk = (free_space_offset + pos) as u16;
+        out.push(FreeSpaceCarvedRecord {
+            chunk_offset,
+            record_offset_within_chunk,
+            raw,
+            confidence,
+        });
+        pos += size;
+    }
+    out
+}
+
 /// BinXml validity heuristic.
 /// Returns `false` for payloads that are clearly not BinXml fragments.
 fn is_likely_valid_binxml(payload: &[u8]) -> bool {
