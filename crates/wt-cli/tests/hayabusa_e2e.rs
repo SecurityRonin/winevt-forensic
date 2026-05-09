@@ -14,7 +14,7 @@
 //! ```
 
 use std::process::Command;
-use winevt_writer::{WriteRecord, records_to_evtx};
+use winevt_writer::{records_to_evtx, WriteRecord};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -138,11 +138,7 @@ fn hayabusa_parses_reconstructed_evtx() {
         .expect("run wt reconstruct");
     let _ = std::fs::remove_file(&input);
 
-    assert_eq!(
-        recon_status.code(),
-        Some(0),
-        "wt reconstruct should exit 0"
-    );
+    assert_eq!(recon_status.code(), Some(0), "wt reconstruct should exit 0");
 
     // 3. Feed reconstructed file to hayabusa --json-timeline (or equivalent).
     //    hayabusa 2.x: `hayabusa json-timeline -f <path> -o <output>`
@@ -159,8 +155,10 @@ fn hayabusa_parses_reconstructed_evtx() {
     let haya_status = Command::new(&bin)
         .args([
             "json-timeline",
-            "-f", recon_path.to_str().unwrap(),
-            "-o", haya_out.to_str().unwrap(),
+            "-f",
+            recon_path.to_str().unwrap(),
+            "-o",
+            haya_out.to_str().unwrap(),
             "--no-wizard",
             "--quiet",
         ])
@@ -246,8 +244,10 @@ fn hayabusa_processes_corrupted_then_reconstructed_evtx() {
     let haya_status = Command::new(&bin)
         .args([
             "json-timeline",
-            "-f", recon_path.to_str().unwrap(),
-            "-o", haya_out.to_str().unwrap(),
+            "-f",
+            recon_path.to_str().unwrap(),
+            "-o",
+            haya_out.to_str().unwrap(),
             "--no-wizard",
             "--quiet",
         ])

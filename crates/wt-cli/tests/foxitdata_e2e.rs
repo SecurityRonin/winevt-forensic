@@ -21,7 +21,7 @@
 //! "Detection and recovery of NSA's covered up tracks"
 //! <https://blog.fox-it.com/2017/12/08/detection-and-recovery-of-nsas-covered-up-tracks/>
 
-use winevt_carver::{IntegrityAnomaly, carve_from_file, verify_integrity};
+use winevt_carver::{carve_from_file, verify_integrity, IntegrityAnomaly};
 
 fn workspace_root() -> std::path::PathBuf {
     // CARGO_MANIFEST_DIR = crates/wt-cli
@@ -58,9 +58,10 @@ macro_rules! require_foxitdata {
 fn pre_security_evtx_no_surgical_deletion() {
     let path = require_foxitdata!("pre-Security.evtx");
     let result = carve_from_file(&path).expect("carve_from_file on pre-Security.evtx");
-    let has_surgical = result.indicators.iter().any(|ind| {
-        matches!(ind, IntegrityAnomaly::SurgicalRecordDeletion { .. })
-    });
+    let has_surgical = result
+        .indicators
+        .iter()
+        .any(|ind| matches!(ind, IntegrityAnomaly::SurgicalRecordDeletion { .. }));
     assert!(
         !has_surgical,
         "pre-Security.evtx should have no SurgicalRecordDeletion, got: {:?}",

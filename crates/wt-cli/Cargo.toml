@@ -14,6 +14,7 @@ path = "src/main.rs"
 winevt-carver.workspace = true
 winevt-writer.workspace = true
 winevt-analyze.workspace = true
+winevt-triage.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true

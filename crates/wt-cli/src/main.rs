@@ -126,6 +126,30 @@ enum Cmd {
         /// Path to the EVTX file.
         path: PathBuf,
     },
+    /// One-click triage: extract EVTX, verify integrity, run Hayabusa.
+    ///
+    /// Accepts:
+    ///   `*.E01 / *.Ex01` — NTFS filesystem extraction; `--carved` adds full-image carve
+    ///   `*.evtx`          — direct pass-through to Hayabusa
+    ///   directory         — all `*.evtx` files in the tree
+    ///   any other blob    — raw carve for `ElfChnk` magic
+    ///
+    /// Outputs a JSON report with `input`, `evtx_files` (name, source, size,
+    /// `integrity_indicators`), and an optional `hayabusa` section.
+    Report {
+        /// Path to the evidence (E01 image, EVTX file, directory, or raw blob).
+        path: PathBuf,
+        /// For E01 images: also carve the full raw image for deleted/unallocated EVTX data.
+        #[arg(long)]
+        carved: bool,
+        /// Directory to write extracted EVTX files and Hayabusa output.
+        /// Defaults to a temporary directory (path printed to stderr).
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+        /// Path to the hayabusa binary.  Defaults to `hayabusa` on `PATH`.
+        #[arg(long)]
+        hayabusa_bin: Option<PathBuf>,
+    },
 }
 
 /// Convert Windows FILETIME (100-ns intervals since 1601-01-01) to a UTC string.
@@ -411,6 +435,12 @@ fn main() {
                 2
             }
         },
+        Cmd::Report { path, carved, output, hayabusa_bin } => {
+            let _ = (carved, output, hayabusa_bin);
+            eprintln!("error: wt report not yet implemented");
+            let _ = path;
+            2
+        }
         Cmd::Reconstruct { path, output } => match winevt_carver::carve_from_file(&path) {
             Ok(result) => {
                 let write_records: Vec<WriteRecord> = result
