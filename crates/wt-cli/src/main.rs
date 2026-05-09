@@ -267,6 +267,15 @@ enum Cmd {
         /// Path to the EVTX file.
         path: PathBuf,
     },
+    /// One-line forensic overview of an EVTX file.
+    ///
+    /// Outputs a JSON object with `file`, `total_events`, `time_range` (first/last),
+    /// `top_event_ids` (up to 5 most frequent), `integrity_indicators` (count),
+    /// and `ioc_count`. Ideal for the first look at an unknown file.
+    Summary {
+        /// Path to the EVTX file.
+        path: PathBuf,
+    },
     /// One-click triage: extract EVTX, verify integrity, run Hayabusa.
     ///
     /// Accepts:
@@ -875,6 +884,56 @@ fn main() {
                 }
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
+        }
+        Cmd::Summary { path } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            // Compose frequency, integrity, and IOC data into one overview object.
+            let freq = winevt_analyze::frequency(&path);
+            let indicators = winevt_carver::verify_integrity(&path).unwrap_or_default();
+            let ioc_report = winevt_analyze::ioc_extract(&path);
+
+            let file_name = path.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.display().to_string());
+
+            let (total_events, top_event_ids, first_ts, last_ts) = match freq {
+                Ok(report) => {
+                    let top: Vec<serde_json::Value> = report.by_event_id.iter()
+                        .take(5)
+                        .map(|f| serde_json::json!({ "event_id": f.event_id, "count": f.count }))
+                        .collect();
+                    // Derive time range from timeline (best-effort; skip on error).
+                    let (first, last) = match winevt_analyze::timeline(&path) {
+                        Ok(entries) => {
+                            let first = entries.iter().map(|e| e.timestamp.as_str()).min().map(str::to_owned);
+                            let last  = entries.iter().map(|e| e.timestamp.as_str()).max().map(str::to_owned);
+                            (first, last)
+                        }
+                        Err(_) => (None, None),
+                    };
+                    (report.total_events, top, first, last)
+                }
+                Err(_) => (0, vec![], None, None),
+            };
+
+            let ioc_count = ioc_report.map(|r| r.iocs.len()).unwrap_or(0);
+
+            let out = serde_json::json!({
+                "file": file_name,
+                "total_events": total_events,
+                "time_range": { "first": first_ts, "last": last_ts },
+                "top_event_ids": top_event_ids,
+                "integrity_indicators": indicators.len(),
+                "ioc_count": ioc_count,
+            });
+            match serde_json::to_string_pretty(&out) {
+                Ok(json) => println!("{json}"),
+                Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+            }
+            EXIT_CLEAN
         }
         Cmd::Report { path, carved, output, hayabusa_bin, min_level, format } => {
             match report::run(
