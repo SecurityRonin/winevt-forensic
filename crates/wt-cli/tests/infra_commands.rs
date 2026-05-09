@@ -63,27 +63,33 @@ fn repair_valid_evtx_exits_0() {
 }
 
 #[test]
-fn repair_valid_evtx_repairs_zero_chunks() {
+fn repair_is_idempotent() {
+    // Pre-Security.evtx has chunks with stale header CRCs (unflushed by Windows),
+    // so it is not a "zero repairs" baseline. Instead we verify idempotency:
+    // a second repair pass on the already-repaired output must report 0 chunks repaired.
     let evtx = require_foxitdata!("pre-Security.evtx");
     let out = tempfile::tempdir().expect("tempdir");
-    let fixed = out.path().join("fixed.evtx");
+    let fixed1 = out.path().join("fixed1.evtx");
+    let fixed2 = out.path().join("fixed2.evtx");
 
-    let output = Command::new(wt_bin())
-        .args([
-            "repair",
-            evtx.to_str().unwrap(),
-            "--output",
-            fixed.to_str().unwrap(),
-        ])
+    // First pass — may repair some chunks.
+    Command::new(wt_bin())
+        .args(["repair", evtx.to_str().unwrap(), "--output", fixed1.to_str().unwrap()])
         .output()
-        .expect("run wt repair");
+        .expect("run wt repair pass 1");
+
+    // Second pass — must report 0 chunks repaired (idempotency).
+    let output2 = Command::new(wt_bin())
+        .args(["repair", fixed1.to_str().unwrap(), "--output", fixed2.to_str().unwrap()])
+        .output()
+        .expect("run wt repair pass 2");
 
     let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+        serde_json::from_slice(&output2.stdout).expect("pass 2 must be JSON");
     assert_eq!(
         json["chunks_repaired"].as_u64().unwrap_or(999),
         0,
-        "a valid EVTX should have 0 chunks needing repair"
+        "second repair pass must report 0 chunks repaired (idempotency)"
     );
 }
 

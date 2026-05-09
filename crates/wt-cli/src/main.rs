@@ -157,6 +157,17 @@ enum Cmd {
         #[arg(long)]
         stream: bool,
     },
+    /// Fix bad EVTX checksums and write the repaired file.
+    ///
+    /// Recomputes per-chunk header CRC32 and records-area CRC32 where wrong.
+    /// Outputs a JSON report with `chunks_checked`, `chunks_repaired`, `header_repaired`.
+    Repair {
+        /// Path to the (possibly corrupt) EVTX file.
+        path: PathBuf,
+        /// Path for the repaired output file.
+        #[arg(long, short)]
+        output: PathBuf,
+    },
     /// Search all event fields for a substring (case-insensitive).
     /// Exits 1 if matches found, 0 if none.
     Pivot {
@@ -245,6 +256,9 @@ enum Cmd {
         /// Defaults to `informational` (all rules).
         #[arg(long, default_value = "medium")]
         min_level: String,
+        /// Output format: `json` (default) or `md` (Markdown).
+        #[arg(long, default_value = "json")]
+        format: String,
     },
 }
 
@@ -601,6 +615,22 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
+        Cmd::Repair { path, output } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_carver::repair_evtx(&path, &output) {
+                Ok(report) => {
+                    match serde_json::to_string_pretty(&report) {
+                        Ok(json) => println!("{json}"),
+                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    }
+                    EXIT_CLEAN
+                }
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+            }
+        }
         Cmd::Pivot { query, path, stream } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
@@ -746,7 +776,7 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Report { path, carved, output, hayabusa_bin, min_level } => {
+        Cmd::Report { path, carved, output, hayabusa_bin, min_level, format } => {
             match report::run(
                 &path,
                 carved,
@@ -755,18 +785,22 @@ fn main() {
                 Some(min_level.as_str()),
             ) {
                 Ok(out) => {
-                    match serde_json::to_string_pretty(&out) {
-                        Ok(json) => println!("{json}"),
-                        Err(e) => {
-                            eprintln!("error: {e}");
-                            std::process::exit(2);
+                    if format == "md" {
+                        print!("{}", report::to_markdown(&out));
+                    } else {
+                        match serde_json::to_string_pretty(&out) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => {
+                                eprintln!("error: {e}");
+                                std::process::exit(EXIT_ERROR);
+                            }
                         }
                     }
-                    0
+                    EXIT_CLEAN
                 }
                 Err(e) => {
                     eprintln!("error: {e}");
-                    2
+                    EXIT_ERROR
                 }
             }
         }

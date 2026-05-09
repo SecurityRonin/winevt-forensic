@@ -289,6 +289,46 @@ fn which_hayabusa() -> Option<PathBuf> {
     None
 }
 
+// ── Markdown renderer ─────────────────────────────────────────────────────────
+
+pub fn to_markdown(out: &TriageOutput) -> String {
+    let mut md = String::new();
+    md.push_str("# Triage Report\n\n");
+
+    md.push_str("## Input\n\n");
+    md.push_str(&format!("- **Path**: `{}`\n", out.input.path.display()));
+    md.push_str(&format!("- **Kind**: `{:?}`\n\n", out.input.kind));
+
+    md.push_str("## EVTX Files\n\n");
+    if out.evtx_files.is_empty() {
+        md.push_str("_No EVTX files found._\n\n");
+    } else {
+        md.push_str("| File | Source | Size | Indicators |\n");
+        md.push_str("|------|--------|------|------------|\n");
+        for f in &out.evtx_files {
+            let indicators = if f.integrity_indicators.is_empty() {
+                "none".to_owned()
+            } else {
+                f.integrity_indicators.join(", ")
+            };
+            md.push_str(&format!(
+                "| `{}` | {:?} | {} | {} |\n",
+                f.name, f.source, f.size, indicators
+            ));
+        }
+        md.push('\n');
+    }
+
+    if let Some(h) = &out.hayabusa {
+        md.push_str("## Hayabusa\n\n");
+        md.push_str(&format!("- **Binary**: `{}`\n", h.binary.display()));
+        md.push_str(&format!("- **Output**: `{}`\n", h.output_file.display()));
+        md.push_str(&format!("- **Exit code**: {}\n\n", h.exit_code));
+    }
+
+    md
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn resolve_work_dir(requested: Option<&Path>) -> Result<PathBuf, String> {

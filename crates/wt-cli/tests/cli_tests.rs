@@ -245,15 +245,15 @@ fn wt_verify_tampered_file_exits_code_1() {
 }
 
 #[test]
-fn wt_verify_nonexistent_exits_code_2() {
+fn wt_verify_nonexistent_exits_code_3() {
     let status = wt_bin()
         .args(["verify", "/nonexistent/path/feature9.evtx"])
         .status()
         .expect("run wt verify");
     assert_eq!(
         status.code(),
-        Some(2),
-        "wt verify on nonexistent path should exit 2 (I/O error)"
+        Some(3),
+        "wt verify on nonexistent path should exit 3 (path not found)"
     );
 }
 
@@ -398,12 +398,12 @@ fn wt_timeline_help_exits_success() {
 }
 
 #[test]
-fn wt_timeline_nonexistent_exits_code_2() {
+fn wt_timeline_nonexistent_exits_code_3() {
     let status = wt_bin()
         .args(["timeline", "/nonexistent/security.evtx"])
         .status()
         .expect("run wt timeline");
-    assert_eq!(status.code(), Some(2));
+    assert_eq!(status.code(), Some(3));
 }
 
 #[test]
@@ -433,12 +433,12 @@ fn wt_sessions_help_exits_success() {
 }
 
 #[test]
-fn wt_sessions_nonexistent_exits_code_2() {
+fn wt_sessions_nonexistent_exits_code_3() {
     let status = wt_bin()
         .args(["sessions", "/nonexistent/security.evtx"])
         .status()
         .expect("run wt sessions");
-    assert_eq!(status.code(), Some(2));
+    assert_eq!(status.code(), Some(3));
 }
 
 #[test]
@@ -468,12 +468,12 @@ fn wt_powershell_help_exits_success() {
 }
 
 #[test]
-fn wt_powershell_nonexistent_exits_code_2() {
+fn wt_powershell_nonexistent_exits_code_3() {
     let status = wt_bin()
         .args(["powershell", "/nonexistent/ps.evtx"])
         .status()
         .expect("run wt powershell");
-    assert_eq!(status.code(), Some(2));
+    assert_eq!(status.code(), Some(3));
 }
 
 #[test]
@@ -503,12 +503,12 @@ fn wt_frequency_help_exits_success() {
 }
 
 #[test]
-fn wt_frequency_nonexistent_exits_code_2() {
+fn wt_frequency_nonexistent_exits_code_3() {
     let status = wt_bin()
         .args(["frequency", "/nonexistent/security.evtx"])
         .status()
         .expect("run wt frequency");
-    assert_eq!(status.code(), Some(2));
+    assert_eq!(status.code(), Some(3));
 }
 
 #[test]
@@ -541,12 +541,12 @@ fn wt_ioc_extract_help_exits_success() {
 }
 
 #[test]
-fn wt_ioc_extract_nonexistent_exits_code_2() {
+fn wt_ioc_extract_nonexistent_exits_code_3() {
     let status = wt_bin()
         .args(["ioc-extract", "/nonexistent/security.evtx"])
         .status()
         .expect("run wt ioc-extract");
-    assert_eq!(status.code(), Some(2));
+    assert_eq!(status.code(), Some(3));
 }
 
 #[test]
@@ -583,12 +583,12 @@ fn wt_attack_tags_help_exits_success() {
 }
 
 #[test]
-fn wt_attack_tags_nonexistent_exits_code_2() {
+fn wt_attack_tags_nonexistent_exits_code_3() {
     let status = wt_bin()
         .args(["attack-tags", "/nonexistent/security.evtx"])
         .status()
         .expect("run wt attack-tags");
-    assert_eq!(status.code(), Some(2));
+    assert_eq!(status.code(), Some(3));
 }
 
 #[test]

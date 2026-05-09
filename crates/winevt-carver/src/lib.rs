@@ -153,7 +153,8 @@ fn carve_from_bytes_inner(data: &[u8], offset_base: u64) -> CarveResult {
             if chunk_end > data.len() {
                 // Truncated chunk — handle immediately (not parallelizable)
                 if let Some(header) = EvtxChunkHeader::parse(&data[i..]) {
-                    let records = recover_records_from_slice(&data[i..], i as u64 + offset_base, true);
+                    let records =
+                        recover_records_from_slice(&data[i..], i as u64 + offset_base, true);
                     truncated_chunks.push(CarvedChunk {
                         offset: i as u64 + offset_base,
                         header,
@@ -214,9 +215,16 @@ fn carve_from_bytes_inner(data: &[u8], offset_base: u64) -> CarveResult {
     let chunk_ranges: Vec<(u64, u64)> = result
         .chunks
         .iter()
-        .map(|c| (c.header.first_event_record_number, c.header.last_event_record_number))
+        .map(|c| {
+            (
+                c.header.first_event_record_number,
+                c.header.last_event_record_number,
+            )
+        })
         .collect();
-    result.indicators.extend(detect_record_id_gaps(&chunk_ranges));
+    result
+        .indicators
+        .extend(detect_record_id_gaps(&chunk_ranges));
 
     // Post-carve: check file header consistency if we have a file header
     if let Some(ref fh) = result.file_header {
@@ -308,8 +316,7 @@ pub fn carve_from_file(path: &Path) -> Result<CarveResult, CarveError> {
 /// delegates to [`carve_from_bytes`]. Sets `source_hash` to the SHA-256 of the image bytes.
 pub fn carve_from_ewf(path: &Path) -> Result<CarveResult, CarveError> {
     use std::io::Read;
-    let mut reader =
-        ewf::EwfReader::open(path).map_err(|e| CarveError::EwfError(e.to_string()))?;
+    let mut reader = ewf::EwfReader::open(path).map_err(|e| CarveError::EwfError(e.to_string()))?;
     let total = reader.total_size() as usize;
     let mut data = vec![0u8; total];
     reader
@@ -340,6 +347,97 @@ pub fn verify_integrity(path: &Path) -> Result<Vec<IntegrityAnomaly>, CarveError
     Ok(indicators)
 }
 
+/// Report returned by [`repair_evtx`].
+#[derive(Debug, serde::Serialize)]
+pub struct RepairReport {
+    pub chunks_checked: usize,
+    pub chunks_repaired: usize,
+    pub header_repaired: bool,
+}
+
+/// Recompute and fix bad checksums in an EVTX file, writing the result to `output`.
+///
+/// Checks and repairs:
+/// - File header CRC32 (bytes 0x00–0x77, stored at 0x7C)
+/// - Per-chunk records-area CRC32 (stored at chunk offset 0x34)
+/// - Per-chunk header CRC32 (bytes 0x00–0x77 of chunk, stored at 0x78)
+///
+/// The chunk header CRC covers the records-area CRC field, so records-area is
+/// recomputed first, then the header CRC is recomputed over the updated header.
+pub fn repair_evtx(input: &Path, output: &Path) -> Result<RepairReport, CarveError> {
+    let mut data = std::fs::read(input)?;
+    let mut chunks_checked = 0usize;
+    let mut chunks_repaired = 0usize;
+    let mut header_repaired = false;
+
+    // File header: CRC32 of 0x00–0x77 stored at 0x7C
+    if data.len() >= 0x80 && &data[0..8] == ELFFILE_MAGIC {
+        let expected = crc32fast::hash(&data[0..0x78]);
+        let stored = u32::from_le_bytes(data[0x7C..0x80].try_into().unwrap_or([0; 4]));
+        if stored != expected {
+            data[0x7C..0x80].copy_from_slice(&expected.to_le_bytes());
+            header_repaired = true;
+        }
+    }
+
+    // Chunks start after the 4096-byte file header
+    let file_header_size: usize = 4096;
+    let chunk_size = CHUNK_SIZE as usize;
+    let mut offset = file_header_size;
+
+    while offset + chunk_size <= data.len() {
+        if &data[offset..offset + 8] == ELFCHNK_MAGIC {
+            chunks_checked += 1;
+            let mut repaired = false;
+
+            // 1. Records-area checksum: CRC32(chunk[0x200..free_off]), stored at chunk[0x34]
+            //    Free space offset is at chunk[0x30..0x34] (bytes 48..52 relative to chunk start)
+            if data.len() >= offset + 0x38 {
+                let free_off = u32::from_le_bytes(
+                    data[offset + 48..offset + 52].try_into().unwrap_or([0; 4]),
+                ) as usize;
+                if free_off >= 0x200 && free_off <= chunk_size {
+                    let records_end = offset + free_off;
+                    if data.len() >= records_end {
+                        let expected =
+                            crc32fast::hash(&data[offset + 0x200..records_end]);
+                        let stored = u32::from_le_bytes(
+                            data[offset + 52..offset + 56].try_into().unwrap_or([0; 4]),
+                        );
+                        if stored != expected {
+                            data[offset + 52..offset + 56]
+                                .copy_from_slice(&expected.to_le_bytes());
+                            repaired = true;
+                        }
+                    }
+                }
+            }
+
+            // 2. Chunk header checksum: CRC32(chunk[0x00..0x78]), stored at chunk[0x78]
+            //    Recomputed after records-area fix so the header reflects current state.
+            if data.len() >= offset + 0x7C {
+                let expected = crc32fast::hash(&data[offset..offset + 0x78]);
+                let stored = u32::from_le_bytes(
+                    data[offset + 0x78..offset + 0x7C].try_into().unwrap_or([0; 4]),
+                );
+                if stored != expected {
+                    data[offset + 0x78..offset + 0x7C]
+                        .copy_from_slice(&expected.to_le_bytes());
+                    repaired = true;
+                }
+            }
+
+            if repaired {
+                chunks_repaired += 1;
+            }
+        }
+        offset += chunk_size;
+    }
+
+    std::fs::write(output, &data)?;
+    Ok(RepairReport { chunks_checked, chunks_repaired, header_repaired })
+}
+
 /// BinXml validity heuristic.
 /// Returns `false` for payloads that are clearly not BinXml fragments.
 fn is_likely_valid_binxml(payload: &[u8]) -> bool {
@@ -356,7 +454,9 @@ fn is_likely_valid_binxml(payload: &[u8]) -> bool {
     }
     // No excessive null runs (> 16 consecutive nulls in first 32 bytes)
     let check_len = payload.len().min(32);
-    let null_run = payload[..check_len].windows(16).any(|w| w.iter().all(|&b| b == 0));
+    let null_run = payload[..check_len]
+        .windows(16)
+        .any(|w| w.iter().all(|&b| b == 0));
     !null_run
 }
 
@@ -643,7 +743,7 @@ mod tests {
         hdr[38..40].copy_from_slice(&3u16.to_le_bytes()); // major_version
         hdr[40..42].copy_from_slice(&0u16.to_le_bytes()); // HeaderBlockSize padding
         hdr[42..44].copy_from_slice(&1u16.to_le_bytes()); // chunk_count
-        // File header checksum covers bytes 0x00..0x78; stored at 0x7C.
+                                                          // File header checksum covers bytes 0x00..0x78; stored at 0x7C.
         let crc = crc32fast::hash(&hdr[0..0x78]);
         hdr[0x7C..0x80].copy_from_slice(&crc.to_le_bytes());
         hdr
@@ -812,7 +912,13 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert!(
             indicators.iter().any(|ind| {
-                matches!(ind, IntegrityAnomaly::SurgicalRecordDeletion { absorbing_record_id: 1, .. })
+                matches!(
+                    ind,
+                    IntegrityAnomaly::SurgicalRecordDeletion {
+                        absorbing_record_id: 1,
+                        ..
+                    }
+                )
             }),
             "expected SurgicalRecordDeletion in verify_integrity output, got: {:?}",
             indicators
@@ -826,7 +932,10 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert!(
             indicators.iter().any(|ind| {
-                matches!(ind, IntegrityAnomaly::ExportTimestampCorruption { record_id: 7, .. })
+                matches!(
+                    ind,
+                    IntegrityAnomaly::ExportTimestampCorruption { record_id: 7, .. }
+                )
             }),
             "expected ExportTimestampCorruption(record_id=7) in verify_integrity output, got: {:?}",
             indicators
@@ -901,7 +1010,11 @@ mod tests {
         let offsets: Vec<u64> = result.chunks.iter().map(|c| c.offset).collect();
         let mut sorted = offsets.clone();
         sorted.sort();
-        assert_eq!(offsets, sorted, "chunk offsets should be in order: {:?}", offsets);
+        assert_eq!(
+            offsets, sorted,
+            "chunk offsets should be in order: {:?}",
+            offsets
+        );
     }
 
     #[test]
@@ -936,7 +1049,7 @@ mod tests {
         let mut data = vec![0u8; 65536];
         data[0..8].copy_from_slice(b"ElfChnk\0");
         data[0x78..0x7C].copy_from_slice(&0xDEADBEEFu32.to_le_bytes()); // corrupt checksum
-        // set record magic at 0x200 with size = max u32
+                                                                        // set record magic at 0x200 with size = max u32
         data[0x200..0x204].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
         data[0x204..0x208].copy_from_slice(&u32::MAX.to_le_bytes());
         let _ = carve_from_bytes(&data);
@@ -1047,8 +1160,16 @@ mod tests {
         let records = &result.chunks[0].records;
         let ids: Vec<u64> = records.iter().map(|r| r.header.record_id).collect();
         // Record 1 (valid BinXml) should be present, record 2 (garbage) filtered out
-        assert!(ids.contains(&1), "record 1 with valid BinXml should be kept, got ids: {:?}", ids);
-        assert!(!ids.contains(&2), "record 2 with garbage payload should be filtered, got ids: {:?}", ids);
+        assert!(
+            ids.contains(&1),
+            "record 1 with valid BinXml should be kept, got ids: {:?}",
+            ids
+        );
+        assert!(
+            !ids.contains(&2),
+            "record 2 with garbage payload should be filtered, got ids: {:?}",
+            ids
+        );
     }
 
     // ---- Feature 8: memmap2 ----
@@ -1061,8 +1182,14 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let bytes_result = carve_from_bytes(&data);
         assert_eq!(file_result.chunks.len(), bytes_result.chunks.len());
-        assert_eq!(file_result.stats.chunks_found, bytes_result.stats.chunks_found);
-        assert_eq!(file_result.stats.records_recovered, bytes_result.stats.records_recovered);
+        assert_eq!(
+            file_result.stats.chunks_found,
+            bytes_result.stats.chunks_found
+        );
+        assert_eq!(
+            file_result.stats.records_recovered,
+            bytes_result.stats.records_recovered
+        );
         // source_hash must be Some for file path
         assert!(file_result.source_hash.is_some());
         // bytes result must be None
@@ -1113,7 +1240,11 @@ mod tests {
         let result = carve_from_file(&path).expect("carve_from_file should succeed");
         let _ = std::fs::remove_file(&path);
         let hash = result.source_hash.expect("source_hash should be Some");
-        assert_eq!(hash.len(), 64, "SHA-256 hex should be 64 chars, got: {hash}");
+        assert_eq!(
+            hash.len(),
+            64,
+            "SHA-256 hex should be 64 chars, got: {hash}"
+        );
         assert!(
             hash.chars().all(|c| c.is_ascii_hexdigit()),
             "SHA-256 should be hex, got: {hash}"
@@ -1343,9 +1474,16 @@ mod tests {
         let data = make_chunk_with_record(7, 0, b"payload");
         let result = carve_from_bytes(&data);
         assert_eq!(result.chunks.len(), 1);
-        assert_eq!(result.chunks[0].records.len(), 1, "should recover one record");
+        assert_eq!(
+            result.chunks[0].records.len(),
+            1,
+            "should recover one record"
+        );
         let has_indicator = result.indicators.iter().any(|ind| {
-            matches!(ind, IntegrityAnomaly::ExportTimestampCorruption { record_id: 7, .. })
+            matches!(
+                ind,
+                IntegrityAnomaly::ExportTimestampCorruption { record_id: 7, .. }
+            )
         });
         assert!(
             has_indicator,
@@ -1358,9 +1496,10 @@ mod tests {
     fn export_timestamp_corruption_nonzero_ts_returns_no_indicator() {
         let data = make_chunk_with_record(1, 133_297_085_160_000_000, b"");
         let result = carve_from_bytes(&data);
-        let has_export = result.indicators.iter().any(|ind| {
-            matches!(ind, IntegrityAnomaly::ExportTimestampCorruption { .. })
-        });
+        let has_export = result
+            .indicators
+            .iter()
+            .any(|ind| matches!(ind, IntegrityAnomaly::ExportTimestampCorruption { .. }));
         assert!(
             !has_export,
             "non-zero ts should not produce ExportTimestampCorruption, got: {:?}",
@@ -1394,7 +1533,7 @@ mod tests {
         chunk[0x208..0x210].copy_from_slice(&1u64.to_le_bytes()); // record_id = 1
         chunk[0x210..0x218].copy_from_slice(&100u64.to_le_bytes()); // timestamp
         chunk[0x218..0x220].copy_from_slice(b"absorber"); // 8-byte payload
-        // Record 2 (ghost) at 0x200 + sz1 = 0x224
+                                                          // Record 2 (ghost) at 0x200 + sz1 = 0x224
         let ghost_off = 0x200usize + sz1 as usize;
         chunk[ghost_off..ghost_off + 4].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
         chunk[ghost_off + 4..ghost_off + 8].copy_from_slice(&sz2.to_le_bytes());
@@ -1420,7 +1559,13 @@ mod tests {
         let result = carve_from_bytes(&data);
         assert_eq!(result.chunks.len(), 1);
         let has_surgical = result.indicators.iter().any(|ind| {
-            matches!(ind, IntegrityAnomaly::SurgicalRecordDeletion { absorbing_record_id: 1, .. })
+            matches!(
+                ind,
+                IntegrityAnomaly::SurgicalRecordDeletion {
+                    absorbing_record_id: 1,
+                    ..
+                }
+            )
         });
         assert!(
             has_surgical,
@@ -1433,9 +1578,10 @@ mod tests {
     fn danderspritz_normal_chunk_returns_no_surgical_deletion() {
         let data = make_chunk_with_record(3, 133_297_085_160_000_000, b"normal");
         let result = carve_from_bytes(&data);
-        let has_surgical = result.indicators.iter().any(|ind| {
-            matches!(ind, IntegrityAnomaly::SurgicalRecordDeletion { .. })
-        });
+        let has_surgical = result
+            .indicators
+            .iter()
+            .any(|ind| matches!(ind, IntegrityAnomaly::SurgicalRecordDeletion { .. }));
         assert!(
             !has_surgical,
             "normal chunk should not produce SurgicalRecordDeletion, got: {:?}",
