@@ -10,8 +10,10 @@ description = "Structured field analysis of Windows Event Log records: timeline,
 name = "winevt_analyze"
 
 [dependencies]
+base64 = "0.22"
 evtx = "0.11"
 jiff = "0.2"
+regex = "1"
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true

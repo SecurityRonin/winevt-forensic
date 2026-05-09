@@ -1397,6 +1397,128 @@ pub fn hunt(path: &Path, name: &str) -> Result<Vec<TimelineEntry>, AnalyzeError>
     Ok(hits)
 }
 
+// ── PowerShell deobfuscation ──────────────────────────────────────────────────
+
+/// Detect and decode a PowerShell `-EncodedCommand` (or `-enc` / `-ec`) payload.
+///
+/// Windows PowerShell encodes commands as Base64 of UTF-16LE bytes.
+/// Returns `Some(decoded)` when detected, `None` for plain scripts.
+pub fn deobfuscate_ps(text: &str) -> Option<String> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    let flags = ["-encodedcommand", "-enc", "-ec", "-en"];
+    let tokens: Vec<&str> = text.split_whitespace().collect();
+    for (i, tok) in tokens.iter().enumerate() {
+        if flags.contains(&tok.to_ascii_lowercase().as_str()) {
+            if let Some(payload) = tokens.get(i + 1) {
+                if let Ok(bytes) = STANDARD.decode(payload) {
+                    // Interpret as UTF-16LE
+                    let utf16: Vec<u16> = bytes
+                        .chunks_exact(2)
+                        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                        .collect();
+                    return Some(String::from_utf16_lossy(&utf16));
+                }
+            }
+        }
+    }
+    None
+}
+
+// ── Frequency anomaly scoring ─────────────────────────────────────────────────
+
+/// One event ID's anomaly record.
+#[derive(Debug, serde::Serialize)]
+pub struct AnomalyEntry {
+    pub event_id: u32,
+    pub count: usize,
+    pub z_score: f64,
+}
+
+/// Compute a z-score frequency anomaly for every event ID in `path`.
+///
+/// Returns all entries with `|z_score| >= min_z`, sorted descending by `|z_score|`.
+/// A `min_z` of `0.0` returns all event IDs.
+pub fn anomaly(path: &Path, min_z: f64) -> Result<Vec<AnomalyEntry>, AnalyzeError> {
+    let report = frequency(path)?;
+    let counts: Vec<f64> = report.by_event_id.iter().map(|f| f.count as f64).collect();
+    if counts.is_empty() {
+        return Ok(vec![]);
+    }
+    let mean = counts.iter().sum::<f64>() / counts.len() as f64;
+    let variance = counts.iter().map(|c| (c - mean).powi(2)).sum::<f64>() / counts.len() as f64;
+    let std_dev = variance.sqrt();
+
+    let mut entries: Vec<AnomalyEntry> = report
+        .by_event_id
+        .iter()
+        .map(|f| {
+            let z = if std_dev > 0.0 {
+                (f.count as f64 - mean) / std_dev
+            } else {
+                0.0
+            };
+            AnomalyEntry { event_id: f.event_id, count: f.count, z_score: z }
+        })
+        .filter(|e| e.z_score.abs() >= min_z)
+        .collect();
+
+    entries.sort_by(|a, b| b.z_score.abs().partial_cmp(&a.z_score.abs()).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(entries)
+}
+
+// ── Schema-aware field extraction ─────────────────────────────────────────────
+
+/// Frequency-ranked extracted field value.
+#[derive(Debug, serde::Serialize)]
+pub struct FieldValue {
+    pub value: String,
+    pub count: usize,
+}
+
+/// Extract all unique values of a named field across all events in `path`,
+/// returned frequency-ranked (most common first).
+pub fn extract_field(path: &Path, field: &str) -> Result<Vec<FieldValue>, AnalyzeError> {
+    use std::collections::HashMap;
+    let mut parser = evtx::EvtxParser::from_path(path)
+        .map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+    let mut counts: HashMap<String, usize> = HashMap::new();
+
+    for record in parser.records_json_value() {
+        let Ok(record) = record else { continue };
+        collect_field_values(&record.data, field, &mut counts);
+    }
+
+    let mut result: Vec<FieldValue> = counts
+        .into_iter()
+        .map(|(value, count)| FieldValue { value, count })
+        .collect();
+    result.sort_by(|a, b| b.count.cmp(&a.count));
+    Ok(result)
+}
+
+/// Recursively collect all string values of `field_name` from a JSON tree.
+fn collect_field_values(v: &serde_json::Value, field_name: &str, out: &mut std::collections::HashMap<String, usize>) {
+    match v {
+        serde_json::Value::Object(map) => {
+            for (k, val) in map {
+                if k == field_name {
+                    if let Some(s) = val.as_str() {
+                        *out.entry(s.to_owned()).or_insert(0) += 1;
+                    }
+                }
+                collect_field_values(val, field_name, out);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                collect_field_values(item, field_name, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 // ── ATT&CK tests ─────────────────────────────────────────────────────────────
 
 #[cfg(test)]

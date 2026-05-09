@@ -116,6 +116,9 @@ enum Cmd {
         /// Emit one JSON object per line (NDJSON).
         #[arg(long)]
         stream: bool,
+        /// Decode base64 `-EncodedCommand` payloads found in script block text.
+        #[arg(long)]
+        deobfuscate: bool,
     },
     /// Compute event ID frequency distribution.
     ///
@@ -226,6 +229,25 @@ enum Cmd {
         /// Emit one JSON object per line (NDJSON).
         #[arg(long)]
         stream: bool,
+    },
+    /// Score each event ID by z-score frequency anomaly. Exits 1 if any anomalies found.
+    ///
+    /// Computes mean and std-dev of event ID counts; returns IDs with |z_score| >= min_z.
+    Anomaly {
+        /// Path to the EVTX file.
+        path: PathBuf,
+        /// Minimum absolute z-score to include in output (default 2.0).
+        #[arg(long, default_value_t = 2.0)]
+        min_z: f64,
+    },
+    /// Extract unique values of a named field across all events.
+    ///
+    /// Outputs a JSON array of `{value, count}` objects sorted by frequency.
+    Extract {
+        /// Field name to search for in event data (e.g. `SubjectUserName`).
+        field: String,
+        /// Path to the EVTX file.
+        path: PathBuf,
     },
     /// One-click triage: extract EVTX, verify integrity, run Hayabusa.
     ///
@@ -500,21 +522,33 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Powershell { path, stream } => {
+        Cmd::Powershell { path, stream, deobfuscate } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
             match winevt_analyze::powershell_blocks(&path) {
                 Ok(blocks) => {
+                    // Enrich blocks with decoded_command when --deobfuscate is set.
+                    let enriched: Vec<serde_json::Value> = blocks.iter().map(|b| {
+                        let mut v = serde_json::to_value(b).unwrap_or(serde_json::Value::Null);
+                        if deobfuscate {
+                            if let Some(decoded) = winevt_analyze::deobfuscate_ps(&b.text) {
+                                if let Some(obj) = v.as_object_mut() {
+                                    obj.insert("decoded_command".to_string(), serde_json::Value::String(decoded));
+                                }
+                            }
+                        }
+                        v
+                    }).collect();
                     if stream {
-                        for b in &blocks {
-                            if let Ok(line) = serde_json::to_string(b) {
+                        for v in &enriched {
+                            if let Ok(line) = serde_json::to_string(v) {
                                 println!("{line}");
                             }
                         }
                     } else {
-                        match serde_json::to_string_pretty(&blocks) {
+                        match serde_json::to_string_pretty(&enriched) {
                             Ok(json) => println!("{json}"),
                             Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
                         }
@@ -772,6 +806,39 @@ fn main() {
                 Err(winevt_analyze::AnalyzeError::UnknownHunt(n)) => {
                     eprintln!("error: unknown hunt '{n}'. Available: kerberoast, asrep, dcsync, lateral-smb, wmi-persistence, scheduled-task, lsass-access, defender-tamper");
                     EXIT_ERROR
+                }
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+            }
+        }
+        Cmd::Anomaly { path, min_z } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_analyze::anomaly(&path, min_z) {
+                Ok(entries) => {
+                    let has_anomalies = !entries.is_empty();
+                    match serde_json::to_string_pretty(&entries) {
+                        Ok(json) => println!("{json}"),
+                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    }
+                    if has_anomalies { EXIT_DETECTIONS } else { EXIT_CLEAN }
+                }
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+            }
+        }
+        Cmd::Extract { field, path } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_analyze::extract_field(&path, &field) {
+                Ok(values) => {
+                    match serde_json::to_string_pretty(&values) {
+                        Ok(json) => println!("{json}"),
+                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    }
+                    EXIT_CLEAN
                 }
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
