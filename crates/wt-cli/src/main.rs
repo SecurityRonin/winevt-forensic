@@ -6,9 +6,15 @@
 //! - `wt stats [--json] <path>` — print file statistics
 //!
 //! Exit codes:
-//! - `0` = success, no integrity indicators
-//! - `1` = success, integrity indicators found (verify only)
+//! - `0` = success, no detections / indicators
+//! - `1` = success, detections / indicators found
 //! - `2` = I/O or argument error
+//! - `3` = input path not found
+
+const EXIT_CLEAN: i32 = 0;
+const EXIT_DETECTIONS: i32 = 1;
+const EXIT_ERROR: i32 = 2;
+const EXIT_NOT_FOUND: i32 = 3;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -82,6 +88,9 @@ enum Cmd {
     Timeline {
         /// Path to the EVTX file.
         path: PathBuf,
+        /// Emit one JSON object per line (NDJSON) instead of a pretty-printed array.
+        #[arg(long)]
+        stream: bool,
     },
     /// Reconstruct logon sessions from EID 4624 / 4634 / 4647 events.
     ///
@@ -92,6 +101,9 @@ enum Cmd {
     Sessions {
         /// Path to the Security EVTX file.
         path: PathBuf,
+        /// Emit one JSON object per line (NDJSON).
+        #[arg(long)]
+        stream: bool,
     },
     /// Reassemble `PowerShell` script blocks from EID 4104 events.
     ///
@@ -101,34 +113,49 @@ enum Cmd {
     Powershell {
         /// Path to the `PowerShell` Operational EVTX file.
         path: PathBuf,
+        /// Emit one JSON object per line (NDJSON).
+        #[arg(long)]
+        stream: bool,
     },
     /// Compute event ID frequency distribution.
     ///
-    /// Outputs a JSON object with `total_events` and a `by_event_id` array
-    /// sorted by count descending.  Useful for spotting brute-force
-    /// attacks (burst of 4625), Kerberoasting (4769), etc.
+    /// Outputs a JSON object with `total_events` and a `by_event_id` array.
+    /// Use `--sort asc` for least-frequent-first (LFO) threat-hunting output.
     Frequency {
         /// Path to the EVTX file.
         path: PathBuf,
+        /// Sort order: `desc` (most-frequent-first, default) or `asc` (LFO).
+        #[arg(long, default_value = "desc")]
+        sort: String,
+        /// Emit one JSON object per line (NDJSON) — one EventFrequency per line.
+        #[arg(long)]
+        stream: bool,
     },
     /// Extract indicators of compromise (IOCs) from all events.
     ///
     /// Scans every event's data for SHA-256/SHA-1/MD5 hashes, IPv4 addresses,
     /// and Windows file paths.  Outputs a JSON object with `events_scanned`
     /// and an `iocs` array (`value`, `kind`, `count`, `first_seen`, `last_seen`).
+    /// Exits 1 when IOCs are found.
     IocExtract {
         /// Path to the EVTX file.
         path: PathBuf,
+        /// Emit one Ioc JSON object per line (NDJSON).
+        #[arg(long)]
+        stream: bool,
     },
     /// Map each event to its MITRE ATT&CK technique tags.
     ///
     /// Outputs a JSON array of objects with `event_id`, `record_id`,
     /// `timestamp`, and an `attack_tags` array (`technique_id`, `technique_name`,
     /// tactic).  Events with no known mapping are included with an empty
-    /// `attack_tags` array.
+    /// `attack_tags` array.  Exits 1 when any tags are found.
     AttackTags {
         /// Path to the EVTX file.
         path: PathBuf,
+        /// Emit one JSON object per line (NDJSON).
+        #[arg(long)]
+        stream: bool,
     },
     /// One-click triage: extract EVTX, verify integrity, run Hayabusa.
     ///
@@ -295,22 +322,28 @@ fn main() {
                 2
             }
         },
-        Cmd::Verify { path } => match winevt_carver::verify_integrity(&path) {
-            Ok(indicators) => {
-                match serde_json::to_string_pretty(&indicators) {
-                    Ok(json) => println!("{json}"),
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        std::process::exit(2);
+        Cmd::Verify { path } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_carver::verify_integrity(&path) {
+                Ok(indicators) => {
+                    match serde_json::to_string_pretty(&indicators) {
+                        Ok(json) => println!("{json}"),
+                        Err(e) => {
+                            eprintln!("error: {e}");
+                            std::process::exit(EXIT_ERROR);
+                        }
                     }
+                    if indicators.is_empty() { EXIT_CLEAN } else { EXIT_DETECTIONS }
                 }
-                i32::from(!indicators.is_empty())
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    EXIT_ERROR
+                }
             }
-            Err(e) => {
-                eprintln!("error: {e}");
-                2
-            }
-        },
+        }
         Cmd::Stats { path, json } => match winevt_carver::carve_from_file(&path) {
             Ok(result) => {
                 print_stats(&path, &result, json);
@@ -337,114 +370,169 @@ fn main() {
                 2
             }
         },
-        Cmd::Timeline { path } => match winevt_analyze::timeline(&path) {
-            Ok(entries) => {
-                match serde_json::to_string_pretty(&entries) {
-                    Ok(json) => println!("{json}"),
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        std::process::exit(2);
+        Cmd::Timeline { path, stream } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_analyze::timeline(&path) {
+                Ok(entries) => {
+                    if stream {
+                        for e in &entries {
+                            if let Ok(line) = serde_json::to_string(e) {
+                                println!("{line}");
+                            }
+                        }
+                    } else {
+                        match serde_json::to_string_pretty(&entries) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
                     }
+                    EXIT_CLEAN
                 }
-                0
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
-            Err(e) => {
-                eprintln!("error: {e}");
-                2
+        }
+        Cmd::Sessions { path, stream } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
             }
-        },
-        Cmd::Sessions { path } => match winevt_analyze::sessions(&path) {
-            Ok(sessions) => {
-                match serde_json::to_string_pretty(&sessions) {
-                    Ok(json) => println!("{json}"),
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        std::process::exit(2);
+            match winevt_analyze::sessions(&path) {
+                Ok(sessions) => {
+                    if stream {
+                        for s in &sessions {
+                            if let Ok(line) = serde_json::to_string(s) {
+                                println!("{line}");
+                            }
+                        }
+                    } else {
+                        match serde_json::to_string_pretty(&sessions) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
                     }
+                    EXIT_CLEAN
                 }
-                0
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
-            Err(e) => {
-                eprintln!("error: {e}");
-                2
+        }
+        Cmd::Powershell { path, stream } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
             }
-        },
-        Cmd::Powershell { path } => match winevt_analyze::powershell_blocks(&path) {
-            Ok(blocks) => {
-                match serde_json::to_string_pretty(&blocks) {
-                    Ok(json) => println!("{json}"),
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        std::process::exit(2);
+            match winevt_analyze::powershell_blocks(&path) {
+                Ok(blocks) => {
+                    if stream {
+                        for b in &blocks {
+                            if let Ok(line) = serde_json::to_string(b) {
+                                println!("{line}");
+                            }
+                        }
+                    } else {
+                        match serde_json::to_string_pretty(&blocks) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
                     }
+                    EXIT_CLEAN
                 }
-                0
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
-            Err(e) => {
-                eprintln!("error: {e}");
-                2
+        }
+        Cmd::Frequency { path, sort, stream } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
             }
-        },
-        Cmd::Frequency { path } => match winevt_analyze::frequency(&path) {
-            Ok(report) => {
-                match serde_json::to_string_pretty(&report) {
-                    Ok(json) => println!("{json}"),
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        std::process::exit(2);
+            match winevt_analyze::frequency(&path) {
+                Ok(mut report) => {
+                    if sort == "asc" {
+                        report.by_event_id.sort_by_key(|f| f.count);
                     }
-                }
-                0
-            }
-            Err(e) => {
-                eprintln!("error: {e}");
-                2
-            }
-        },
-        Cmd::IocExtract { path } => match winevt_analyze::ioc_extract(&path) {
-            Ok(report) => {
-                match serde_json::to_string_pretty(&report) {
-                    Ok(json) => println!("{json}"),
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        std::process::exit(2);
+                    if stream {
+                        for f in &report.by_event_id {
+                            if let Ok(line) = serde_json::to_string(f) {
+                                println!("{line}");
+                            }
+                        }
+                    } else {
+                        match serde_json::to_string_pretty(&report) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
                     }
+                    EXIT_CLEAN
                 }
-                0
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
-            Err(e) => {
-                eprintln!("error: {e}");
-                2
+        }
+        Cmd::IocExtract { path, stream } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
             }
-        },
-        Cmd::AttackTags { path } => match winevt_analyze::timeline(&path) {
-            Ok(entries) => {
-                let tagged: Vec<serde_json::Value> = entries
-                    .iter()
-                    .map(|e| {
-                        let tags = winevt_analyze::attack_tags_for_event_id(e.event_id);
-                        serde_json::json!({
-                            "record_id": e.record_id,
-                            "timestamp": e.timestamp,
-                            "event_id": e.event_id,
-                            "attack_tags": tags,
+            match winevt_analyze::ioc_extract(&path) {
+                Ok(report) => {
+                    let has_iocs = !report.iocs.is_empty();
+                    if stream {
+                        for ioc in &report.iocs {
+                            if let Ok(line) = serde_json::to_string(ioc) {
+                                println!("{line}");
+                            }
+                        }
+                    } else {
+                        match serde_json::to_string_pretty(&report) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
+                    }
+                    if has_iocs { EXIT_DETECTIONS } else { EXIT_CLEAN }
+                }
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+            }
+        }
+        Cmd::AttackTags { path, stream } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_analyze::timeline(&path) {
+                Ok(entries) => {
+                    let tagged: Vec<serde_json::Value> = entries
+                        .iter()
+                        .map(|e| {
+                            let tags = winevt_analyze::attack_tags_for_event_id(e.event_id);
+                            serde_json::json!({
+                                "record_id": e.record_id,
+                                "timestamp": e.timestamp,
+                                "event_id": e.event_id,
+                                "attack_tags": tags,
+                            })
                         })
-                    })
-                    .collect();
-                match serde_json::to_string_pretty(&tagged) {
-                    Ok(json) => println!("{json}"),
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        std::process::exit(2);
+                        .collect();
+                    let has_tags = tagged.iter().any(|v| {
+                        v["attack_tags"].as_array().map_or(false, |a| !a.is_empty())
+                    });
+                    if stream {
+                        for v in &tagged {
+                            if let Ok(line) = serde_json::to_string(v) {
+                                println!("{line}");
+                            }
+                        }
+                    } else {
+                        match serde_json::to_string_pretty(&tagged) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
                     }
+                    if has_tags { EXIT_DETECTIONS } else { EXIT_CLEAN }
                 }
-                0
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
-            Err(e) => {
-                eprintln!("error: {e}");
-                2
-            }
-        },
+        }
         Cmd::Report { path, carved, output, hayabusa_bin, min_level } => {
             match report::run(
                 &path,

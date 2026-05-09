@@ -141,7 +141,7 @@ fn frequency_sort_asc_is_ascending() {
     assert_eq!(output.status.code(), Some(0));
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be JSON");
-    let freqs = json["frequencies"].as_array().expect("frequencies array");
+    let freqs = json["by_event_id"].as_array().expect("by_event_id array");
     if freqs.len() >= 2 {
         let first = freqs[0]["count"].as_u64().unwrap_or(0);
         let last = freqs[freqs.len() - 1]["count"].as_u64().unwrap_or(0);
@@ -159,7 +159,7 @@ fn frequency_sort_desc_is_descending() {
     assert_eq!(output.status.code(), Some(0));
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be JSON");
-    let freqs = json["frequencies"].as_array().expect("frequencies array");
+    let freqs = json["by_event_id"].as_array().expect("by_event_id array");
     if freqs.len() >= 2 {
         let first = freqs[0]["count"].as_u64().unwrap_or(0);
         let last = freqs[freqs.len() - 1]["count"].as_u64().unwrap_or(0);
