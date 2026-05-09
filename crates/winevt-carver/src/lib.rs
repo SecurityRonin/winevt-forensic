@@ -1588,4 +1588,113 @@ mod tests {
             result.indicators
         );
     }
+
+    // ── §1: free-space slack carving ─────────────────────────────────────────
+
+    fn chunk_with_live_record_and_free_space_record(
+        live_payload: &[u8],
+        free_payload: &[u8],
+    ) -> Vec<u8> {
+        // Build a chunk where one live record is at 0x200, and a "deleted" record
+        // sits in free space after free_space_offset.
+        let live_size = (24 + live_payload.len() + 4) as u32;
+        let free_space_offset = 0x200u32 + live_size;
+
+        let mut chunk = vec![0u8; 0x10000];
+        chunk[0..8].copy_from_slice(b"ElfChnk\0");
+        chunk[8..16].copy_from_slice(&1u64.to_le_bytes());
+        chunk[16..24].copy_from_slice(&1u64.to_le_bytes());
+        chunk[24..32].copy_from_slice(&1u64.to_le_bytes());
+        chunk[32..40].copy_from_slice(&1u64.to_le_bytes());
+        chunk[40..44].copy_from_slice(&0x80u32.to_le_bytes());
+        chunk[44..48].copy_from_slice(&(0x200u32 + live_size - 4).to_le_bytes());
+        chunk[48..52].copy_from_slice(&free_space_offset.to_le_bytes());
+
+        // Live record at 0x200
+        chunk[0x200..0x204].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+        chunk[0x204..0x208].copy_from_slice(&live_size.to_le_bytes());
+        chunk[0x208..0x210].copy_from_slice(&1u64.to_le_bytes());
+        chunk[0x210..0x218].copy_from_slice(&100u64.to_le_bytes());
+        chunk[0x218..0x218 + live_payload.len()].copy_from_slice(live_payload);
+        let live_trail = 0x200 + live_size as usize - 4;
+        chunk[live_trail..live_trail + 4].copy_from_slice(&live_size.to_le_bytes());
+
+        // Free-space record placed right after free_space_offset
+        let free_off = free_space_offset as usize;
+        let free_size = (24 + free_payload.len() + 4) as u32;
+        chunk[free_off..free_off + 4].copy_from_slice(&[0x2A, 0x2A, 0x00, 0x00]);
+        chunk[free_off + 4..free_off + 8].copy_from_slice(&free_size.to_le_bytes());
+        chunk[free_off + 8..free_off + 16].copy_from_slice(&2u64.to_le_bytes());
+        chunk[free_off + 16..free_off + 24].copy_from_slice(&99u64.to_le_bytes());
+        chunk[free_off + 24..free_off + 24 + free_payload.len()].copy_from_slice(free_payload);
+        let free_trail = free_off + free_size as usize - 4;
+        chunk[free_trail..free_trail + 4].copy_from_slice(&free_size.to_le_bytes());
+
+        // Compute checksums
+        let recs_crc = crc32fast::hash(&chunk[0x200..free_space_offset as usize]);
+        chunk[52..56].copy_from_slice(&recs_crc.to_le_bytes());
+        let hdr_crc = crc32fast::hash(&chunk[0..0x78]);
+        chunk[0x78..0x7C].copy_from_slice(&hdr_crc.to_le_bytes());
+        chunk
+    }
+
+    #[test]
+    fn carve_free_space_empty_slice_returns_empty() {
+        let records = carve_chunk_free_space(&[], 0);
+        assert!(records.is_empty(), "empty slice must return no records");
+    }
+
+    #[test]
+    fn carve_free_space_no_free_records_returns_empty() {
+        let data = make_chunk_with_record(1, 100, b"payload");
+        let records = carve_chunk_free_space(&data, 0);
+        assert!(records.is_empty(), "no deleted records should return empty");
+    }
+
+    #[test]
+    fn carve_free_space_single_deleted_record_recovers_it() {
+        let data = chunk_with_live_record_and_free_space_record(b"live", b"deleted");
+        let records = carve_chunk_free_space(&data, 0x4000);
+        assert_eq!(records.len(), 1, "expected 1 carved record; got {:?} records", records.len());
+        assert_eq!(records[0].chunk_offset, 0x4000);
+        // record in free space should be identified
+        assert!(
+            matches!(records[0].confidence, CarveConfidence::Definite | CarveConfidence::Probable),
+            "confidence must be Definite or Probable"
+        );
+    }
+
+    #[test]
+    fn carve_free_space_does_not_return_live_records() {
+        let data = chunk_with_live_record_and_free_space_record(b"live", b"deleted");
+        let records = carve_chunk_free_space(&data, 0);
+        // Should return the free-space record but NOT the live record
+        assert!(
+            records.len() <= 1,
+            "must not return live records; got {} records", records.len()
+        );
+        // Verify the returned record's offset is beyond the live record
+        for r in &records {
+            assert!(
+                r.record_offset_within_chunk >= 0x200 + 4 + 4,
+                "carved record at offset {} is in the live area", r.record_offset_within_chunk
+            );
+        }
+    }
+
+    #[test]
+    fn carve_free_space_invalid_binxml_demotes_to_probable() {
+        // payload is random bytes that are not valid BinXML
+        let garbage_payload = vec![0xDE, 0xAD, 0xBE, 0xEF, 0xFF, 0xFF, 0xFF, 0xFF];
+        let data = chunk_with_live_record_and_free_space_record(b"live", &garbage_payload);
+        let records = carve_chunk_free_space(&data, 0);
+        // If the garbage payload doesn't look like BinXML, confidence should be Probable
+        for r in &records {
+            assert_ne!(
+                r.confidence,
+                CarveConfidence::Definite,
+                "garbage BinXML should not be Definite"
+            );
+        }
+    }
 }
