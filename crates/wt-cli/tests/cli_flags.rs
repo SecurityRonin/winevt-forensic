@@ -273,3 +273,95 @@ fn sessions_logon_type_999_returns_empty() {
         "logon_type 999 must return empty array"
     );
 }
+
+// ── wt timeline --after / --before ───────────────────────────────────────────
+
+#[test]
+fn timeline_after_before_filters_time_range() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    // Request a narrow window in 2017
+    let output = Command::new(wt_bin())
+        .args([
+            "timeline",
+            "--after",
+            "2017-12-01T00:00:00Z",
+            "--before",
+            "2018-01-01T00:00:00Z",
+            evtx.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run wt timeline --after --before");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(json.is_array());
+    // All returned events must fall within the requested range.
+    for entry in json.as_array().unwrap() {
+        let ts = entry["timestamp"].as_str().unwrap_or("");
+        assert!(
+            ts >= "2017-12-01T00:00:00Z",
+            "timestamp {ts} is before --after bound"
+        );
+        assert!(
+            ts < "2018-01-01T00:00:00Z",
+            "timestamp {ts} is at/after --before bound"
+        );
+    }
+}
+
+#[test]
+fn timeline_before_epoch_returns_empty() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args([
+            "timeline",
+            "--before",
+            "1970-01-01T00:00:00Z",
+            evtx.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run wt timeline --before epoch");
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert_eq!(
+        json.as_array().unwrap().len(),
+        0,
+        "--before 1970 must return empty array"
+    );
+}
+
+// ── wt frequency --top ────────────────────────────────────────────────────────
+
+#[test]
+fn frequency_top_caps_results() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["frequency", "--top", "3", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt frequency --top 3");
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let arr = json["by_event_id"].as_array().expect("by_event_id");
+    assert!(arr.len() <= 3, "--top 3 must return at most 3 entries");
+}
+
+#[test]
+fn frequency_top_0_returns_no_entries() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["frequency", "--top", "0", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt frequency --top 0");
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let arr = json["by_event_id"].as_array().expect("by_event_id");
+    assert_eq!(arr.len(), 0, "--top 0 must return empty by_event_id");
+}
