@@ -8,6 +8,7 @@ members = [
     "crates/winevt-binxml",
     "crates/winevt-writer",
     "crates/winevt-analyze",
+    "crates/winevt-manifest",
     "crates/winevt-triage",
     "crates/wt-cli",
 ]
@@ -38,6 +39,7 @@ winevt-carver = { path = "crates/winevt-carver" }
 winevt-memory = { path = "crates/winevt-memory" }
 winevt-writer = { path = "crates/winevt-writer" }
 winevt-analyze = { path = "crates/winevt-analyze" }
+winevt-manifest = { path = "crates/winevt-manifest" }
 winevt-triage = { path = "crates/winevt-triage" }
 wt-cli = { path = "crates/wt-cli" }
 

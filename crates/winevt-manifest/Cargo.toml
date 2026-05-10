@@ -1,0 +1,20 @@
+[package]
+name = "winevt-manifest"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Provider manifest resolver for Windows Event Log records: maps anonymous Param1/Param2 fields to their actual names using bundled and on-disk provider manifests."
+
+[lib]
+name = "winevt_manifest"
+
+[dependencies]
+quick-xml = { version = "0.37", features = ["encoding"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
