@@ -241,6 +241,107 @@ fn wt_carve_nonexistent_exits_code_2() {
     );
 }
 
+// ── wt carve: subcommand removed — auto-detected by all commands ─────────────
+
+#[test]
+fn wt_carve_is_no_longer_a_subcommand() {
+    // `wt carve` must fail; EWF/raw-blob carving is now a --carve flag.
+    let status = wt_bin()
+        .args(["carve", "--help"])
+        .status()
+        .expect("run wt carve --help");
+    assert!(!status.success(), "wt carve subcommand must be removed");
+}
+
+#[test]
+fn wt_timeline_accepts_carve_flag() {
+    let path = write_evtx_with_records("timeline_carve", 2);
+    let output = wt_bin()
+        .args(["timeline", "--carve", path.to_str().unwrap()])
+        .output()
+        .expect("run wt timeline --carve");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "--carve must be accepted on timeline; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("timeline --carve must output JSON");
+    assert!(v.is_array(), "timeline --carve output must be JSON array");
+}
+
+#[test]
+fn wt_verify_accepts_carve_flag() {
+    let path = write_evtx_with_records("verify_carve", 2);
+    let output = wt_bin()
+        .args(["verify", "--carve", path.to_str().unwrap()])
+        .output()
+        .expect("run wt verify --carve");
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        output.status.code().map_or(false, |c| c == 0 || c == 1),
+        "--carve must be accepted on verify; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn wt_frequency_accepts_carve_flag() {
+    let path = write_evtx_with_records("freq_carve", 2);
+    let output = wt_bin()
+        .args(["frequency", "--carve", path.to_str().unwrap()])
+        .output()
+        .expect("run wt frequency --carve");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "--carve must be accepted on frequency; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn wt_info_accepts_carve_flag() {
+    let path = write_evtx_with_records("info_carve", 2);
+    let output = wt_bin()
+        .args(["info", "--carve", path.to_str().unwrap()])
+        .output()
+        .expect("run wt info --carve");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "--carve must be accepted on info; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn wt_timeline_accepts_directory_path() {
+    use std::fs;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let evtx = write_evtx_with_records("dir_evtx", 2);
+    fs::copy(&evtx, dir.path().join("test.evtx")).expect("copy evtx into dir");
+    let _ = fs::remove_file(&evtx);
+
+    let output = wt_bin()
+        .args(["timeline", dir.path().to_str().unwrap()])
+        .output()
+        .expect("run wt timeline on directory");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "timeline must accept a directory; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("timeline dir output must be JSON");
+    assert!(v.is_array(), "timeline dir output must be JSON array");
+}
+
 // ── wt reconstruct: removed — merged into wt repair ──────────────────────────
 
 #[test]
