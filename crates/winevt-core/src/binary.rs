@@ -1,10 +1,8 @@
 use crc32fast::Hasher;
 
-pub const ELFFILE_MAGIC: [u8; 8] = *b"ElfFile\0";
-pub const ELFCHNK_MAGIC: [u8; 8] = *b"ElfChnk\0";
-pub const RECORD_MAGIC: [u8; 4] = [0x2A, 0x2A, 0x00, 0x00];
-pub const CHUNK_SIZE: u64 = 0x1_0000;
-pub const CHUNK_RECORDS_OFFSET: u64 = 0x200;
+pub use forensicnomicon::evtx::{
+    CHUNK_RECORDS_OFFSET, CHUNK_SIZE, ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC,
+};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct EvtxFileHeader {
