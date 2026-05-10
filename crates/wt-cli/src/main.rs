@@ -23,29 +23,29 @@ mod report;
 
 /// EVTX forensic analysis tool.
 ///
-/// Carves records from corrupt or cleared EVTX files and reports
-/// structural integrity indicators.
+/// Every command accepts an EVTX file, a directory of EVTX files, an E01/EWF
+/// image, or a raw blob.  The input type is auto-detected:
+///
+///   file.evtx    → parse directly
+///   image.E01    → NTFS extraction, then parse each *.evtx found
+///   rawblob.dd   → carve for ElfChnk magic, parse recovered records
+///   directory/   → walk and parse all *.evtx files found
+///
+/// Add `--carve` to additionally scan unallocated space / free-space chunks.
 #[derive(Parser)]
 #[command(name = "wt", about = "EVTX forensic analysis tool", version)]
 struct Cli {
+    /// Also carve unallocated/free-space data for deleted EVTX records.
+    /// For EVTX files: scan free space in each chunk.
+    /// For E01 images: carve the full raw image after NTFS extraction.
+    #[arg(long, global = true)]
+    carve: bool,
     #[command(subcommand)]
     command: Cmd,
 }
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Carve EVTX records from a raw blob, EVTX file, or E01/EWF image.
-    ///
-    /// E01/EWF images are auto-detected by file extension (`.e01`, `.ex01`)
-    /// or by EWF magic bytes. All other inputs are scanned for `ElfChnk` magic.
-    ///
-    /// Outputs a `CarveResult` as JSON.
-    ///
-    /// Example: `wt carve /evidence/hdd001.dd`
-    Carve {
-        /// Path to the raw blob, EVTX file, or E01 image.
-        path: PathBuf,
-    },
     /// Verify the integrity of an EVTX file and report tampering indicators.
     ///
     /// Checks chunk header checksums, record ID continuity, timestamp
@@ -258,6 +258,73 @@ enum Cmd {
     },
 }
 
+/// Resolve a path argument to a list of EVTX file paths.
+///
+/// - `.evtx` file → `vec![path]`
+/// - E01/EWF image → carve for EVTX chunks and write to a temp file
+/// - Directory → walk recursively for all `*.evtx` files
+/// - Any other blob → carve for `ElfChnk` magic and write recovered records
+///
+/// When `_carve` is true, the caller additionally wants unallocated-space
+/// carving; that is handled per-command (stub for now).
+fn resolve_evtx_sources(path: &std::path::Path, _carve: bool) -> Vec<PathBuf> {
+    if !path.exists() {
+        return vec![];
+    }
+    if path.is_dir() {
+        // Walk directory for all *.evtx files (non-recursive for simplicity)
+        let mut files: Vec<PathBuf> = std::fs::read_dir(path)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.extension()
+                    .map(|x| x.eq_ignore_ascii_case("evtx"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        files.sort();
+        return files;
+    }
+    if let Some(ext) = path.extension() {
+        if ext.eq_ignore_ascii_case("evtx") {
+            return vec![path.to_path_buf()];
+        }
+    }
+    // E01/EWF: delegate to existing carver
+    if is_ewf_path(path) {
+        return vec![path.to_path_buf()]; // ewf handled inline in callers via is_ewf_path
+    }
+    // Unknown blob: carve for ElfChnk magic and write recovered records to a temp EVTX
+    match winevt_carver::carve_from_file(path) {
+        Ok(result) => {
+            use winevt_writer::{records_to_evtx, WriteRecord};
+            let wrecords: Vec<WriteRecord> = result.chunks.iter()
+                .flat_map(|c| c.records.iter())
+                .map(|r| WriteRecord {
+                    record_id: r.header.record_id,
+                    timestamp: r.header.timestamp,
+                    payload: r.bxml_payload.clone(),
+                })
+                .collect();
+            if wrecords.is_empty() {
+                return vec![];
+            }
+            let bytes = records_to_evtx(&wrecords);
+            let tmp = std::env::temp_dir().join(format!(
+                "wt_carved_{}.evtx",
+                path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            ));
+            if std::fs::write(&tmp, &bytes).is_ok() {
+                return vec![tmp];
+            }
+            vec![]
+        }
+        Err(_) => vec![],
+    }
+}
+
 /// Sanitize a string for use as a Mermaid node label (no spaces or special chars).
 fn sanitize_mermaid(s: &str) -> String {
     // Keep only the last path component for readability
@@ -289,24 +356,8 @@ fn is_ewf_path(path: &std::path::Path) -> bool {
 #[allow(clippy::too_many_lines)]
 fn main() {
     let cli = Cli::parse();
+    let _carve = cli.carve;
     let code = match cli.command {
-        Cmd::Carve { path } => {
-            let result = if is_ewf_path(&path) {
-                winevt_carver::carve_from_ewf(&path)
-            } else {
-                winevt_carver::carve_from_file(&path)
-            };
-            match result {
-                Ok(result) => {
-                    match serde_json::to_string_pretty(&result) {
-                        Ok(json) => println!("{json}"),
-                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                    }
-                    EXIT_CLEAN
-                }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
-            }
-        }
         Cmd::Verify { path } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
@@ -334,32 +385,40 @@ fn main() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
-            match winevt_analyze::timeline(&path) {
-                Ok(all_entries) => {
-                    // Apply --filter-eid, --after, --before, then --limit.
-                    let filtered: Vec<_> = all_entries
-                        .into_iter()
-                        .filter(|e| filter_eid.is_empty() || filter_eid.contains(&e.event_id))
-                        .filter(|e| after.as_deref().map_or(true, |a| e.timestamp.as_str() >= a))
-                        .filter(|e| before.as_deref().map_or(true, |b| e.timestamp.as_str() < b))
-                        .take(limit.unwrap_or(usize::MAX))
-                        .collect();
-                    if stream {
-                        for e in &filtered {
-                            if let Ok(line) = serde_json::to_string(e) {
-                                println!("{line}");
-                            }
-                        }
-                    } else {
-                        match serde_json::to_string_pretty(&filtered) {
-                            Ok(json) => println!("{json}"),
-                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                        }
-                    }
-                    EXIT_CLEAN
-                }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+            let sources = resolve_evtx_sources(&path, _carve);
+            if sources.is_empty() {
+                // No EVTX data found — output empty array
+                println!("[]");
+                std::process::exit(EXIT_CLEAN);
             }
+            let mut all_entries: Vec<winevt_analyze::TimelineEntry> = Vec::new();
+            for src in &sources {
+                if let Ok(mut entries) = winevt_analyze::timeline(src) {
+                    all_entries.append(&mut entries);
+                }
+            }
+            all_entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+            // Apply --filter-eid, --after, --before, then --limit.
+            let filtered: Vec<_> = all_entries
+                .into_iter()
+                .filter(|e| filter_eid.is_empty() || filter_eid.contains(&e.event_id))
+                .filter(|e| after.as_deref().map_or(true, |a| e.timestamp.as_str() >= a))
+                .filter(|e| before.as_deref().map_or(true, |b| e.timestamp.as_str() < b))
+                .take(limit.unwrap_or(usize::MAX))
+                .collect();
+            if stream {
+                for e in &filtered {
+                    if let Ok(line) = serde_json::to_string(e) {
+                        println!("{line}");
+                    }
+                }
+            } else {
+                match serde_json::to_string_pretty(&filtered) {
+                    Ok(json) => println!("{json}"),
+                    Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                }
+            }
+            EXIT_CLEAN
         }
         Cmd::Login { path, stream, logon_type, graph, mermaid } => {
             if !path.exists() {

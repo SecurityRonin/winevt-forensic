@@ -89,33 +89,12 @@ fn wt_version_exits_success() {
 }
 
 #[test]
-fn wt_carve_help_exits_success() {
-    let status = wt_bin()
-        .args(["carve", "--help"])
-        .status()
-        .expect("failed to run wt carve --help");
-    assert!(status.success());
-}
-
-#[test]
 fn wt_verify_help_exits_success() {
     let status = wt_bin()
         .args(["verify", "--help"])
         .status()
         .expect("failed to run wt verify --help");
     assert!(status.success());
-}
-
-#[test]
-fn wt_carve_nonexistent_path_exits_nonzero() {
-    let status = wt_bin()
-        .args(["carve", "/tmp/does_not_exist_evtx_12345.evtx"])
-        .status()
-        .expect("failed to run wt carve");
-    assert!(
-        !status.success(),
-        "wt carve on nonexistent file should fail"
-    );
 }
 
 #[test]
@@ -210,34 +189,6 @@ fn wt_verify_nonexistent_exits_code_3() {
         status.code(),
         Some(3),
         "wt verify on nonexistent path should exit 3 (path not found)"
-    );
-}
-
-#[test]
-fn wt_carve_valid_file_exits_code_0() {
-    let path = write_valid_evtx();
-    let status = wt_bin()
-        .args(["carve", path.to_str().unwrap()])
-        .status()
-        .expect("run wt carve");
-    let _ = std::fs::remove_file(&path);
-    assert_eq!(
-        status.code(),
-        Some(0),
-        "wt carve on valid file should exit 0"
-    );
-}
-
-#[test]
-fn wt_carve_nonexistent_exits_code_2() {
-    let status = wt_bin()
-        .args(["carve", "/nonexistent/path/feature9.evtx"])
-        .status()
-        .expect("run wt carve");
-    assert_eq!(
-        status.code(),
-        Some(2),
-        "wt carve on nonexistent path should exit 2"
     );
 }
 
