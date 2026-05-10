@@ -249,15 +249,35 @@ fn login_mermaid_flag() {
     assert!(stdout.contains("graph"), "mermaid output must contain 'graph'");
 }
 
-// ── wt frequency --by process ─────────────────────────────────────────────────
+// ── wt frequency --process (replaces --by process; --threshold dropped) ──────
 
 #[test]
-fn rare_process_json_output() {
+fn frequency_by_flag_is_rejected() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let status = Command::new(wt_bin())
+        .args(["frequency", "--by", "process", evtx.to_str().unwrap()])
+        .status()
+        .expect("run wt frequency --by process");
+    assert!(!status.success(), "--by is no longer supported; use --process");
+}
+
+#[test]
+fn frequency_threshold_flag_is_rejected() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let status = Command::new(wt_bin())
+        .args(["frequency", "--process", "--threshold", "3", evtx.to_str().unwrap()])
+        .status()
+        .expect("run wt frequency --process --threshold 3");
+    assert!(!status.success(), "--threshold is no longer supported; pipe to head/jq instead");
+}
+
+#[test]
+fn frequency_process_flag_returns_json_array() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["frequency", "--by", "process", evtx.to_str().unwrap()])
+        .args(["frequency", "--process", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt frequency --by process");
+        .expect("run wt frequency --process");
     assert_eq!(
         output.status.code(),
         Some(0),
@@ -265,29 +285,8 @@ fn rare_process_json_output() {
         String::from_utf8_lossy(&output.stderr)
     );
     let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-    assert!(json.is_array(), "frequency --by process must output JSON array");
-}
-
-#[test]
-fn rare_process_threshold_999_returns_all() {
-    let evtx = require_foxitdata!("pre-Security.evtx");
-    let low = Command::new(wt_bin())
-        .args(["frequency", "--by", "process", "--threshold", "3", evtx.to_str().unwrap()])
-        .output()
-        .expect("threshold 3");
-    let high = Command::new(wt_bin())
-        .args(["frequency", "--by", "process", "--threshold", "999999", evtx.to_str().unwrap()])
-        .output()
-        .expect("threshold 999999");
-    let low_json: serde_json::Value = serde_json::from_slice(&low.stdout).unwrap();
-    let high_json: serde_json::Value = serde_json::from_slice(&high.stdout).unwrap();
-    let low_len = low_json.as_array().unwrap().len();
-    let high_len = high_json.as_array().unwrap().len();
-    assert!(
-        high_len >= low_len,
-        "higher threshold must return >= results ({high_len} vs {low_len})"
-    );
+        serde_json::from_slice(&output.stdout).expect("frequency --process must output JSON");
+    assert!(json.is_array(), "frequency --process output must be JSON array");
 }
 
 // ── wt hunt (removed — detection delegated to hayabusa/chainsaw) ─────────────
