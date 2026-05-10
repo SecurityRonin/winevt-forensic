@@ -1585,6 +1585,202 @@ fn collect_field_values(v: &serde_json::Value, field_name: &str, out: &mut std::
     }
 }
 
+// ── WMI events (EID 5857-5861) ────────────────────────────────────────────────
+
+/// A WMI activity event extracted from EID 5857/5858/5860/5861.
+///
+/// EID 5860 = temporary subscription, EID 5861 = permanent subscription.
+/// These are the persistence-relevant events — a new permanent subscription
+/// is a classic WMI backdoor indicator.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WmiEvent {
+    pub timestamp: String,
+    pub event_id: u32,
+    pub provider: Option<String>,
+    pub filter_name: Option<String>,
+    pub consumer_name: Option<String>,
+    pub query: Option<String>,
+}
+
+/// Extract WMI provider/subscription events from EID 5857, 5858, 5860, 5861.
+pub fn wmi_events(path: &Path) -> Result<Vec<WmiEvent>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut events = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(id) if matches!(id, 5857 | 5858 | 5860 | 5861) => id,
+            _ => continue,
+        };
+        let ed = record.data.get("Event").and_then(|e| e.get("EventData"));
+        let provider = system
+            .and_then(|s| s.get("Provider"))
+            .and_then(|p| p.get("@Name").or_else(|| p.get("@Guid")))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+
+        let (filter_name, consumer_name, query) = if let Some(ed) = ed {
+            (
+                event_data_str(ed, "PossibleCause")
+                    .or_else(|| event_data_str(ed, "FilterName"))
+                    .map(str::to_owned),
+                event_data_str(ed, "CONSUMER")
+                    .or_else(|| event_data_str(ed, "ConsumerName"))
+                    .map(str::to_owned),
+                event_data_str(ed, "Query").map(str::to_owned),
+            )
+        } else {
+            (None, None, None)
+        };
+
+        events.push(WmiEvent {
+            timestamp: record.timestamp.to_string(),
+            event_id,
+            provider,
+            filter_name,
+            consumer_name,
+            query,
+        });
+    }
+    Ok(events)
+}
+
+// ── Scheduled tasks (EID 4698/4702) ───────────────────────────────────────────
+
+/// A scheduled task creation or modification event.
+///
+/// EID 4698 = task created, EID 4702 = task updated.
+/// The `task_content` field is the raw XML from the event, which may contain
+/// inline VBScript or JScript bodies — a common evasion technique.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ScheduledTask {
+    pub timestamp: String,
+    pub event_id: u32,
+    pub task_name: Option<String>,
+    pub task_content: Option<String>,
+    pub subject_user: Option<String>,
+}
+
+/// Extract scheduled task events from EID 4698 (created) and EID 4702 (updated).
+pub fn scheduled_tasks(path: &Path) -> Result<Vec<ScheduledTask>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut tasks = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(id) if id == 4698 || id == 4702 => id,
+            _ => continue,
+        };
+        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
+            Some(d) => d,
+            None => continue,
+        };
+        tasks.push(ScheduledTask {
+            timestamp: record.timestamp.to_string(),
+            event_id,
+            task_name: event_data_str(ed, "TaskName").map(str::to_owned),
+            task_content: event_data_str(ed, "TaskContent").map(str::to_owned),
+            subject_user: event_data_str(ed, "SubjectUserName").map(str::to_owned),
+        });
+    }
+    Ok(tasks)
+}
+
+// ── Process command lines (EID 4688) ─────────────────────────────────────────
+
+/// A process-creation event with LOLBin detection.
+///
+/// LOLBins ("living off the land binaries") are Windows-native signed
+/// executables routinely abused for code execution, download, or lateral
+/// movement: wscript, cscript, mshta, regsvr32, rundll32, certutil, msiexec.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProcessExecution {
+    pub timestamp: String,
+    pub pid: u64,
+    pub parent_pid: u64,
+    pub image: String,
+    pub command_line: String,
+    pub parent_image: Option<String>,
+    pub is_lolbin: bool,
+}
+
+const LOLBINS: &[&str] = &[
+    "wscript.exe",
+    "cscript.exe",
+    "mshta.exe",
+    "regsvr32.exe",
+    "rundll32.exe",
+    "certutil.exe",
+    "msiexec.exe",
+    "bitsadmin.exe",
+    "forfiles.exe",
+    "pcalua.exe",
+];
+
+fn is_lolbin(image: &str) -> bool {
+    let lower = image.to_ascii_lowercase();
+    let basename = lower.rsplit(['\\', '/']).next().unwrap_or(&lower);
+    LOLBINS.contains(&basename)
+}
+
+/// Extract process command lines from EID 4688 events, with LOLBin tagging.
+pub fn process_cmdlines(path: &Path) -> Result<Vec<ProcessExecution>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut execs = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        if system.and_then(event_id_from_system) != Some(4688) {
+            continue;
+        }
+        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
+            Some(d) => d,
+            None => continue,
+        };
+        let image = event_data_str(ed, "NewProcessName").unwrap_or("-").to_owned();
+        let command_line = event_data_str(ed, "CommandLine").unwrap_or("").to_owned();
+        let pid = event_data_str(ed, "NewProcessId")
+            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+            .unwrap_or(0);
+        let parent_pid = event_data_str(ed, "ProcessId")
+            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+            .unwrap_or(0);
+        let parent_image = event_data_str(ed, "ParentProcessName").map(str::to_owned);
+        let lolbin = is_lolbin(&image);
+
+        execs.push(ProcessExecution {
+            timestamp: record.timestamp.to_string(),
+            pid,
+            parent_pid,
+            image,
+            command_line,
+            parent_image,
+            is_lolbin: lolbin,
+        });
+    }
+    Ok(execs)
+}
+
 // ── WMI / Scheduled-task / Cmdline type tests ─────────────────────────────────
 
 #[cfg(test)]

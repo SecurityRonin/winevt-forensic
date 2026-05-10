@@ -102,22 +102,22 @@ enum Cmd {
     },
     /// Compute event ID frequency distribution, rare-process analysis, or z-score anomaly detection.
     ///
-    /// Default (no flags): JSON object with `total_events` and `by_event_id` array.
+    /// Default (no flags): JSON object with `total_events` and `by_event_id` array,
+    /// sorted ascending (LFO — least-frequent-first) for threat hunting.
+    /// `--sort desc`   : flip to most-frequent-first.
     /// `--by process`  : JSON array of rare process images (those seen < `--threshold` times).
     /// `--anomaly`     : JSON array of event IDs with |z_score| >= `--min-z` (default 2.0).
-    /// Use `--sort asc` for least-frequent-first (LFO) threat-hunting output.
+    ///
+    /// To cap output use Unix `| head -n N`.
     Frequency {
         /// Path to the EVTX file.
         path: PathBuf,
-        /// Sort order: `desc` (most-frequent-first, default) or `asc` (LFO).
-        #[arg(long, default_value = "desc")]
+        /// Sort order: `asc` (LFO, default) or `desc` (most-frequent-first).
+        #[arg(long, default_value = "asc")]
         sort: String,
         /// Emit one JSON object per line (NDJSON) — one EventFrequency per line.
         #[arg(long)]
         stream: bool,
-        /// Return only the top N entries after sorting (standard mode only).
-        #[arg(long, value_name = "N")]
-        top: Option<usize>,
         /// Group by dimension: `event` (default) or `process`.
         /// `--by process` surfaces rare process images from EID 4688 events.
         #[arg(long, value_name = "DIM")]
@@ -178,28 +178,41 @@ enum Cmd {
         #[arg(long)]
         mermaid: bool,
     },
-    /// Extract unique field values, IOCs, or PowerShell script blocks from events.
+    /// Extract unique field values, IOCs, PowerShell blocks, WMI events,
+    /// scheduled tasks, or process command lines from events.
     ///
     /// Modes (mutually exclusive):
-    ///   `wt extract <PATH> <FIELD>`         — unique field values as `{value, count}` array
-    ///   `wt extract --ioc <PATH>`           — IOC scan; exits 1 if IOCs found
-    ///   `wt extract --powershell <PATH>`    — reassemble EID 4104 script blocks
+    ///   `wt extract <PATH> <FIELD>`              — unique field values as `{value, count}` array
+    ///   `wt extract --ioc <PATH>`               — IOC scan; exits 1 if IOCs found
+    ///   `wt extract --powershell <PATH>`        — reassemble EID 4104 script blocks
+    ///   `wt extract --wmi <PATH>`               — WMI provider/subscription events (EID 5857-5861)
+    ///   `wt extract --scheduled-task <PATH>`    — scheduled task XML (EID 4698/4702)
+    ///   `wt extract --cmdline <PATH>`           — process command lines with LOLBin tagging (EID 4688)
     Extract {
         /// Path to the EVTX file (always required).
         path: PathBuf,
         /// Field name to search for in event data (e.g. `SubjectUserName`).
-        /// Required unless `--ioc` or `--powershell` is given.
-        #[arg(required_unless_present_any = &["ioc", "powershell"])]
+        /// Required unless a mode flag is given.
+        #[arg(required_unless_present_any = &["ioc", "powershell", "wmi", "scheduled_task", "cmdline"])]
         field: Option<String>,
         /// Extract indicators of compromise instead of a named field.
-        #[arg(long, conflicts_with = "powershell")]
+        #[arg(long, conflicts_with_all = &["powershell", "wmi", "scheduled_task", "cmdline"])]
         ioc: bool,
         /// Reassemble PowerShell EID 4104 script blocks instead of a named field.
-        #[arg(long, conflicts_with = "ioc")]
+        #[arg(long, conflicts_with_all = &["ioc", "wmi", "scheduled_task", "cmdline"])]
         powershell: bool,
         /// With `--powershell`: suppress base64 `-EncodedCommand` decoding.
         #[arg(long, requires = "powershell")]
         no_deobfuscate: bool,
+        /// Extract WMI provider/subscription events (EID 5857/5858/5860/5861).
+        #[arg(long, conflicts_with_all = &["ioc", "powershell", "scheduled_task", "cmdline"])]
+        wmi: bool,
+        /// Extract scheduled task XML from EID 4698 (created) and EID 4702 (updated).
+        #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "cmdline"])]
+        scheduled_task: bool,
+        /// Extract EID 4688 process command lines with LOLBin (wscript, mshta, …) tagging.
+        #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "scheduled_task"])]
+        cmdline: bool,
     },
     /// One-line forensic overview of an EVTX file.
     ///
@@ -396,7 +409,7 @@ fn main() {
                 }
             }
         }
-        Cmd::Frequency { path, sort, stream, top, by, threshold, anomaly, min_z } => {
+        Cmd::Frequency { path, sort, stream, by, threshold, anomaly, min_z } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
@@ -430,11 +443,10 @@ fn main() {
                 // standard event-ID frequency mode
                 match winevt_analyze::frequency(&path) {
                     Ok(mut report) => {
-                        if sort == "asc" {
-                            report.by_event_id.sort_by_key(|f| f.count);
-                        }
-                        if let Some(n) = top {
-                            report.by_event_id.truncate(n);
+                        if sort == "desc" {
+                            report.by_event_id.sort_by(|a, b| b.count.cmp(&a.count).then(a.event_id.cmp(&b.event_id)));
+                        } else {
+                            report.by_event_id.sort_by(|a, b| a.count.cmp(&b.count).then(a.event_id.cmp(&b.event_id)));
                         }
                         if stream {
                             for f in &report.by_event_id {
@@ -540,7 +552,7 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Extract { field, path, ioc, powershell, no_deobfuscate } => {
+        Cmd::Extract { field, path, ioc, powershell, no_deobfuscate, wmi, scheduled_task, cmdline } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
@@ -572,6 +584,39 @@ fn main() {
                             v
                         }).collect();
                         match serde_json::to_string_pretty(&enriched) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
+                        EXIT_CLEAN
+                    }
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                }
+            } else if wmi {
+                match winevt_analyze::wmi_events(&path) {
+                    Ok(events) => {
+                        match serde_json::to_string_pretty(&events) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
+                        EXIT_CLEAN
+                    }
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                }
+            } else if scheduled_task {
+                match winevt_analyze::scheduled_tasks(&path) {
+                    Ok(tasks) => {
+                        match serde_json::to_string_pretty(&tasks) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
+                        EXIT_CLEAN
+                    }
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                }
+            } else if cmdline {
+                match winevt_analyze::process_cmdlines(&path) {
+                    Ok(execs) => {
+                        match serde_json::to_string_pretty(&execs) {
                             Ok(json) => println!("{json}"),
                             Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
                         }
