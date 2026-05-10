@@ -336,32 +336,40 @@ fn timeline_before_epoch_returns_empty() {
     );
 }
 
-// ── wt frequency --top ────────────────────────────────────────────────────────
+// ── wt frequency --top removed (use | head instead) ──────────────────────────
 
 #[test]
-fn frequency_top_caps_results() {
+fn frequency_top_flag_is_rejected() {
     let evtx = require_foxitdata!("pre-Security.evtx");
-    let output = Command::new(wt_bin())
+    let status = Command::new(wt_bin())
         .args(["frequency", "--top", "3", evtx.to_str().unwrap()])
-        .output()
+        .status()
         .expect("run wt frequency --top 3");
-    assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-    let arr = json["by_event_id"].as_array().expect("by_event_id");
-    assert!(arr.len() <= 3, "--top 3 must return at most 3 entries");
+    assert!(
+        !status.success(),
+        "--top is no longer supported; use `wt frequency ... | head -n N` instead"
+    );
 }
 
+// ── wt frequency default order is LFO (ascending, rare-first) ────────────────
+
 #[test]
-fn frequency_top_0_returns_no_entries() {
+fn frequency_default_order_is_ascending() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["frequency", "--top", "0", evtx.to_str().unwrap()])
+        .args(["frequency", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt frequency --top 0");
+        .expect("run wt frequency (default)");
     assert_eq!(output.status.code(), Some(0));
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be JSON");
-    let arr = json["by_event_id"].as_array().expect("by_event_id");
-    assert_eq!(arr.len(), 0, "--top 0 must return empty by_event_id");
+    let freqs = json["by_event_id"].as_array().expect("by_event_id array");
+    if freqs.len() >= 2 {
+        let first = freqs[0]["count"].as_u64().unwrap_or(0);
+        let last = freqs[freqs.len() - 1]["count"].as_u64().unwrap_or(0);
+        assert!(
+            first <= last,
+            "default (LFO): first ({first}) must be <= last ({last})"
+        );
+    }
 }

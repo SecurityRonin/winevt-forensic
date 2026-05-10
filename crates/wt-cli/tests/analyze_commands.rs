@@ -441,6 +441,113 @@ fn extract_powershell_nonexistent_exits_3() {
     assert_eq!(status.code(), Some(3));
 }
 
+// ── wt extract --wmi (EID 5857-5861: WMI provider/subscription events) ────────
+
+#[test]
+fn extract_wmi_json_output() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract", "--wmi", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --wmi");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("extract --wmi must output JSON");
+    assert!(json.is_array(), "extract --wmi output must be JSON array");
+}
+
+#[test]
+fn extract_wmi_nonexistent_exits_3() {
+    let status = Command::new(wt_bin())
+        .args(["extract", "--wmi", "/nonexistent/Security.evtx"])
+        .status()
+        .expect("run wt extract --wmi nonexistent");
+    assert_eq!(status.code(), Some(3));
+}
+
+// ── wt extract --scheduled-task (EID 4698/4702) ───────────────────────────────
+
+#[test]
+fn extract_scheduled_task_json_output() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract", "--scheduled-task", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --scheduled-task");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("extract --scheduled-task must output JSON");
+    assert!(json.is_array(), "extract --scheduled-task output must be JSON array");
+}
+
+#[test]
+fn extract_scheduled_task_nonexistent_exits_3() {
+    let status = Command::new(wt_bin())
+        .args(["extract", "--scheduled-task", "/nonexistent/Security.evtx"])
+        .status()
+        .expect("run wt extract --scheduled-task nonexistent");
+    assert_eq!(status.code(), Some(3));
+}
+
+// ── wt extract --cmdline (EID 4688, LOLBin detection) ────────────────────────
+
+#[test]
+fn extract_cmdline_json_output() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract", "--cmdline", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --cmdline");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("extract --cmdline must output JSON");
+    assert!(json.is_array(), "extract --cmdline output must be JSON array");
+}
+
+#[test]
+fn extract_cmdline_nonexistent_exits_3() {
+    let status = Command::new(wt_bin())
+        .args(["extract", "--cmdline", "/nonexistent/Security.evtx"])
+        .status()
+        .expect("run wt extract --cmdline nonexistent");
+    assert_eq!(status.code(), Some(3));
+}
+
+#[test]
+fn extract_cmdline_entries_have_required_fields() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract", "--cmdline", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --cmdline");
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    if let Some(arr) = json.as_array() {
+        if !arr.is_empty() {
+            let first = &arr[0];
+            assert!(first.get("timestamp").is_some(), "must have timestamp");
+            assert!(first.get("image").is_some(), "must have image");
+            assert!(first.get("command_line").is_some(), "must have command_line");
+            assert!(first.get("is_lolbin").is_some(), "must have is_lolbin");
+        }
+    }
+}
+
 // ── wt info ───────────────────────────────────────────────────────────────────
 
 #[test]
