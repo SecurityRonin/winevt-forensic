@@ -214,4 +214,13 @@ mod tests {
         let s = format!("{a:?}");
         assert!(s.contains("ChecksumMismatch"));
     }
+
+    #[test]
+    fn constants_match_forensicnomicon() {
+        assert_eq!(ELFFILE_MAGIC,        forensicnomicon::evtx::ELFFILE_MAGIC);
+        assert_eq!(ELFCHNK_MAGIC,        forensicnomicon::evtx::ELFCHNK_MAGIC);
+        assert_eq!(RECORD_MAGIC,         forensicnomicon::evtx::RECORD_MAGIC);
+        assert_eq!(CHUNK_SIZE,           forensicnomicon::evtx::CHUNK_SIZE);
+        assert_eq!(CHUNK_RECORDS_OFFSET, forensicnomicon::evtx::CHUNK_RECORDS_OFFSET);
+    }
 }
