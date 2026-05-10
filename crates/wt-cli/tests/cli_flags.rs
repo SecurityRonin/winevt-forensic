@@ -120,12 +120,12 @@ fn frequency_stream_is_ndjson() {
 }
 
 #[test]
-fn sessions_stream_exits_0() {
+fn login_stream_exits_0() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let status = Command::new(wt_bin())
-        .args(["sessions", "--stream", evtx.to_str().unwrap()])
+        .args(["login", "--stream", evtx.to_str().unwrap()])
         .status()
-        .expect("run wt sessions --stream");
+        .expect("run wt login --stream");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -230,15 +230,15 @@ fn timeline_limit_caps_output() {
     );
 }
 
-// ── wt sessions --logon-type ──────────────────────────────────────────────────
+// ── wt login --logon-type ─────────────────────────────────────────────────────
 
 #[test]
-fn sessions_logon_type_filters_results() {
+fn login_logon_type_filters_results() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["sessions", "--logon-type", "3", evtx.to_str().unwrap()])
+        .args(["login", "--logon-type", "3", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt sessions --logon-type 3");
+        .expect("run wt login --logon-type 3");
     assert_eq!(
         output.status.code(),
         Some(0),
@@ -258,12 +258,12 @@ fn sessions_logon_type_filters_results() {
 }
 
 #[test]
-fn sessions_logon_type_999_returns_empty() {
+fn login_logon_type_999_returns_empty() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["sessions", "--logon-type", "999", evtx.to_str().unwrap()])
+        .args(["login", "--logon-type", "999", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt sessions --logon-type 999");
+        .expect("run wt login --logon-type 999");
     assert_eq!(output.status.code(), Some(0));
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be JSON");

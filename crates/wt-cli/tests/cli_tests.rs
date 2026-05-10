@@ -130,86 +130,42 @@ fn wt_verify_nonexistent_path_exits_nonzero() {
     );
 }
 
-// ---- E01/EWF: wt carve-ewf subcommand ----
+// ── carve-ewf removed: wt carve auto-detects EWF ────────────────────────────
 
 #[test]
-fn wt_carve_ewf_nonexistent_exits_code_2() {
-    let status = wt_bin()
-        .args(["carve-ewf", "/nonexistent/disk.E01"])
-        .status()
-        .expect("run wt carve-ewf");
-    assert_eq!(
-        status.code(),
-        Some(2),
-        "wt carve-ewf on nonexistent path should exit 2"
-    );
-}
-
-#[test]
-fn wt_carve_ewf_help_exits_success() {
+fn wt_carve_ewf_is_removed() {
     let status = wt_bin()
         .args(["carve-ewf", "--help"])
         .status()
         .expect("run wt carve-ewf --help");
-    assert!(status.success(), "wt carve-ewf --help should exit 0");
+    assert!(!status.success(), "wt carve-ewf must no longer exist (EWF auto-detected by carve)");
 }
 
-// ---- Feature 12: wt stats subcommand ----
+// ── stats removed: info absorbs file statistics ───────────────────────────────
 
 #[test]
-fn wt_stats_valid_file_exits_code_0() {
-    let path = write_valid_evtx();
-    let output = wt_bin()
-        .args(["stats", path.to_str().unwrap()])
-        .output()
-        .expect("run wt stats");
-    let _ = std::fs::remove_file(&path);
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "wt stats should exit 0 for valid file"
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("Chunks:"),
-        "expected 'Chunks:' in output, got: {stdout}"
-    );
-    assert!(
-        stdout.contains("Records:"),
-        "expected 'Records:' in output, got: {stdout}"
-    );
-    assert!(
-        stdout.contains("Hash:"),
-        "expected 'Hash:' in output, got: {stdout}"
-    );
-}
-
-#[test]
-fn wt_stats_nonexistent_exits_code_2() {
+fn wt_stats_is_removed() {
     let status = wt_bin()
-        .args(["stats", "/nonexistent/path/stats_test.evtx"])
+        .args(["stats", "--help"])
         .status()
-        .expect("run wt stats");
-    assert_eq!(
-        status.code(),
-        Some(2),
-        "wt stats on nonexistent path should exit 2"
-    );
+        .expect("run wt stats --help");
+    assert!(!status.success(), "wt stats must no longer exist (merged into wt info)");
 }
 
 #[test]
-fn wt_stats_json_flag_outputs_valid_json() {
+fn wt_info_includes_stats_fields() {
     let path = write_valid_evtx();
     let output = wt_bin()
-        .args(["stats", "--json", path.to_str().unwrap()])
+        .args(["info", path.to_str().unwrap()])
         .output()
-        .expect("run wt stats --json");
+        .expect("run wt info");
     let _ = std::fs::remove_file(&path);
     assert_eq!(output.status.code(), Some(0));
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let _: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
-        panic!("expected valid JSON from wt stats --json, got error: {e}, output: {stdout}")
-    });
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("info must output JSON");
+    assert!(json.get("hash").is_some(), "info must include 'hash' (was stats)");
+    assert!(json.get("chunks").is_some(), "info must include 'chunks' (was stats)");
+    assert!(json.get("records").is_some(), "info must include 'records' (was stats)");
 }
 
 // ---- Feature 9: Meaningful exit codes ----
@@ -335,74 +291,130 @@ fn wt_timeline_valid_file_outputs_json_array() {
     assert!(v.is_array(), "timeline should output a JSON array");
 }
 
-// ── wt sessions tests ─────────────────────────────────────────────────────────
+// ── sessions removed: wt login replaces sessions + logon-graph ───────────────
 
 #[test]
-fn wt_sessions_help_exits_success() {
+fn wt_sessions_is_removed() {
     let status = wt_bin()
         .args(["sessions", "--help"])
         .status()
         .expect("run wt sessions --help");
+    assert!(!status.success(), "wt sessions must no longer exist (use wt login)");
+}
+
+#[test]
+fn wt_login_help_exits_success() {
+    let status = wt_bin()
+        .args(["login", "--help"])
+        .status()
+        .expect("run wt login --help");
     assert_eq!(status.code(), Some(0));
 }
 
 #[test]
-fn wt_sessions_nonexistent_exits_code_3() {
+fn wt_login_nonexistent_exits_code_3() {
     let status = wt_bin()
-        .args(["sessions", "/nonexistent/security.evtx"])
+        .args(["login", "/nonexistent/security.evtx"])
         .status()
-        .expect("run wt sessions");
+        .expect("run wt login nonexistent");
     assert_eq!(status.code(), Some(3));
 }
 
 #[test]
-fn wt_sessions_valid_file_outputs_json_array() {
-    let path = write_evtx_with_records("sessions_valid", 2);
+fn wt_login_valid_file_outputs_sessions_array() {
+    let path = write_evtx_with_records("login_valid", 2);
     let output = wt_bin()
-        .args(["sessions", path.to_str().unwrap()])
+        .args(["login", path.to_str().unwrap()])
         .output()
-        .expect("run wt sessions");
+        .expect("run wt login");
     let _ = std::fs::remove_file(&path);
     assert_eq!(output.status.code(), Some(0), "expected exit 0");
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let v: serde_json::Value =
-        serde_json::from_str(&stdout).expect("sessions output should be valid JSON");
-    assert!(v.is_array(), "sessions should output a JSON array");
+        serde_json::from_slice(&output.stdout).expect("login output should be valid JSON");
+    assert!(v.is_array(), "login default output must be JSON array of sessions");
 }
 
-// ── wt powershell tests ───────────────────────────────────────────────────────
+#[test]
+fn wt_login_graph_flag_outputs_graph_object() {
+    let path = write_evtx_with_records("login_graph", 2);
+    let output = wt_bin()
+        .args(["login", "--graph", path.to_str().unwrap()])
+        .output()
+        .expect("run wt login --graph");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(output.status.code(), Some(0));
+    let v: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("login --graph must output JSON");
+    assert!(v.get("nodes").is_some(), "login --graph must have 'nodes'");
+    assert!(v.get("edges").is_some(), "login --graph must have 'edges'");
+}
+
+// ── powershell removed: wt extract --powershell replaces it ──────────────────
 
 #[test]
-fn wt_powershell_help_exits_success() {
+fn wt_powershell_is_removed() {
     let status = wt_bin()
         .args(["powershell", "--help"])
         .status()
         .expect("run wt powershell --help");
-    assert_eq!(status.code(), Some(0));
+    assert!(!status.success(), "wt powershell must no longer exist (use wt extract --powershell)");
 }
 
 #[test]
-fn wt_powershell_nonexistent_exits_code_3() {
+fn wt_extract_powershell_nonexistent_exits_code_3() {
     let status = wt_bin()
-        .args(["powershell", "/nonexistent/ps.evtx"])
+        .args(["extract", "--powershell", "/nonexistent/ps.evtx"])
         .status()
-        .expect("run wt powershell");
+        .expect("run wt extract --powershell nonexistent");
     assert_eq!(status.code(), Some(3));
 }
 
 #[test]
-fn wt_powershell_valid_file_outputs_json_array() {
-    let path = write_evtx_with_records("powershell_valid", 2);
+fn wt_extract_powershell_valid_file_outputs_json_array() {
+    let path = write_evtx_with_records("ps_valid", 2);
     let output = wt_bin()
-        .args(["powershell", path.to_str().unwrap()])
+        .args(["extract", "--powershell", path.to_str().unwrap()])
         .output()
-        .expect("run wt powershell");
+        .expect("run wt extract --powershell");
     let _ = std::fs::remove_file(&path);
     assert_eq!(output.status.code(), Some(0), "expected exit 0");
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let v: serde_json::Value =
-        serde_json::from_str(&stdout).expect("powershell output should be valid JSON");
-    assert!(v.is_array(), "powershell should output a JSON array");
+        serde_json::from_slice(&output.stdout).expect("extract --powershell must output JSON");
+    assert!(v.is_array(), "extract --powershell output must be JSON array");
+}
+
+// ── wt search (replaces pivot, adds --regex) ──────────────────────────────────
+
+#[test]
+fn wt_search_help_exits_success() {
+    let status = wt_bin()
+        .args(["search", "--help"])
+        .status()
+        .expect("run wt search --help");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn wt_search_nonexistent_exits_code_3() {
+    let status = wt_bin()
+        .args(["search", "anything", "/nonexistent/security.evtx"])
+        .status()
+        .expect("run wt search nonexistent");
+    assert_eq!(status.code(), Some(3));
+}
+
+#[test]
+fn wt_search_regex_flag_accepted() {
+    let path = write_evtx_with_records("search_regex", 2);
+    let status = wt_bin()
+        .args(["search", "--regex", ".*", path.to_str().unwrap()])
+        .status()
+        .expect("run wt search --regex");
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        status.code().map_or(false, |c| c == 0 || c == 1),
+        "search --regex must exit 0 or 1"
+    );
 }
 
 // ── wt frequency tests ────────────────────────────────────────────────────────

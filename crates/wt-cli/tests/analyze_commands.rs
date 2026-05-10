@@ -32,48 +32,58 @@ macro_rules! require_foxitdata {
     }};
 }
 
-// ── wt pivot ─────────────────────────────────────────────────────────────────
+// ── wt pivot removed: replaced by wt search ──────────────────────────────────
 
 #[test]
-fn pivot_finds_matching_events() {
+fn wt_pivot_is_removed() {
+    let status = Command::new(wt_bin())
+        .args(["pivot", "--help"])
+        .status()
+        .expect("run wt pivot --help");
+    assert!(!status.success(), "wt pivot must no longer exist (use wt search)");
+}
+
+// ── wt search (replaces pivot, adds --regex) ──────────────────────────────────
+
+#[test]
+fn search_finds_matching_events() {
     let evtx = require_foxitdata!("pre-Security.evtx");
-    // "Security" appears in channel/provider fields of almost every Security event
     let output = Command::new(wt_bin())
-        .args(["pivot", "Security", evtx.to_str().unwrap()])
+        .args(["search", "Security", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt pivot");
+        .expect("run wt search");
     assert_eq!(
         output.status.code(),
         Some(1),
-        "pivot with matches must exit 1; stderr: {}",
+        "search with matches must exit 1; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("pivot must output JSON");
-    assert!(json.is_array(), "pivot output must be array");
+        serde_json::from_slice(&output.stdout).expect("search must output JSON");
+    assert!(json.is_array(), "search output must be array");
     assert!(!json.as_array().unwrap().is_empty(), "expected matches");
 }
 
 #[test]
-fn pivot_no_match_exits_0() {
+fn search_no_match_exits_0() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["pivot", "ZZZTHISSHOULDNOTMATCHANYTHING_XYZ_9999", evtx.to_str().unwrap()])
+        .args(["search", "ZZZTHISSHOULDNOTMATCHANYTHING_XYZ_9999", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt pivot no-match");
-    assert_eq!(output.status.code(), Some(0), "no-match pivot must exit 0");
+        .expect("run wt search no-match");
+    assert_eq!(output.status.code(), Some(0), "no-match search must exit 0");
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert_eq!(json.as_array().unwrap().len(), 0);
 }
 
 #[test]
-fn pivot_stream_flag() {
+fn search_stream_flag() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["pivot", "--stream", "Security", evtx.to_str().unwrap()])
+        .args(["search", "--stream", "Security", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt pivot --stream");
+        .expect("run wt search --stream");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.trim_start().starts_with('['), "--stream must not be a JSON array");
     for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
@@ -83,12 +93,43 @@ fn pivot_stream_flag() {
 }
 
 #[test]
-fn pivot_nonexistent_exits_3() {
+fn search_nonexistent_exits_3() {
     let status = Command::new(wt_bin())
-        .args(["pivot", "anything", "/nonexistent/file.evtx"])
+        .args(["search", "anything", "/nonexistent/file.evtx"])
         .status()
-        .expect("run wt pivot nonexistent");
+        .expect("run wt search nonexistent");
     assert_eq!(status.code(), Some(3));
+}
+
+#[test]
+fn search_regex_matches_pattern() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["search", "--regex", "Secur.*", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt search --regex");
+    let code = output.status.code().unwrap_or(-1);
+    assert!(
+        code == 0 || code == 1,
+        "search --regex must exit 0 or 1, got {code}; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("search --regex must output JSON");
+    assert!(json.is_array(), "search --regex output must be array");
+}
+
+#[test]
+fn search_regex_no_match_exits_0() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["search", "--regex", "^ZZZIMPOSSIBLE_PATTERN_9{50}$", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt search --regex no-match");
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert_eq!(json.as_array().unwrap().len(), 0);
 }
 
 // ── wt diff ──────────────────────────────────────────────────────────────────
@@ -166,15 +207,24 @@ fn process_tree_mermaid_flag() {
     );
 }
 
-// ── wt logon-graph ────────────────────────────────────────────────────────────
+// ── wt logon-graph removed: wt login --graph replaces it ─────────────────────
 
 #[test]
-fn logon_graph_json_output() {
+fn wt_logon_graph_is_removed() {
+    let status = Command::new(wt_bin())
+        .args(["logon-graph", "--help"])
+        .status()
+        .expect("run wt logon-graph --help");
+    assert!(!status.success(), "wt logon-graph must no longer exist (use wt login --graph)");
+}
+
+#[test]
+fn login_graph_json_output() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["logon-graph", evtx.to_str().unwrap()])
+        .args(["login", "--graph", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt logon-graph");
+        .expect("run wt login --graph");
     assert_eq!(
         output.status.code(),
         Some(0),
@@ -183,17 +233,17 @@ fn logon_graph_json_output() {
     );
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be JSON");
-    assert!(json.get("nodes").is_some(), "logon-graph must have 'nodes'");
-    assert!(json.get("edges").is_some(), "logon-graph must have 'edges'");
+    assert!(json.get("nodes").is_some(), "login --graph must have 'nodes'");
+    assert!(json.get("edges").is_some(), "login --graph must have 'edges'");
 }
 
 #[test]
-fn logon_graph_mermaid_flag() {
+fn login_mermaid_flag() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["logon-graph", "--mermaid", evtx.to_str().unwrap()])
+        .args(["login", "--mermaid", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt logon-graph --mermaid");
+        .expect("run wt login --mermaid");
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("graph"), "mermaid output must contain 'graph'");
@@ -346,6 +396,48 @@ fn extract_nonexistent_file_exits_3() {
         .args(["extract", "/nonexistent/Security.evtx", "SubjectUserName"])
         .status()
         .expect("run wt extract nonexistent");
+    assert_eq!(status.code(), Some(3));
+}
+
+// ── wt extract --powershell (replaces wt powershell) ─────────────────────────
+
+#[test]
+fn extract_powershell_json_output() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract", "--powershell", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --powershell");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("extract --powershell must output JSON");
+    assert!(json.is_array(), "extract --powershell output must be JSON array");
+}
+
+#[test]
+fn extract_powershell_no_deobfuscate_accepted() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract", "--powershell", "--no-deobfuscate", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --powershell --no-deobfuscate");
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(json.is_array());
+}
+
+#[test]
+fn extract_powershell_nonexistent_exits_3() {
+    let status = Command::new(wt_bin())
+        .args(["extract", "--powershell", "/nonexistent/Security.evtx"])
+        .status()
+        .expect("run wt extract --powershell nonexistent");
     assert_eq!(status.code(), Some(3));
 }
 
