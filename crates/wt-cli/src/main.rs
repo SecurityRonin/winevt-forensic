@@ -104,17 +104,13 @@ enum Cmd {
     ///
     /// Default (no flags): JSON object with `total_events` and `by_event_id` array,
     /// sorted ascending (LFO — least-frequent-first) for threat hunting.
-    /// `--sort desc`   : flip to most-frequent-first.
     /// `--by process`  : JSON array of rare process images (those seen < `--threshold` times).
     /// `--anomaly`     : JSON array of event IDs with |z_score| >= `--min-z` (default 2.0).
     ///
-    /// To cap output use Unix `| head -n N`.
+    /// To reorder or cap output, pipe: `wt frequency … | jq '.by_event_id | sort_by(.count) | reverse'`
     Frequency {
         /// Path to the EVTX file.
         path: PathBuf,
-        /// Sort order: `asc` (LFO, default) or `desc` (most-frequent-first).
-        #[arg(long, default_value = "asc")]
-        sort: String,
         /// Emit one JSON object per line (NDJSON) — one EventFrequency per line.
         #[arg(long)]
         stream: bool,
@@ -468,7 +464,7 @@ fn main() {
                 }
             }
         }
-        Cmd::Frequency { path, sort, stream, by, threshold, anomaly, min_z } => {
+        Cmd::Frequency { path, stream, by, threshold, anomaly, min_z } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
@@ -502,11 +498,8 @@ fn main() {
                 // standard event-ID frequency mode
                 match winevt_analyze::frequency(&path) {
                     Ok(mut report) => {
-                        if sort == "desc" {
-                            report.by_event_id.sort_by(|a, b| b.count.cmp(&a.count).then(a.event_id.cmp(&b.event_id)));
-                        } else {
-                            report.by_event_id.sort_by(|a, b| a.count.cmp(&b.count).then(a.event_id.cmp(&b.event_id)));
-                        }
+                        // LFO: least-frequent-first for threat hunting
+                        report.by_event_id.sort_by(|a, b| a.count.cmp(&b.count).then(a.event_id.cmp(&b.event_id)));
                         if stream {
                             for f in &report.by_event_id {
                                 if let Ok(line) = serde_json::to_string(f) {
