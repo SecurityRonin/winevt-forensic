@@ -129,42 +129,19 @@ fn login_stream_exits_0() {
     assert_eq!(status.code(), Some(0));
 }
 
-// ── --sort asc (LFO: least-frequent-first) ───────────────────────────────────
+// ── --sort removed (use | sort / jq if needed) ───────────────────────────────
 
 #[test]
-fn frequency_sort_asc_is_ascending() {
+fn frequency_sort_flag_is_rejected() {
     let evtx = require_foxitdata!("pre-Security.evtx");
-    let output = Command::new(wt_bin())
+    let status = Command::new(wt_bin())
         .args(["frequency", "--sort", "asc", evtx.to_str().unwrap()])
-        .output()
+        .status()
         .expect("run wt frequency --sort asc");
-    assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-    let freqs = json["by_event_id"].as_array().expect("by_event_id array");
-    if freqs.len() >= 2 {
-        let first = freqs[0]["count"].as_u64().unwrap_or(0);
-        let last = freqs[freqs.len() - 1]["count"].as_u64().unwrap_or(0);
-        assert!(first <= last, "LFO: first ({first}) must be <= last ({last})");
-    }
-}
-
-#[test]
-fn frequency_sort_desc_is_descending() {
-    let evtx = require_foxitdata!("pre-Security.evtx");
-    let output = Command::new(wt_bin())
-        .args(["frequency", "--sort", "desc", evtx.to_str().unwrap()])
-        .output()
-        .expect("run wt frequency --sort desc");
-    assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-    let freqs = json["by_event_id"].as_array().expect("by_event_id array");
-    if freqs.len() >= 2 {
-        let first = freqs[0]["count"].as_u64().unwrap_or(0);
-        let last = freqs[freqs.len() - 1]["count"].as_u64().unwrap_or(0);
-        assert!(first >= last, "desc: first ({first}) must be >= last ({last})");
-    }
+    assert!(
+        !status.success(),
+        "--sort is no longer supported; pipe through jq/sort instead"
+    );
 }
 
 // ── wt timeline --filter-eid ──────────────────────────────────────────────────
