@@ -240,25 +240,25 @@ fn report_directory_returns_all_evtx_files() {
     );
 }
 
-// ── wt powershell (deobfuscation on by default; --no-deobfuscate to opt out) ──
+// ── wt extract --powershell (deobfuscation on by default; --no-deobfuscate to opt out) ──
 
 #[test]
 fn powershell_deobfuscate_flag_exits_cleanly() {
     // Deobfuscation is on by default; bare invocation must still exit 0.
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["powershell", evtx.to_str().unwrap()])
+        .args(["extract", "--powershell", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt powershell");
+        .expect("run wt extract --powershell");
     assert_eq!(
         output.status.code(),
         Some(0),
-        "powershell must exit 0 by default; stderr: {}",
+        "extract --powershell must exit 0 by default; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be JSON");
-    assert!(json.is_array(), "powershell output must be JSON array");
+    assert!(json.is_array(), "extract --powershell output must be JSON array");
 }
 
 #[test]
@@ -266,9 +266,9 @@ fn powershell_no_deobfuscate_flag_is_accepted() {
     // --no-deobfuscate opts out of automatic base64 decoding.
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["powershell", "--no-deobfuscate", evtx.to_str().unwrap()])
+        .args(["extract", "--powershell", "--no-deobfuscate", evtx.to_str().unwrap()])
         .output()
-        .expect("run wt powershell --no-deobfuscate");
+        .expect("run wt extract --powershell --no-deobfuscate");
     assert_eq!(
         output.status.code(),
         Some(0),

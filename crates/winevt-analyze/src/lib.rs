@@ -1102,6 +1102,72 @@ fn value_contains_str(v: &serde_json::Value, query: &str) -> bool {
     }
 }
 
+fn value_matches_regex(v: &serde_json::Value, re: &regex::Regex) -> bool {
+    match v {
+        serde_json::Value::String(s) => re.is_match(s),
+        serde_json::Value::Array(arr) => arr.iter().any(|item| value_matches_regex(item, re)),
+        serde_json::Value::Object(map) => map.values().any(|val| value_matches_regex(val, re)),
+        _ => false,
+    }
+}
+
+/// Search all event string values for a substring or regex pattern.
+///
+/// When `use_regex` is false, performs the same case-insensitive substring
+/// match as the former `pivot` command.  When true, compiles `query` as a
+/// regex and applies it to every string value in the event JSON.
+///
+/// Returns `Err(AnalyzeError::Parse)` when `use_regex` is true and `query`
+/// is not a valid regex.
+pub fn search(
+    path: &Path,
+    query: &str,
+    use_regex: bool,
+) -> Result<Vec<TimelineEntry>, AnalyzeError> {
+    if !use_regex {
+        return pivot(path, query);
+    }
+    let re = regex::Regex::new(query)
+        .map_err(|e| AnalyzeError::Parse(format!("invalid regex: {e}")))?;
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+    let mut entries = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        if !value_matches_regex(&record.data, &re) {
+            continue;
+        }
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        entries.push(TimelineEntry {
+            record_id: record.event_record_id,
+            timestamp: record.timestamp.to_string(),
+            event_id: system.and_then(event_id_from_system).unwrap_or(0),
+            level: system
+                .and_then(|s| s.get("Level"))
+                .and_then(serde_json::Value::as_u64)
+                .map(|n| n as u8),
+            channel: system
+                .and_then(|s| s.get("Channel"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            computer: system
+                .and_then(|s| s.get("Computer"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            provider: system
+                .and_then(|s| s.get("Provider"))
+                .and_then(|p| p.get("@Name").or_else(|| p.get("@Guid")))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+        });
+    }
+    Ok(entries)
+}
+
 /// Compare two EVTX files by record ID.  Returns added (in B not A) and
 /// removed (in A not B) entries.  Exit 1 when the diff is non-empty.
 pub fn diff(a: &Path, b: &Path) -> Result<EvtxDiff, AnalyzeError> {

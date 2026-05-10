@@ -34,14 +34,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Carve EVTX records from a raw blob (disk image, memory dump, unallocated slice).
+    /// Carve EVTX records from a raw blob, EVTX file, or E01/EWF image.
     ///
-    /// Scans for `ElfChnk` magic, recovers records from each chunk,
-    /// and runs integrity checks. Outputs a `CarveResult` as JSON.
+    /// E01/EWF images are auto-detected by file extension (`.e01`, `.ex01`)
+    /// or by EWF magic bytes. All other inputs are scanned for `ElfChnk` magic.
+    ///
+    /// Outputs a `CarveResult` as JSON.
     ///
     /// Example: `wt carve /evidence/hdd001.dd`
     Carve {
-        /// Path to the raw blob (disk image, memory dump, or any binary file).
+        /// Path to the raw blob, EVTX file, or E01 image.
         path: PathBuf,
     },
     /// Verify the integrity of an EVTX file and report tampering indicators.
@@ -50,22 +52,6 @@ enum Cmd {
     /// monotonicity, and file header consistency.
     Verify {
         /// Path to the EVTX file.
-        path: PathBuf,
-    },
-    /// Print statistics about an EVTX file (chunk count, record count, hash, time range).
-    Stats {
-        /// Output machine-readable JSON instead of plain text.
-        #[arg(long)]
-        json: bool,
-        /// Path to the EVTX file.
-        path: PathBuf,
-    },
-    /// Carve EVTX records from an E01/EWF forensic disk image.
-    ///
-    /// Reads the image via the EWF reader, then carves records from all bytes.
-    /// Outputs a `CarveResult` as JSON.
-    CarveEwf {
-        /// Path to the E01 image (first segment).
         path: PathBuf,
     },
     /// Output all events in chronological order as a JSON array.
@@ -91,38 +77,28 @@ enum Cmd {
         #[arg(long, value_name = "TS")]
         before: Option<String>,
     },
-    /// Reconstruct logon sessions from EID 4624 / 4634 / 4647 events.
+    /// Analyse logon activity from EID 4624 / 4634 / 4647 / 4648 events.
     ///
-    /// Outputs a JSON array of sessions, each with `logon_id` (LUID), `username`,
-    /// `domain`, `logon_type`, `ip_address`, `logon_time`, `logoff_time`, and
-    /// `duration_secs`.  Sessions without a matching logoff have null
-    /// `logoff_time`.
-    Sessions {
+    /// Default: JSON array of reconstructed sessions (logon_id, username, domain,
+    /// logon_type, ip_address, logon_time, logoff_time, duration_secs).
+    ///
+    /// `--graph`: JSON object `{nodes, edges}` — source→target logon graph.
+    /// `--mermaid`: Mermaid `graph LR` diagram (implies --graph output).
+    Login {
         /// Path to the Security EVTX file.
         path: PathBuf,
-        /// Emit one JSON object per line (NDJSON).
+        /// Emit one JSON object per line (NDJSON, sessions mode only).
         #[arg(long)]
         stream: bool,
-        /// Only include sessions with this logon type (e.g. 3 = Network, 10 = RemoteInteractive).
+        /// Filter sessions by logon type (e.g. 3 = Network, 10 = RemoteInteractive).
         #[arg(long, value_name = "TYPE")]
         logon_type: Option<u32>,
-    },
-    /// Reassemble `PowerShell` script blocks from EID 4104 events.
-    ///
-    /// Groups events by `ScriptBlockId`, sorts fragments by `MessageNumber`,
-    /// and concatenates `ScriptBlockText`.  Outputs a JSON array of script
-    /// blocks with their full reassembled text.
-    Powershell {
-        /// Path to the `PowerShell` Operational EVTX file.
-        path: PathBuf,
-        /// Emit one JSON object per line (NDJSON).
+        /// Output the logon source→target graph instead of the session list.
         #[arg(long)]
-        stream: bool,
-        /// Suppress automatic decoding of base64 `-EncodedCommand` payloads.
-        /// By default, detected encoded commands are decoded and added as
-        /// `decoded_command` to each script block object.
+        graph: bool,
+        /// Output a Mermaid `graph LR` diagram (implies --graph).
         #[arg(long)]
-        no_deobfuscate: bool,
+        mermaid: bool,
     },
     /// Compute event ID frequency distribution, rare-process analysis, or z-score anomaly detection.
     ///
@@ -167,13 +143,20 @@ enum Cmd {
         #[arg(long, short)]
         output: PathBuf,
     },
-    /// Search all event fields for a substring (case-insensitive).
-    /// Exits 1 if matches found, 0 if none.
-    Pivot {
-        /// Case-insensitive search query.
+    /// Search all event string values for a substring or regex pattern.
+    ///
+    /// Without `--regex`: case-insensitive substring match (fast).
+    /// With `--regex`: query is compiled as a regular expression.
+    ///
+    /// Exits 1 if matches are found, 0 if none.
+    Search {
+        /// Search query (substring or regex pattern).
         query: String,
         /// Path to the EVTX file.
         path: PathBuf,
+        /// Treat query as a regular expression.
+        #[arg(long)]
+        regex: bool,
         /// Emit one JSON object per line (NDJSON).
         #[arg(long)]
         stream: bool,
@@ -195,35 +178,28 @@ enum Cmd {
         #[arg(long)]
         mermaid: bool,
     },
-    /// Build a logon source→target graph from EID 4624 events.
-    /// Outputs JSON `{nodes, edges}` or a Mermaid diagram with `--mermaid`.
-    LogonGraph {
-        /// Path to the Security EVTX file.
-        path: PathBuf,
-        /// Emit a Mermaid `graph LR` diagram instead of JSON.
-        #[arg(long)]
-        mermaid: bool,
-    },
-    /// Extract unique field values or IOCs from all events.
+    /// Extract unique field values, IOCs, or PowerShell script blocks from events.
     ///
-    /// Without `--ioc`: extracts all unique values for the given field name,
-    /// output as a JSON array of `{value, count}` sorted by frequency.
-    /// Usage: `wt extract <PATH> <FIELD>`
-    ///
-    /// With `--ioc`: scans every event for SHA-256/SHA-1/MD5 hashes, IPv4
-    /// addresses, and Windows file paths. Outputs a JSON object with
-    /// `events_scanned` and an `iocs` array. Exits 1 when IOCs are found.
-    /// Usage: `wt extract --ioc <PATH>`
+    /// Modes (mutually exclusive):
+    ///   `wt extract <PATH> <FIELD>`         — unique field values as `{value, count}` array
+    ///   `wt extract --ioc <PATH>`           — IOC scan; exits 1 if IOCs found
+    ///   `wt extract --powershell <PATH>`    — reassemble EID 4104 script blocks
     Extract {
         /// Path to the EVTX file (always required).
         path: PathBuf,
         /// Field name to search for in event data (e.g. `SubjectUserName`).
-        /// Required unless `--ioc` is given.
-        #[arg(required_unless_present = "ioc")]
+        /// Required unless `--ioc` or `--powershell` is given.
+        #[arg(required_unless_present_any = &["ioc", "powershell"])]
         field: Option<String>,
         /// Extract indicators of compromise instead of a named field.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "powershell")]
         ioc: bool,
+        /// Reassemble PowerShell EID 4104 script blocks instead of a named field.
+        #[arg(long, conflicts_with = "ioc")]
+        powershell: bool,
+        /// With `--powershell`: suppress base64 `-EncodedCommand` decoding.
+        #[arg(long, requires = "powershell")]
+        no_deobfuscate: bool,
     },
     /// One-line forensic overview of an EVTX file.
     ///
@@ -278,139 +254,46 @@ fn sanitize_mermaid(s: &str) -> String {
         .collect()
 }
 
-/// Convert Windows FILETIME (100-ns intervals since 1601-01-01) to a UTC string.
-fn filetime_to_utc_string(ft: u64) -> String {
-    if ft == 0 {
-        return "N/A".to_string();
-    }
-    // Unix timestamp = filetime / 10_000_000 - 11644473600
-    let unix_secs = (ft / 10_000_000).saturating_sub(11_644_473_600);
-    let secs = unix_secs % 60;
-    let mins = (unix_secs / 60) % 60;
-    let hours = (unix_secs / 3600) % 24;
-    let days_since_epoch = unix_secs / 86400;
-    // Rough date from days since epoch (1970-01-01)
-    // Use a simple algorithm (not leap-year perfect, good enough for display)
-    let year_400 = days_since_epoch / 146_097;
-    let remaining = days_since_epoch % 146_097;
-    let year_100 = (remaining.min(146_096)) / 36524;
-    let remaining = remaining - year_100 * 36524;
-    let year_4 = remaining / 1461;
-    let remaining = remaining % 1461;
-    let year_1 = remaining.min(1460) / 365;
-    let remaining = remaining - year_1 * 365;
-    let year = 1970 + year_400 * 400 + year_100 * 100 + year_4 * 4 + year_1;
-    // Approximate month/day from day of year
-    let month_days = [31u64, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut month = 1u64;
-    let mut day = remaining + 1;
-    for &md in &month_days {
-        if day > md {
-            day -= md;
-            month += 1;
-        } else {
-            break;
+/// Detect E01/EWF images by extension or magic bytes.
+fn is_ewf_path(path: &std::path::Path) -> bool {
+    if let Some(ext) = path.extension() {
+        let ext = ext.to_ascii_lowercase();
+        if ext == "e01" || ext == "ex01" || ext == "ewf" {
+            return true;
         }
     }
-    format!("{year}-{month:02}-{day:02} {hours:02}:{mins:02}:{secs:02} UTC")
-}
-
-fn print_stats(path: &std::path::Path, result: &winevt_carver::CarveResult, as_json: bool) {
-    let file_name = path.file_name().map_or_else(
-        || path.display().to_string(),
-        |n| n.to_string_lossy().into_owned(),
-    );
-    let hash = result.source_hash.as_deref().unwrap_or("N/A");
-    let chunks_total = result.stats.chunks_found;
-    let chunks_valid = result.stats.chunks_valid;
-    let chunks_corrupt = result.stats.chunks_corrupt;
-    let records_recovered = result.stats.records_recovered;
-    let records_corrupt = result.stats.records_corrupt;
-    let indicators_count = result.indicators.len();
-    let first_indicator = result
-        .indicators
-        .first()
-        .map_or_else(String::new, |i| format!("{i:?}"));
-
-    let timestamps: Vec<u64> = result
-        .chunks
-        .iter()
-        .flat_map(|c| c.records.iter())
-        .map(|r| r.header.timestamp)
-        .filter(|&t| t > 0)
-        .collect();
-    let first_ts = timestamps.iter().copied().min().unwrap_or(0);
-    let last_ts = timestamps.iter().copied().max().unwrap_or(0);
-    let first_id = result
-        .chunks
-        .iter()
-        .flat_map(|c| c.records.iter())
-        .map(|r| r.header.record_id)
-        .min()
-        .unwrap_or(0);
-    let last_id = result
-        .chunks
-        .iter()
-        .flat_map(|c| c.records.iter())
-        .map(|r| r.header.record_id)
-        .max()
-        .unwrap_or(0);
-
-    if as_json {
-        let obj = serde_json::json!({
-            "file": file_name,
-            "hash": hash,
-            "chunks": { "total": chunks_total, "valid": chunks_valid, "corrupt": chunks_corrupt },
-            "records": { "recovered": records_recovered, "corrupt": records_corrupt },
-            "time_range": {
-                "first": filetime_to_utc_string(first_ts),
-                "last": filetime_to_utc_string(last_ts)
-            },
-            "record_ids": { "first": first_id, "last": last_id },
-            "indicators": { "count": indicators_count, "first": first_indicator }
-        });
-        println!("{}", serde_json::to_string_pretty(&obj).unwrap_or_default());
-    } else {
-        println!("File:       {file_name}");
-        println!("Hash:       {hash}");
-        println!(
-            "Chunks:     {chunks_total} total ({chunks_valid} valid, {chunks_corrupt} corrupt)"
-        );
-        println!("Records:    {records_recovered} recovered ({records_corrupt} corrupt)");
-        println!(
-            "Time range: {} → {}",
-            filetime_to_utc_string(first_ts),
-            filetime_to_utc_string(last_ts)
-        );
-        println!("Record IDs: {first_id} → {last_id}");
-        if indicators_count > 0 {
-            println!("Indicators: {indicators_count} ({first_indicator})");
-        } else {
-            println!("Indicators: 0");
+    // EWF magic: EVF\x09\x0d\x0a\xff\x00
+    if let Ok(mut f) = std::fs::File::open(path) {
+        use std::io::Read;
+        let mut magic = [0u8; 8];
+        if f.read_exact(&mut magic).is_ok() {
+            return magic == [0x45, 0x56, 0x46, 0x09, 0x0D, 0x0A, 0xFF, 0x00];
         }
     }
+    false
 }
 
 #[allow(clippy::too_many_lines)]
 fn main() {
     let cli = Cli::parse();
     let code = match cli.command {
-        Cmd::Carve { path } => match winevt_carver::carve_from_file(&path) {
-            Ok(result) => {
-                match serde_json::to_string_pretty(&result) {
-                    Ok(json) => println!("{json}"),
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        std::process::exit(2);
+        Cmd::Carve { path } => {
+            let result = if is_ewf_path(&path) {
+                winevt_carver::carve_from_ewf(&path)
+            } else {
+                winevt_carver::carve_from_file(&path)
+            };
+            match result {
+                Ok(result) => {
+                    match serde_json::to_string_pretty(&result) {
+                        Ok(json) => println!("{json}"),
+                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
                     }
+                    EXIT_CLEAN
                 }
-                0
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
-            Err(e) => {
-                eprintln!("error: {e}");
-                2
-            }
-        },
+        }
         Cmd::Verify { path } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
@@ -433,32 +316,6 @@ fn main() {
                 }
             }
         }
-        Cmd::Stats { path, json } => match winevt_carver::carve_from_file(&path) {
-            Ok(result) => {
-                print_stats(&path, &result, json);
-                0
-            }
-            Err(e) => {
-                eprintln!("error: {e}");
-                2
-            }
-        },
-        Cmd::CarveEwf { path } => match winevt_carver::carve_from_ewf(&path) {
-            Ok(result) => {
-                match serde_json::to_string_pretty(&result) {
-                    Ok(json) => println!("{json}"),
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        std::process::exit(2);
-                    }
-                }
-                0
-            }
-            Err(e) => {
-                eprintln!("error: {e}");
-                2
-            }
-        },
         Cmd::Timeline { path, stream, filter_eid, limit, after, before } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
@@ -491,68 +348,52 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Sessions { path, stream, logon_type } => {
+        Cmd::Login { path, stream, logon_type, graph, mermaid } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
-            match winevt_analyze::sessions(&path) {
-                Ok(all_sessions) => {
-                    let filtered: Vec<_> = all_sessions
-                        .into_iter()
-                        .filter(|s| logon_type.map_or(true, |lt| s.logon_type == lt))
-                        .collect();
-                    if stream {
-                        for s in &filtered {
-                            if let Ok(line) = serde_json::to_string(s) {
-                                println!("{line}");
+            if mermaid || graph {
+                match winevt_analyze::logon_graph(&path) {
+                    Ok(g) => {
+                        if mermaid {
+                            println!("graph LR");
+                            for edge in &g.edges {
+                                let src = sanitize_mermaid(&edge.source);
+                                let tgt = sanitize_mermaid(&edge.target);
+                                println!("  {} -->|\"Type {} x{}\"| {}", src, edge.logon_type, edge.count, tgt);
+                            }
+                        } else {
+                            match serde_json::to_string_pretty(&g) {
+                                Ok(json) => println!("{json}"),
+                                Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
                             }
                         }
-                    } else {
-                        match serde_json::to_string_pretty(&filtered) {
-                            Ok(json) => println!("{json}"),
-                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                        }
+                        EXIT_CLEAN
                     }
-                    EXIT_CLEAN
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
-            }
-        }
-        Cmd::Powershell { path, stream, no_deobfuscate } => {
-            if !path.exists() {
-                eprintln!("error: path not found: {}", path.display());
-                std::process::exit(EXIT_NOT_FOUND);
-            }
-            match winevt_analyze::powershell_blocks(&path) {
-                Ok(blocks) => {
-                    // Enrich blocks with decoded_command unless --no-deobfuscate.
-                    let enriched: Vec<serde_json::Value> = blocks.iter().map(|b| {
-                        let mut v = serde_json::to_value(b).unwrap_or(serde_json::Value::Null);
-                        if !no_deobfuscate {
-                            if let Some(decoded) = winevt_analyze::deobfuscate_ps(&b.text) {
-                                if let Some(obj) = v.as_object_mut() {
-                                    obj.insert("decoded_command".to_string(), serde_json::Value::String(decoded));
-                                }
+            } else {
+                match winevt_analyze::sessions(&path) {
+                    Ok(all_sessions) => {
+                        let filtered: Vec<_> = all_sessions
+                            .into_iter()
+                            .filter(|s| logon_type.map_or(true, |lt| s.logon_type == lt))
+                            .collect();
+                        if stream {
+                            for s in &filtered {
+                                if let Ok(line) = serde_json::to_string(s) { println!("{line}"); }
+                            }
+                        } else {
+                            match serde_json::to_string_pretty(&filtered) {
+                                Ok(json) => println!("{json}"),
+                                Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
                             }
                         }
-                        v
-                    }).collect();
-                    if stream {
-                        for v in &enriched {
-                            if let Ok(line) = serde_json::to_string(v) {
-                                println!("{line}");
-                            }
-                        }
-                    } else {
-                        match serde_json::to_string_pretty(&enriched) {
-                            Ok(json) => println!("{json}"),
-                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                        }
+                        EXIT_CLEAN
                     }
-                    EXIT_CLEAN
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
         Cmd::Frequency { path, sort, stream, top, by, threshold, anomaly, min_z } => {
@@ -629,19 +470,17 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Pivot { query, path, stream } => {
+        Cmd::Search { query, path, regex, stream } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
-            match winevt_analyze::pivot(&path, &query) {
+            match winevt_analyze::search(&path, &query, regex) {
                 Ok(entries) => {
                     let has_matches = !entries.is_empty();
                     if stream {
                         for e in &entries {
-                            if let Ok(line) = serde_json::to_string(e) {
-                                println!("{line}");
-                            }
+                            if let Ok(line) = serde_json::to_string(e) { println!("{line}"); }
                         }
                     } else {
                         match serde_json::to_string_pretty(&entries) {
@@ -701,35 +540,7 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::LogonGraph { path, mermaid } => {
-            if !path.exists() {
-                eprintln!("error: path not found: {}", path.display());
-                std::process::exit(EXIT_NOT_FOUND);
-            }
-            match winevt_analyze::logon_graph(&path) {
-                Ok(g) => {
-                    if mermaid {
-                        println!("graph LR");
-                        for edge in &g.edges {
-                            let src = sanitize_mermaid(&edge.source);
-                            let tgt = sanitize_mermaid(&edge.target);
-                            println!(
-                                "  {} -->|\"Type {} x{}\"| {}",
-                                src, edge.logon_type, edge.count, tgt
-                            );
-                        }
-                    } else {
-                        match serde_json::to_string_pretty(&g) {
-                            Ok(json) => println!("{json}"),
-                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                        }
-                    }
-                    EXIT_CLEAN
-                }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
-            }
-        }
-        Cmd::Extract { field, path, ioc } => {
+        Cmd::Extract { field, path, ioc, powershell, no_deobfuscate } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
@@ -743,6 +554,28 @@ fn main() {
                             Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
                         }
                         if has_iocs { EXIT_DETECTIONS } else { EXIT_CLEAN }
+                    }
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                }
+            } else if powershell {
+                match winevt_analyze::powershell_blocks(&path) {
+                    Ok(blocks) => {
+                        let enriched: Vec<serde_json::Value> = blocks.iter().map(|b| {
+                            let mut v = serde_json::to_value(b).unwrap_or(serde_json::Value::Null);
+                            if !no_deobfuscate {
+                                if let Some(decoded) = winevt_analyze::deobfuscate_ps(&b.text) {
+                                    if let Some(obj) = v.as_object_mut() {
+                                        obj.insert("decoded_command".to_string(), serde_json::Value::String(decoded));
+                                    }
+                                }
+                            }
+                            v
+                        }).collect();
+                        match serde_json::to_string_pretty(&enriched) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        }
+                        EXIT_CLEAN
                     }
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
@@ -765,14 +598,31 @@ fn main() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
-            // Compose frequency, integrity, and IOC data into one overview object.
-            let freq = winevt_analyze::frequency(&path);
-            let indicators = winevt_carver::verify_integrity(&path).unwrap_or_default();
-            let ioc_report = winevt_analyze::ioc_extract(&path);
-
             let file_name = path.file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| path.display().to_string());
+
+            // Carve for stats (hash, chunk/record counts).
+            let (hash, chunks_json, records_json) = match winevt_carver::carve_from_file(&path) {
+                Ok(r) => {
+                    let h = r.source_hash.unwrap_or_else(|| "N/A".to_string());
+                    let c = serde_json::json!({
+                        "total": r.stats.chunks_found,
+                        "valid": r.stats.chunks_valid,
+                        "corrupt": r.stats.chunks_corrupt,
+                    });
+                    let rec = serde_json::json!({
+                        "recovered": r.stats.records_recovered,
+                        "corrupt": r.stats.records_corrupt,
+                    });
+                    (h, c, rec)
+                }
+                Err(_) => ("N/A".to_string(), serde_json::json!(null), serde_json::json!(null)),
+            };
+
+            let freq = winevt_analyze::frequency(&path);
+            let indicators = winevt_carver::verify_integrity(&path).unwrap_or_default();
+            let ioc_report = winevt_analyze::ioc_extract(&path);
 
             let (total_events, top_event_ids, first_ts, last_ts) = match freq {
                 Ok(report) => {
@@ -780,7 +630,6 @@ fn main() {
                         .take(5)
                         .map(|f| serde_json::json!({ "event_id": f.event_id, "count": f.count }))
                         .collect();
-                    // Derive time range from timeline (best-effort; skip on error).
                     let (first, last) = match winevt_analyze::timeline(&path) {
                         Ok(entries) => {
                             let first = entries.iter().map(|e| e.timestamp.as_str()).min().map(str::to_owned);
@@ -798,6 +647,9 @@ fn main() {
 
             let out = serde_json::json!({
                 "file": file_name,
+                "hash": hash,
+                "chunks": chunks_json,
+                "records": records_json,
                 "total_events": total_events,
                 "time_range": { "first": first_ts, "last": last_ts },
                 "top_event_ids": top_event_ids,
