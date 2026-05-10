@@ -114,13 +114,10 @@ enum Cmd {
         /// Emit one JSON object per line (NDJSON) — one EventFrequency per line.
         #[arg(long)]
         stream: bool,
-        /// Group by dimension: `event` (default) or `process`.
-        /// `--by process` surfaces rare process images from EID 4688 events.
-        #[arg(long, value_name = "DIM")]
-        by: Option<String>,
-        /// Count threshold for `--by process`; images seen < N times are reported.
-        #[arg(long, default_value_t = 3)]
-        threshold: usize,
+        /// Surface process images from EID 4688 sorted LFO (rare first).
+        /// Use `| head -n N` to cap results.
+        #[arg(long)]
+        process: bool,
         /// Score event IDs by z-score and return those with |z| >= `--min-z`.
         #[arg(long)]
         anomaly: bool,
@@ -464,14 +461,14 @@ fn main() {
                 }
             }
         }
-        Cmd::Frequency { path, stream, by, threshold, anomaly, min_z } => {
+        Cmd::Frequency { path, stream, process, anomaly, min_z } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
-            // --by process: rare-process mode
-            if by.as_deref() == Some("process") {
-                match winevt_analyze::rare_processes(&path, threshold) {
+            // --process: all EID 4688 processes sorted LFO
+            if process {
+                match winevt_analyze::rare_processes(&path, usize::MAX) {
                     Ok(procs) => {
                         match serde_json::to_string_pretty(&procs) {
                             Ok(json) => println!("{json}"),
