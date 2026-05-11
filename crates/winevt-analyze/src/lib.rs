@@ -121,14 +121,41 @@ fn event_id_from_system(system: &serde_json::Value) -> Option<u32> {
 }
 
 /// Extract a string field from `EventData` by name.
+/// Read a string field from EventData, handling both EVTX serialization shapes:
+///
+/// 1. Named-attribute format (Security log, most audit events):
+///    `{"Data": [{"@Name": "key", "#text": "value"}, ...]}`
+/// 2. Named-element format (Sysmon EID 1, PowerShell EID 4104, etc.):
+///    `{"Image": "value", "ScriptBlockText": "..."}`
+///
+/// The two shapes come from how the provider defines its `<template>` in the
+/// manifest: `<Data Name="…">` serializes as shape 1; bare `<Image>` elements
+/// serialize as shape 2.
 fn event_data_str<'a>(event_data: &'a serde_json::Value, key: &str) -> Option<&'a str> {
-    event_data.get("Data")?.as_array()?.iter().find_map(|item| {
-        if item.get("@Name")?.as_str()? == key {
-            item.get("#text").and_then(|v| v.as_str())
-        } else {
-            None
+    // Shape 1: named-attribute array
+    if let Some(arr) = event_data.get("Data").and_then(|d| d.as_array()) {
+        if let Some(hit) = arr.iter().find_map(|item| {
+            if item.get("@Name")?.as_str()? == key {
+                item.get("#text").and_then(|v| v.as_str())
+            } else {
+                None
+            }
+        }) {
+            return Some(hit);
         }
-    })
+    }
+    // Shape 2: flat named-element object (Sysmon, PowerShell, WMI-Activity…)
+    event_data.get(key)?.as_str()
+}
+
+/// Read a string field from Sysmon EventData (flat object format).
+fn sysmon_str<'a>(event_data: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    event_data.get(key)?.as_str()
+}
+
+/// Read an integer PID from Sysmon EventData (stored as JSON number, not hex).
+fn sysmon_pid(event_data: &serde_json::Value, key: &str) -> u64 {
+    event_data.get(key).and_then(|v| v.as_u64()).unwrap_or(0)
 }
 
 // ── Public functions ──────────────────────────────────────────────────────────
@@ -1221,15 +1248,11 @@ pub fn process_tree(path: &Path) -> Result<Vec<ProcessNode>, AnalyzeError> {
             let cmdline = event_data_str(ed, "CommandLine").unwrap_or("").to_owned();
             (pid, ppid, image, cmdline)
         } else {
-            // Sysmon EID 1
-            let pid = event_data_str(ed, "ProcessId")
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(0);
-            let ppid = event_data_str(ed, "ParentProcessId")
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(0);
-            let image = event_data_str(ed, "Image").unwrap_or("-").to_owned();
-            let cmdline = event_data_str(ed, "CommandLine").unwrap_or("").to_owned();
+            // Sysmon EID 1 — flat JSON object format, integer PIDs
+            let pid = sysmon_pid(ed, "ProcessId");
+            let ppid = sysmon_pid(ed, "ParentProcessId");
+            let image = sysmon_str(ed, "Image").unwrap_or("-").to_owned();
+            let cmdline = sysmon_str(ed, "CommandLine").unwrap_or("").to_owned();
             (pid, ppid, image, cmdline)
         };
         nodes.push(ProcessNode {
@@ -1329,10 +1352,10 @@ pub fn rare_processes(path: &Path, threshold: usize) -> Result<Vec<RareProcess>,
             Some(d) => d,
             None => continue,
         };
-        let image_opt = if event_id == 4688 {
+        let image_opt: Option<&str> = if event_id == 4688 {
             event_data_str(ed, "NewProcessName")
         } else {
-            event_data_str(ed, "Image")
+            sysmon_str(ed, "Image")
         };
         if let Some(img) = image_opt {
             let img = img.to_owned();
@@ -1737,7 +1760,8 @@ fn is_lolbin(image: &str) -> bool {
     LOLBINS.contains(&basename)
 }
 
-/// Extract process command lines from EID 4688 events, with LOLBin tagging.
+/// Extract process command lines from Security EID 4688 and Sysmon EID 1,
+/// with LOLBin tagging.
 pub fn process_cmdlines(path: &Path) -> Result<Vec<ProcessExecution>, AnalyzeError> {
     let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
     let mut parser =
@@ -1750,22 +1774,34 @@ pub fn process_cmdlines(path: &Path) -> Result<Vec<ProcessExecution>, AnalyzeErr
             Err(_) => continue,
         };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
-        if system.and_then(event_id_from_system) != Some(4688) {
-            continue;
-        }
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(id @ (4688 | 1)) => id,
+            _ => continue,
+        };
         let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
             Some(d) => d,
             None => continue,
         };
-        let image = event_data_str(ed, "NewProcessName").unwrap_or("-").to_owned();
-        let command_line = event_data_str(ed, "CommandLine").unwrap_or("").to_owned();
-        let pid = event_data_str(ed, "NewProcessId")
-            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
-            .unwrap_or(0);
-        let parent_pid = event_data_str(ed, "ProcessId")
-            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
-            .unwrap_or(0);
-        let parent_image = event_data_str(ed, "ParentProcessName").map(str::to_owned);
+        let (image, command_line, pid, parent_pid, parent_image) = if event_id == 4688 {
+            let image = event_data_str(ed, "NewProcessName").unwrap_or("-").to_owned();
+            let cmdline = event_data_str(ed, "CommandLine").unwrap_or("").to_owned();
+            let pid = event_data_str(ed, "NewProcessId")
+                .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+                .unwrap_or(0);
+            let ppid = event_data_str(ed, "ProcessId")
+                .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+                .unwrap_or(0);
+            let parent_image = event_data_str(ed, "ParentProcessName").map(str::to_owned);
+            (image, cmdline, pid, ppid, parent_image)
+        } else {
+            // Sysmon EID 1 — flat JSON object format, integer PIDs
+            let image = sysmon_str(ed, "Image").unwrap_or("-").to_owned();
+            let cmdline = sysmon_str(ed, "CommandLine").unwrap_or("").to_owned();
+            let pid = sysmon_pid(ed, "ProcessId");
+            let ppid = sysmon_pid(ed, "ParentProcessId");
+            let parent_image = sysmon_str(ed, "ParentImage").map(str::to_owned);
+            (image, cmdline, pid, ppid, parent_image)
+        };
         let lolbin = is_lolbin(&image);
 
         execs.push(ProcessExecution {
@@ -2127,5 +2163,49 @@ mod ioc_tests {
     fn extract_field_nonexistent_path_returns_error() {
         let result = extract_field(Path::new("/nonexistent/security.evtx"), "SubjectUserName");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn powershell_eid4104_eventdata_structure_dump() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/hayabusa-sample-evtx/DeepBlueCLI/Powershell-Invoke-Obfuscation-many.evtx");
+        if !path.exists() {
+            eprintln!("SKIP: corpus file not found");
+            return;
+        }
+        let mut parser = evtx::EvtxParser::from_path(&path).unwrap();
+        for result in parser.records_json_value() {
+            if let Ok(r) = result {
+                let system = r.data.get("Event").and_then(|e| e.get("System"));
+                if system.and_then(event_id_from_system) == Some(4104) {
+                    let ed = r.data.get("Event").and_then(|e| e.get("EventData"));
+                    eprintln!("EID 4104 EventData: {}", serde_json::to_string_pretty(&ed).unwrap());
+                    return;
+                }
+            }
+        }
+        panic!("No EID 4104 found");
+    }
+
+    #[test]
+    fn sysmon_eid1_eventdata_structure_dump() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/EVTX-ATTACK-SAMPLES/Execution/exec_sysmon_1_lolbin_pcalua.evtx");
+        if !path.exists() {
+            eprintln!("SKIP: corpus file not found");
+            return;
+        }
+        let mut parser = evtx::EvtxParser::from_path(&path).unwrap();
+        for result in parser.records_json_value() {
+            if let Ok(r) = result {
+                let system = r.data.get("Event").and_then(|e| e.get("System"));
+                if system.and_then(event_id_from_system) == Some(1) {
+                    let ed = r.data.get("Event").and_then(|e| e.get("EventData"));
+                    eprintln!("EventData: {}", serde_json::to_string_pretty(&ed).unwrap());
+                    return;
+                }
+            }
+        }
+        panic!("No EID 1 found");
     }
 }
