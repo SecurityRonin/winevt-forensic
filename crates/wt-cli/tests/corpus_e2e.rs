@@ -427,6 +427,243 @@ fn cmdline_batch_lolbin_sysmon_files_all_nonempty() {
     );
 }
 
+// ── DFIRArtifactMuseum corpus tests ──────────────────────────────────────────
+
+fn dfir_museum(rel: &str) -> PathBuf {
+    workspace_root()
+        .join("tests/data/DFIRArtifactMuseum")
+        .join(rel)
+}
+
+macro_rules! require_dfir_museum {
+    ($rel:expr) => {{
+        let p = dfir_museum($rel);
+        if !p.exists() {
+            eprintln!("SKIP: DFIRArtifactMuseum corpus not found: {}", p.display());
+            return;
+        }
+        p
+    }};
+}
+
+// ── RED: WMI-Activity UserData extraction ────────────────────────────────────
+
+/// EID 5861 (permanent WMI subscription binding) stores its fields in
+/// `UserData → Operation_ESStoConsumerBinding`, NOT in `EventData`.
+/// The `wmi_events()` function only checks EventData → returns null fields.
+///
+/// This test expects `consumer_name` to be populated on EID 5861 events.
+/// Currently FAILS because `wmi_events()` never checks UserData.
+#[test]
+fn dfir_museum_wmi_subscription_events_have_consumer_name() {
+    let wmi = require_dfir_museum!(
+        "APTSimulatorVM-Win10/Microsoft-Windows-WMI-Activity%4Operational.evtx"
+    );
+
+    let output = Command::new(wt_bin())
+        .args(["extract", "--wmi", wmi.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --wmi");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let arr = json.as_array().expect("must be array");
+
+    let sub_events: Vec<_> = arr
+        .iter()
+        .filter(|e| matches!(e["event_id"].as_u64(), Some(5860 | 5861)))
+        .collect();
+
+    assert!(
+        !sub_events.is_empty(),
+        "APTSimulatorVM WMI-Activity must contain EID 5860/5861 subscription events"
+    );
+
+    let has_consumer = sub_events
+        .iter()
+        .any(|e| e["consumer_name"].as_str().is_some());
+    assert!(
+        has_consumer,
+        "at least one EID 5860/5861 event must have consumer_name populated;\
+         EventData is null — data is in UserData (not yet checked by wmi_events())"
+    );
+}
+
+/// EID 5861 permanent subscription binding must surface the filter name
+/// from the `ESS` field inside UserData → Operation_ESStoConsumerBinding.
+/// Currently FAILS (same root cause as consumer_name test above).
+#[test]
+fn dfir_museum_wmi_subscription_events_have_filter_name() {
+    let wmi = require_dfir_museum!(
+        "APTSimulatorVM-Win10/Microsoft-Windows-WMI-Activity%4Operational.evtx"
+    );
+
+    let output = Command::new(wt_bin())
+        .args(["extract", "--wmi", wmi.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --wmi");
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let arr = json.as_array().expect("must be array");
+
+    let sub_events: Vec<_> = arr
+        .iter()
+        .filter(|e| matches!(e["event_id"].as_u64(), Some(5860 | 5861)))
+        .collect();
+
+    let has_filter = sub_events
+        .iter()
+        .any(|e| e["filter_name"].as_str().is_some());
+    assert!(
+        has_filter,
+        "at least one EID 5860/5861 event must have filter_name populated;\
+         ESS field in UserData contains the subscription name"
+    );
+}
+
+// ── GREEN: DFIRArtifactMuseum robustness ──────────────────────────────────────
+
+/// `wt info` must not panic on any file in the APTSimulatorVM-Win10 corpus.
+#[test]
+fn dfir_museum_aptvm_robustness_no_panic() {
+    let corpus_dir = dfir_museum("APTSimulatorVM-Win10");
+    if !corpus_dir.exists() {
+        eprintln!("SKIP: DFIRArtifactMuseum/APTSimulatorVM-Win10 not found");
+        return;
+    }
+
+    let evtx_files = walkdir_evtx(&corpus_dir);
+    assert!(!evtx_files.is_empty(), "corpus must contain EVTX files");
+
+    let mut failures = Vec::new();
+    for path in &evtx_files {
+        let output = Command::new(wt_bin())
+            .args(["info", path.to_str().unwrap()])
+            .output()
+            .expect("run wt info");
+
+        let code = output.status.code().unwrap_or(-1);
+        if code != 0 && code != 3 {
+            failures.push(format!("{}: exit {code}", path.display()));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "wt info must exit 0 or 3 for all APTSimulatorVM files:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// APTSimulatorVM Sysmon EID 1 log must yield LOLBin cmdline entries.
+#[test]
+fn dfir_museum_aptvm_sysmon_cmdline_lolbins_nonempty() {
+    let sysmon = require_dfir_museum!(
+        "APTSimulatorVM-Win10/Microsoft-Windows-Sysmon%4Operational.evtx"
+    );
+
+    let output = Command::new(wt_bin())
+        .args(["extract", "--cmdline", sysmon.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --cmdline sysmon");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let arr = json.as_array().expect("must be array");
+    assert!(!arr.is_empty(), "APTSimulatorVM Sysmon log must yield cmdline entries");
+
+    let lolbins: Vec<_> = arr
+        .iter()
+        .filter(|e| e["is_lolbin"].as_bool() == Some(true))
+        .collect();
+    assert!(
+        !lolbins.is_empty(),
+        "APTSimulatorVM Sysmon log must detect at least one LOLBin (rundll32/wscript found); \
+         entries: {arr:?}"
+    );
+}
+
+/// BelkasoftCTF InsiderThreat PowerShell log has EID 4104 script blocks.
+#[test]
+fn dfir_museum_belkasoft_powershell_blocks_nonempty() {
+    let ps = require_dfir_museum!(
+        "BelkasoftCTF-InsiderThreat/Microsoft-Windows-PowerShell%4Operational.evtx"
+    );
+
+    let output = Command::new(wt_bin())
+        .args(["extract", "--powershell", ps.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --powershell belkasoft");
+
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let arr = json.as_array().expect("must be array");
+    assert!(
+        !arr.is_empty(),
+        "BelkasoftCTF InsiderThreat PS log must yield EID 4104 script block entries"
+    );
+}
+
+/// `wt report` on the APTSimulatorVM-Win10 corpus directory must exit 0
+/// and enumerate EVTX files in the JSON output.
+#[test]
+fn dfir_museum_aptvm_report_enumerates_evtx_files() {
+    let corpus_dir = dfir_museum("APTSimulatorVM-Win10");
+    if !corpus_dir.exists() {
+        eprintln!("SKIP: DFIRArtifactMuseum/APTSimulatorVM-Win10 not found");
+        return;
+    }
+    let out = tempfile::tempdir().expect("tempdir");
+
+    let output = Command::new(wt_bin())
+        .args([
+            "report",
+            corpus_dir.to_str().unwrap(),
+            "--output",
+            out.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("run wt report aptvm");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout must be JSON");
+    let files = json["evtx_files"].as_array().expect("evtx_files must be array");
+    assert!(
+        !files.is_empty(),
+        "wt report on APTSimulatorVM directory must enumerate EVTX files"
+    );
+
+    // Input kind must be Directory.
+    assert_eq!(
+        json["input"]["kind"].as_str(),
+        Some("Directory"),
+        "input kind must be Directory"
+    );
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 fn walkdir_evtx(dir: &PathBuf) -> Vec<PathBuf> {
