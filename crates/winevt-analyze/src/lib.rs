@@ -1642,7 +1642,16 @@ pub fn wmi_events(path: &Path) -> Result<Vec<WmiEvent>, AnalyzeError> {
             Some(id) if matches!(id, 5857 | 5858 | 5860 | 5861) => id,
             _ => continue,
         };
-        let ed = record.data.get("Event").and_then(|e| e.get("EventData"));
+        let event_node = record.data.get("Event");
+        // WMI-Activity events (EID 5860/5861) use UserData → Operation_*
+        // instead of EventData.  Fall back to the first child of UserData
+        // when EventData is absent so consumer/filter fields are populated.
+        let ed = event_node.and_then(|e| e.get("EventData")).or_else(|| {
+            event_node
+                .and_then(|e| e.get("UserData"))
+                .and_then(|ud| ud.as_object())
+                .and_then(|obj| obj.values().find(|v| v.is_object()))
+        });
         let provider = system
             .and_then(|s| s.get("Provider"))
             .and_then(|p| p.get("@Name").or_else(|| p.get("@Guid")))
@@ -1651,8 +1660,10 @@ pub fn wmi_events(path: &Path) -> Result<Vec<WmiEvent>, AnalyzeError> {
 
         let (filter_name, consumer_name, query) = if let Some(ed) = ed {
             (
-                event_data_str(ed, "PossibleCause")
+                // EID 5861 UserData uses "ESS" for the subscription/filter name
+                event_data_str(ed, "ESS")
                     .or_else(|| event_data_str(ed, "FilterName"))
+                    .or_else(|| event_data_str(ed, "PossibleCause"))
                     .map(str::to_owned),
                 event_data_str(ed, "CONSUMER")
                     .or_else(|| event_data_str(ed, "ConsumerName"))
@@ -2208,4 +2219,5 @@ mod ioc_tests {
         }
         panic!("No EID 1 found");
     }
+
 }
