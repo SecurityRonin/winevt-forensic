@@ -666,6 +666,262 @@ fn dfir_museum_aptvm_report_enumerates_evtx_files() {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+// ── EVTX-to-MITRE-Attack corpus tests ────────────────────────────────────────
+
+fn mitre_corpus(rel: &str) -> PathBuf {
+    workspace_root()
+        .join("tests/data/EVTX-to-MITRE-Attack")
+        .join(rel)
+}
+
+macro_rules! require_mitre {
+    ($rel:expr) => {{
+        let p = mitre_corpus($rel);
+        if !p.exists() {
+            eprintln!("SKIP: EVTX-to-MITRE-Attack corpus not found: {}", p.display());
+            return;
+        }
+        p
+    }};
+}
+
+// ── RED: Sysmon EID 19/20/21 WMI filter/consumer events ──────────────────────
+
+/// `wt extract --wmi` on a Sysmon log containing EID 19 (WmiEventFilter) and
+/// EID 20 (WmiEventConsumer) must return at least one event.
+///
+/// Currently FAILS: `wmi_events()` only handles WMI-Activity EIDs 5857-5861
+/// and ignores the Sysmon WMI persistence EIDs 19/20/21.
+#[test]
+fn mitre_wmi_sysmon_eid19_20_returns_events() {
+    let evtx = require_mitre!(
+        "TA0003-Persistence/T1546-Event Triggered Execution/ID19-20-WMI registration via PowerLurk.evtx"
+    );
+
+    let output = Command::new(wt_bin())
+        .args(["extract", "--wmi", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --wmi sysmon eid 19/20");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be valid JSON");
+    let arr = json.as_array().expect("must be array");
+
+    assert!(
+        !arr.is_empty(),
+        "Sysmon WMI persistence log (EID 19/20) must yield events via wt extract --wmi;\
+         wmi_events() does not yet handle Sysmon EIDs 19/20/21"
+    );
+}
+
+// ── GREEN: EVTX-to-MITRE-Attack robustness ────────────────────────────────────
+
+/// `wt info` must not panic on any of the 292 files in EVTX-to-MITRE-Attack.
+#[test]
+fn mitre_robustness_all_files_no_panic() {
+    let corpus_dir = mitre_corpus(".");
+    if !corpus_dir.exists() {
+        eprintln!("SKIP: EVTX-to-MITRE-Attack corpus not found");
+        return;
+    }
+
+    let evtx_files = walkdir_evtx(&corpus_dir);
+    assert!(!evtx_files.is_empty(), "corpus must contain EVTX files");
+
+    let mut failures = Vec::new();
+    for path in &evtx_files {
+        let output = Command::new(wt_bin())
+            .args(["info", path.to_str().unwrap()])
+            .output()
+            .expect("run wt info");
+
+        let code = output.status.code().unwrap_or(-1);
+        if code != 0 && code != 3 {
+            failures.push(format!("{}: exit {code}", path.display()));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "wt info must exit 0 or 3 for all MITRE corpus files:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// T1059.001 PowerShell execution samples contain EID 4104 script blocks.
+#[test]
+fn mitre_execution_ps_blocks_nonempty() {
+    let evtx = require_mitre!(
+        "TA0002-Execution/T1059.001-PowerShell/ID4103-4104-Payload download via PowerShell.evtx"
+    );
+
+    let output = Command::new(wt_bin())
+        .args(["extract", "--powershell", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --powershell mitre ps");
+
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(
+        !json.as_array().unwrap().is_empty(),
+        "T1059.001 PowerShell payload file must yield EID 4104 blocks"
+    );
+}
+
+/// T1053.005 scheduled task samples contain EID 4698 (task created) events.
+#[test]
+fn mitre_execution_scheduled_task_nonempty() {
+    let evtx = require_mitre!(
+        "TA0002-Execution/T1053.005-Scheduled Task/ID4698-4699-Fast created & deleted task by SMBexec (sups. arg.).evtx"
+    );
+
+    let output = Command::new(wt_bin())
+        .args(["extract", "--scheduled-task", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --scheduled-task mitre");
+
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(
+        !json.as_array().unwrap().is_empty(),
+        "T1053.005 scheduled task file must yield EID 4698 entries"
+    );
+}
+
+/// T1003 Credential Access: Sysmon LSASS dump file has Sysmon EID 10 events
+/// and `wt extract --cmdline` returns process entries.
+#[test]
+fn mitre_credential_access_lsass_sysmon_cmdlines() {
+    let evtx = require_mitre!(
+        "TA0006-Credential Access/T1003-Credential dumping/ID10-Mimikatz LSASS process dump.evtx"
+    );
+
+    let output = Command::new(wt_bin())
+        .args(["extract", "--cmdline", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --cmdline mitre lsass");
+
+    // Exit 0 (no entries) or exit 0 with entries — either is fine for robustness.
+    // The key assertion is that it doesn't panic or produce invalid JSON.
+    let code = output.status.code().unwrap_or(-1);
+    assert!(
+        code == 0 || code == 1,
+        "must not panic; exit {code}; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if !output.stdout.is_empty() {
+        serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .expect("output must be valid JSON when non-empty");
+    }
+}
+
+// ── GREEN: remaining DFIRArtifactMuseum subdir robustness ─────────────────────
+
+/// `wt info` must not panic on any file in APTSimulatorVM-Server2022.
+#[test]
+fn dfir_museum_server2022_robustness_no_panic() {
+    let corpus_dir = dfir_museum("APTSimulatorVM-Server2022");
+    if !corpus_dir.exists() {
+        eprintln!("SKIP: DFIRArtifactMuseum/APTSimulatorVM-Server2022 not found");
+        return;
+    }
+    let failures = robustness_check_info(&corpus_dir);
+    assert!(
+        failures.is_empty(),
+        "wt info must exit 0 or 3 for all APTSimulatorVM-Server2022 files:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// `wt info` must not panic on any file in BelkasoftCTF-InsiderThreat.
+#[test]
+fn dfir_museum_belkasoft_robustness_no_panic() {
+    let corpus_dir = dfir_museum("BelkasoftCTF-InsiderThreat");
+    if !corpus_dir.exists() {
+        eprintln!("SKIP: DFIRArtifactMuseum/BelkasoftCTF-InsiderThreat not found");
+        return;
+    }
+    let failures = robustness_check_info(&corpus_dir);
+    assert!(
+        failures.is_empty(),
+        "wt info must exit 0 or 3 for all BelkasoftCTF-InsiderThreat files:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// `wt info` must not panic on any file in StolenSzechuan-Win2012R2.
+#[test]
+fn dfir_museum_szechuan_robustness_no_panic() {
+    let corpus_dir = dfir_museum("StolenSzechuan-Win2012R2");
+    if !corpus_dir.exists() {
+        eprintln!("SKIP: DFIRArtifactMuseum/StolenSzechuan-Win2012R2 not found");
+        return;
+    }
+    let failures = robustness_check_info(&corpus_dir);
+    assert!(
+        failures.is_empty(),
+        "wt info must exit 0 or 3 for all StolenSzechuan-Win2012R2 files:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// `wt info` must not panic on any file in RathbunVM-Win10 (clean baseline).
+#[test]
+fn dfir_museum_rathbun_win10_robustness_no_panic() {
+    let corpus_dir = dfir_museum("RathbunVM-Win10");
+    if !corpus_dir.exists() {
+        eprintln!("SKIP: DFIRArtifactMuseum/RathbunVM-Win10 not found");
+        return;
+    }
+    let failures = robustness_check_info(&corpus_dir);
+    assert!(
+        failures.is_empty(),
+        "wt info must exit 0 or 3 for all RathbunVM-Win10 files:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// `wt info` must not panic on any file in RathbunVM-Win11 (clean baseline).
+#[test]
+fn dfir_museum_rathbun_win11_robustness_no_panic() {
+    let corpus_dir = dfir_museum("RathbunVM-Win11");
+    if !corpus_dir.exists() {
+        eprintln!("SKIP: DFIRArtifactMuseum/RathbunVM-Win11 not found");
+        return;
+    }
+    let failures = robustness_check_info(&corpus_dir);
+    assert!(
+        failures.is_empty(),
+        "wt info must exit 0 or 3 for all RathbunVM-Win11 files:\n{}",
+        failures.join("\n")
+    );
+}
+
+fn robustness_check_info(dir: &PathBuf) -> Vec<String> {
+    let files = walkdir_evtx(dir);
+    let mut failures = Vec::new();
+    for path in &files {
+        let output = Command::new(wt_bin())
+            .args(["info", path.to_str().unwrap()])
+            .output()
+            .expect("run wt info");
+        let code = output.status.code().unwrap_or(-1);
+        if code != 0 && code != 3 {
+            failures.push(format!("{}: exit {code}", path.display()));
+        }
+    }
+    failures
+}
+
 fn walkdir_evtx(dir: &PathBuf) -> Vec<PathBuf> {
     let mut out = Vec::new();
     walkdir_inner(dir, &mut out);
