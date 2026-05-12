@@ -942,3 +942,119 @@ fn walkdir_inner(dir: &PathBuf, out: &mut Vec<PathBuf>) {
         }
     }
 }
+
+// ── CybeDefenders CorporateSecrets Lab corpus tests ───────────────────────────
+//
+// Extracted from 33-CorporateSecrets.zip (password: cyberdefenders.org) via
+// pyad1 → ADSEGMENTEDFILE logical image → NTFS winevt/Logs directory.
+// 148 EVTX files from a Windows 10 endpoint, April 2020.
+
+fn cybedefenders_evtx(filename: &str) -> PathBuf {
+    workspace_root()
+        .join("tests/data/CybeDefenders CorporateSecrets Lab/evtx")
+        .join(filename)
+}
+
+macro_rules! require_cybedefenders {
+    ($file:expr) => {{
+        let p = cybedefenders_evtx($file);
+        if !p.exists() {
+            eprintln!("SKIP: CybeDefenders corpus not found: {}", p.display());
+            return;
+        }
+        p
+    }};
+}
+
+/// All 148 EVTX files must exit 0 or 3 under `wt info`.
+/// Exit codes 1/2 indicate parse errors or CLI bugs — not acceptable.
+#[test]
+fn cybedefenders_robustness_all_files_no_panic() {
+    let dir = cybedefenders_evtx("");
+    if !dir.exists() {
+        eprintln!("SKIP: CybeDefenders corpus not found");
+        return;
+    }
+    let failures = robustness_check_info(&dir);
+    assert!(
+        failures.is_empty(),
+        "wt info exited unexpectedly on CybeDefenders corpus:\n{}",
+        failures.join("\n")
+    );
+}
+
+/// Security.evtx (9 MB, 10k+ events) must yield logon sessions via `wt login`.
+#[test]
+fn cybedefenders_security_login_sessions_nonempty() {
+    let evtx = require_cybedefenders!("Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["login", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt login");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "wt login must exit 0 on Security.evtx; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("wt login must output valid JSON");
+    let arr = json.as_array().expect("must be array");
+    assert!(
+        !arr.is_empty(),
+        "Security.evtx has EID 4624 events — login must return sessions"
+    );
+}
+
+/// PowerShell operational log must yield at least one script block.
+#[test]
+fn cybedefenders_powershell_blocks_nonempty() {
+    let evtx = require_cybedefenders!("Microsoft-Windows-PowerShell%4Operational.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract", "--powershell", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --powershell");
+    assert_eq!(output.status.code(), Some(0));
+    let arr: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be valid JSON");
+    assert!(
+        arr.as_array().map(|a| !a.is_empty()).unwrap_or(false),
+        "PowerShell operational log must contain script blocks"
+    );
+}
+
+/// WMI-Activity operational log must yield WMI events via `wt extract --wmi`.
+/// This corpus is notable for having 838 WMI provider events.
+#[test]
+fn cybedefenders_wmi_activity_events_nonempty() {
+    let evtx =
+        require_cybedefenders!("Microsoft-Windows-WMI-Activity%4Operational.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract", "--wmi", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --wmi");
+    assert_eq!(output.status.code(), Some(0));
+    let arr: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be valid JSON");
+    assert!(
+        arr.as_array().map(|a| !a.is_empty()).unwrap_or(false),
+        "WMI-Activity log must yield events via wt extract --wmi"
+    );
+}
+
+/// Security.evtx cmdlines (EID 4688 process creation) must be non-empty.
+#[test]
+fn cybedefenders_security_cmdlines_nonempty() {
+    let evtx = require_cybedefenders!("Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract", "--cmdline", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --cmdline");
+    assert_eq!(output.status.code(), Some(0));
+    let arr: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be valid JSON");
+    assert!(
+        arr.as_array().map(|a| !a.is_empty()).unwrap_or(false),
+        "Security.evtx must yield EID 4688 process command lines"
+    );
+}
