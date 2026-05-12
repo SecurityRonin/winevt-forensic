@@ -1639,7 +1639,9 @@ pub fn wmi_events(path: &Path) -> Result<Vec<WmiEvent>, AnalyzeError> {
         };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
         let event_id = match system.and_then(event_id_from_system) {
-            Some(id) if matches!(id, 5857 | 5858 | 5860 | 5861) => id,
+            // 5857/5858/5860/5861 = WMI-Activity operational log
+            // 19/20/21 = Sysmon WMI persistence (WmiEventFilter/Consumer/ConsumerToFilter)
+            Some(id) if matches!(id, 5857 | 5858 | 5860 | 5861 | 19 | 20 | 21) => id,
             _ => continue,
         };
         let event_node = record.data.get("Event");
@@ -1660,13 +1662,31 @@ pub fn wmi_events(path: &Path) -> Result<Vec<WmiEvent>, AnalyzeError> {
 
         let (filter_name, consumer_name, query) = if let Some(ed) = ed {
             (
-                // EID 5861 UserData uses "ESS" for the subscription/filter name
+                // EID 5861 UserData: "ESS"; Sysmon EID 19: "Name"; EID 21: "Filter"
                 event_data_str(ed, "ESS")
                     .or_else(|| event_data_str(ed, "FilterName"))
                     .or_else(|| event_data_str(ed, "PossibleCause"))
+                    .or_else(|| {
+                        // Sysmon EID 19 (WmiEventFilter) and EID 21 use "Name"/"Filter"
+                        if matches!(event_id, 19 | 21) {
+                            event_data_str(ed, "Name")
+                                .or_else(|| event_data_str(ed, "Filter"))
+                        } else {
+                            None
+                        }
+                    })
                     .map(str::to_owned),
+                // EID 5861 UserData: "CONSUMER"; Sysmon EID 20: "Name"; EID 21: "Consumer"
                 event_data_str(ed, "CONSUMER")
                     .or_else(|| event_data_str(ed, "ConsumerName"))
+                    .or_else(|| {
+                        if matches!(event_id, 20 | 21) {
+                            event_data_str(ed, "Name")
+                                .or_else(|| event_data_str(ed, "Consumer"))
+                        } else {
+                            None
+                        }
+                    })
                     .map(str::to_owned),
                 event_data_str(ed, "Query").map(str::to_owned),
             )
