@@ -433,16 +433,6 @@ Records start at chunk offset `0x200`. Each chunk is exactly `0x10000` bytes.
 
 **[Sam Rijs](https://github.com/srijs)** for [crc32fast](https://github.com/srijs/rust-crc32fast) — a correct, fast CRC32 implementation in Rust. EVTX uses standard ISO 3309 (same polynomial).
 
-**[Andrew Case](https://www.linkedin.com/in/andrewcase)** — core Volatility developer; memory forensics research that underpins the artifact volatility ordering and the `winevt-memory` crate's approach to EVTX recovery from memory dumps.
-
-**[Brendan Dolan-Gavitt](https://www.cs.columbia.edu/~brendan/)** — memory forensics researcher; foundational work on virtual machine introspection and memory structure analysis that shaped how this library reasons about in-memory EVTX artefacts.
-
-**[Volatility Foundation](https://volatilityfoundation.org/)** — the open-source memory forensics framework whose plugin architecture and artifact taxonomy informed `winevt-memory`'s design.
-
-**[Ulf Frisk / MemProcFS](https://github.com/ufrisk/MemProcFS)** — pioneered the filesystem-as-memory-interface model; MemProcFS's forensic mode and process-memory-as-files approach directly influenced how `winevt-memory` surfaces recovered EVTX chunks.
-
-**[jam1garner](https://github.com/jam1garner)** — creator of [`binrw`](https://github.com/jam1garner/binrw), the declarative binary parsing crate whose design influenced the structured field parsing approach used across the winevt-* crates.
-
 **[Akhil Dara](https://www.linkedin.com/in/akhil-dara/)** — first star, before the build was even finished, let alone advertised. That means something.
 
 ---
