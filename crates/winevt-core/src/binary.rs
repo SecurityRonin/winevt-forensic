@@ -4,6 +4,21 @@ pub use forensicnomicon::evtx::{
     CHUNK_RECORDS_OFFSET, CHUNK_SIZE, ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC,
 };
 
+/// Severity level for an [`IntegrityAnomaly`], ordered from lowest to highest.
+///
+/// Implements [`PartialOrd`] and [`Ord`] so callers can filter with `>=`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+pub enum Severity {
+    /// Informational — low confidence or non-suspicious condition.
+    Info,
+    /// Warrants attention but may have a benign explanation.
+    Warning,
+    /// Structural violation that strongly suggests tampering or corruption.
+    Error,
+    /// High-confidence indicator of deliberate anti-forensic manipulation.
+    Critical,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct EvtxFileHeader {
     pub first_chunk_number: u64,
@@ -263,6 +278,36 @@ impl IntegrityAnomaly {
             | IntegrityAnomaly::FileNotCleanlyShutdown
             | IntegrityAnomaly::FileFull
             | IntegrityAnomaly::ChecksumMismatch => Severity::Warning,
+        }
+    }
+}
+
+impl IntegrityAnomaly {
+    /// Return the [`Severity`] assigned to this anomaly variant.
+    pub fn severity(&self) -> Severity {
+        match self {
+            // High-confidence anti-forensic manipulation
+            Self::SurgicalRecordDeletion { .. } => Severity::Critical,
+
+            // Structural violations — strong tampering / corruption signal
+            Self::ChunkChecksumMismatch { .. }
+            | Self::FileHeaderChecksumMismatch { .. }
+            | Self::RecordChecksumMismatch { .. }
+            | Self::NextRecordIdInconsistency { .. }
+            | Self::LogFileGuidMismatch { .. } => Severity::Error,
+
+            // Requires attention; may have benign explanations
+            Self::RecordIdGap { .. }
+            | Self::TimestampAnomaly { .. }
+            | Self::ChunkCountMismatch { .. }
+            | Self::ExportTimestampCorruption { .. }
+            | Self::InvalidChunkDataLength(_) => Severity::Warning,
+
+            // Informational / low-confidence
+            Self::LogCleared { .. }
+            | Self::FileNotCleanlyShutdown
+            | Self::FileFull
+            | Self::ChecksumMismatch => Severity::Info,
         }
     }
 }
