@@ -350,3 +350,85 @@ fn frequency_default_order_is_ascending() {
         );
     }
 }
+
+// ── New extract flags: --lateral, --rdp, --smb, --defender ───────────────────
+
+#[test]
+fn extract_lateral_flag_exists() {
+    let out = Command::new(wt_bin())
+        .args(["extract", "--lateral", "--help"])
+        .output()
+        .expect("run wt extract --lateral --help");
+    assert!(out.status.success(), "--lateral flag not recognised");
+}
+
+#[test]
+fn extract_rdp_flag_exists() {
+    let out = Command::new(wt_bin())
+        .args(["extract", "--rdp", "--help"])
+        .output()
+        .expect("run wt extract --rdp --help");
+    assert!(out.status.success(), "--rdp flag not recognised");
+}
+
+#[test]
+fn extract_smb_flag_exists() {
+    let out = Command::new(wt_bin())
+        .args(["extract", "--smb", "--help"])
+        .output()
+        .expect("run wt extract --smb --help");
+    assert!(out.status.success(), "--smb flag not recognised");
+}
+
+#[test]
+fn extract_defender_flag_exists() {
+    let out = Command::new(wt_bin())
+        .args(["extract", "--defender", "--help"])
+        .output()
+        .expect("run wt extract --defender --help");
+    assert!(out.status.success(), "--defender flag not recognised");
+}
+
+// ── --format csv ─────────────────────────────────────────────────────────────
+
+#[test]
+fn extract_format_csv_flag_exists() {
+    let out = Command::new(wt_bin())
+        .args(["extract", "--format", "csv", "--help"])
+        .output()
+        .expect("run wt extract --format csv --help");
+    assert!(out.status.success(), "--format csv flag not recognised");
+}
+
+// ── --stream on extract ───────────────────────────────────────────────────────
+
+#[test]
+fn extract_stream_flag_exists() {
+    let out = Command::new(wt_bin())
+        .args(["extract", "--stream", "--help"])
+        .output()
+        .expect("run wt extract --stream --help");
+    assert!(out.status.success(), "--stream flag not recognised on extract");
+}
+
+// ── --stream on verify ────────────────────────────────────────────────────────
+
+#[test]
+fn verify_stream_flag_exists() {
+    let out = Command::new(wt_bin())
+        .args(["verify", "--stream", "--help"])
+        .output()
+        .expect("run wt verify --stream --help");
+    assert!(out.status.success(), "--stream flag not recognised on verify");
+}
+
+// ── --min-severity on verify ──────────────────────────────────────────────────
+
+#[test]
+fn verify_min_severity_flag_exists() {
+    let out = Command::new(wt_bin())
+        .args(["verify", "--min-severity", "error", "--help"])
+        .output()
+        .expect("run wt verify --min-severity error --help");
+    assert!(out.status.success(), "--min-severity flag not recognised on verify");
+}

@@ -2104,6 +2104,220 @@ pub fn process_cmdlines(path: &Path) -> Result<Vec<ProcessExecution>, AnalyzeErr
     Ok(execs)
 }
 
+// ── Lateral movement (EID 4648/4769/4776) ─────────────────────────────────────
+
+/// A lateral-movement indicator extracted from the Security event log.
+///
+/// Covers:
+/// - EID 4648 — explicit credential logon (pass-the-hash / RunAs patterns)
+/// - EID 4769 — Kerberos service ticket requested
+/// - EID 4776 — NTLM credential validation
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LateralMovementEvent {
+    pub timestamp: String,
+    pub event_id: u32,
+    pub subject_user: Option<String>,
+    pub target_user: Option<String>,
+    pub target_server: Option<String>,
+    pub logon_process: Option<String>,
+}
+
+/// Extract lateral movement indicators from EID 4648, 4769, and 4776.
+pub fn lateral_movement(path: &Path) -> Result<Vec<LateralMovementEvent>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+    let mut events = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(id) if matches!(id, 4648 | 4769 | 4776) => id,
+            _ => continue,
+        };
+        let ts = record.timestamp.to_string();
+        let ed = record.data.get("Event").and_then(|e| e.get("EventData"));
+        let subject_user = ed
+            .and_then(|e| event_data_str(e, "SubjectUserName"))
+            .map(str::to_owned);
+        let target_user = ed
+            .and_then(|e| {
+                event_data_str(e, "TargetUserName")
+                    .or_else(|| event_data_str(e, "AccountName"))
+            })
+            .map(str::to_owned);
+        let target_server = ed
+            .and_then(|e| {
+                event_data_str(e, "TargetServerName")
+                    .or_else(|| event_data_str(e, "LogonProcessName"))
+                    .or_else(|| event_data_str(e, "Workstation"))
+            })
+            .map(str::to_owned);
+        let logon_process = ed
+            .and_then(|e| event_data_str(e, "LogonProcessName"))
+            .map(str::to_owned);
+        events.push(LateralMovementEvent {
+            timestamp: ts,
+            event_id,
+            subject_user,
+            target_user,
+            target_server,
+            logon_process,
+        });
+    }
+    Ok(events)
+}
+
+// ── RDP sessions (EID 4778/4779) ──────────────────────────────────────────────
+
+/// An RDP session connect/disconnect event.
+///
+/// - EID 4778 — session reconnected
+/// - EID 4779 — session disconnected
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RdpSessionEvent {
+    pub timestamp: String,
+    pub event_id: u32,
+    pub account_name: Option<String>,
+    pub account_domain: Option<String>,
+    pub client_name: Option<String>,
+    pub client_address: Option<String>,
+    pub session_name: Option<String>,
+}
+
+/// Extract RDP session events from EID 4778 and 4779.
+pub fn rdp_sessions(path: &Path) -> Result<Vec<RdpSessionEvent>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+    let mut events = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(id) if matches!(id, 4778 | 4779) => id,
+            _ => continue,
+        };
+        let ts = record.timestamp.to_string();
+        let ed = record.data.get("Event").and_then(|e| e.get("EventData"));
+        events.push(RdpSessionEvent {
+            timestamp: ts,
+            event_id,
+            account_name: ed.and_then(|e| event_data_str(e, "AccountName")).map(str::to_owned),
+            account_domain: ed.and_then(|e| event_data_str(e, "AccountDomain")).map(str::to_owned),
+            client_name: ed.and_then(|e| event_data_str(e, "ClientName")).map(str::to_owned),
+            client_address: ed.and_then(|e| event_data_str(e, "ClientAddress")).map(str::to_owned),
+            session_name: ed.and_then(|e| event_data_str(e, "SessionName")).map(str::to_owned),
+        });
+    }
+    Ok(events)
+}
+
+// ── SMB share access (EID 5140/5145) ─────────────────────────────────────────
+
+/// An SMB network share access event.
+///
+/// - EID 5140 — network share object was accessed
+/// - EID 5145 — network share object access check
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SmbAccessEvent {
+    pub timestamp: String,
+    pub event_id: u32,
+    pub subject_user: Option<String>,
+    pub share_name: Option<String>,
+    pub share_path: Option<String>,
+    pub relative_target: Option<String>,
+    pub ip_address: Option<String>,
+}
+
+/// Extract SMB share access events from EID 5140 and 5145.
+pub fn smb_access(path: &Path) -> Result<Vec<SmbAccessEvent>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+    let mut events = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(id) if matches!(id, 5140 | 5145) => id,
+            _ => continue,
+        };
+        let ts = record.timestamp.to_string();
+        let ed = record.data.get("Event").and_then(|e| e.get("EventData"));
+        events.push(SmbAccessEvent {
+            timestamp: ts,
+            event_id,
+            subject_user: ed.and_then(|e| event_data_str(e, "SubjectUserName")).map(str::to_owned),
+            share_name: ed.and_then(|e| event_data_str(e, "ShareName")).map(str::to_owned),
+            share_path: ed.and_then(|e| event_data_str(e, "ShareLocalPath")).map(str::to_owned),
+            relative_target: ed.and_then(|e| event_data_str(e, "RelativeTargetName")).map(str::to_owned),
+            ip_address: ed.and_then(|e| event_data_str(e, "IpAddress")).map(str::to_owned),
+        });
+    }
+    Ok(events)
+}
+
+// ── Windows Defender detections (EID 1116/1117/1006) ─────────────────────────
+
+/// A Windows Defender detection or action event.
+///
+/// - EID 1116 — malware detected
+/// - EID 1117 — action taken on malware
+/// - EID 1006 — scan result (legacy)
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DefenderEvent {
+    pub timestamp: String,
+    pub event_id: u32,
+    pub threat_name: Option<String>,
+    pub severity: Option<String>,
+    pub category: Option<String>,
+    pub path: Option<String>,
+    pub action: Option<String>,
+    pub user: Option<String>,
+}
+
+/// Extract Windows Defender detection events from EID 1116, 1117, and 1006.
+pub fn defender_events(path: &Path) -> Result<Vec<DefenderEvent>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+    let mut events = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(id) if matches!(id, 1116 | 1117 | 1006) => id,
+            _ => continue,
+        };
+        let ts = record.timestamp.to_string();
+        let ed = record.data.get("Event").and_then(|e| e.get("EventData"));
+        events.push(DefenderEvent {
+            timestamp: ts,
+            event_id,
+            threat_name: ed.and_then(|e| event_data_str(e, "Threat Name")).or_else(|| ed.and_then(|e| event_data_str(e, "ThreatName"))).map(str::to_owned),
+            severity: ed.and_then(|e| event_data_str(e, "Severity Name")).or_else(|| ed.and_then(|e| event_data_str(e, "Severity"))).map(str::to_owned),
+            category: ed.and_then(|e| event_data_str(e, "Category Name")).or_else(|| ed.and_then(|e| event_data_str(e, "Category"))).map(str::to_owned),
+            path: ed.and_then(|e| event_data_str(e, "Path")).map(str::to_owned),
+            action: ed.and_then(|e| event_data_str(e, "Action Name")).or_else(|| ed.and_then(|e| event_data_str(e, "Action"))).map(str::to_owned),
+            user: ed.and_then(|e| event_data_str(e, "User")).map(str::to_owned),
+        });
+    }
+    Ok(events)
+}
+
 // ── WMI / Scheduled-task / Cmdline type tests ─────────────────────────────────
 
 #[cfg(test)]
