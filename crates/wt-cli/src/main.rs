@@ -19,6 +19,51 @@ const EXIT_NOT_FOUND: i32 = 3;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Output format for `wt extract`.
+#[derive(clap::ValueEnum, Clone, Copy, PartialEq, Eq)]
+enum OutputFormat {
+    Json,
+    Csv,
+}
+
+/// Minimum anomaly severity filter for `wt verify --min-severity`.
+///
+/// Maps to broad severity bands (info < warning < error < critical).
+#[derive(clap::ValueEnum, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum SeverityFilter {
+    Info,
+    Warning,
+    Error,
+    Critical,
+}
+
+impl SeverityFilter {
+    /// Classify an [`IntegrityAnomaly`] into a [`SeverityFilter`] band.
+    fn from_anomaly(a: &winevt_carver::IntegrityAnomaly) -> Self {
+        use winevt_carver::IntegrityAnomaly as A;
+        match a {
+            A::SurgicalRecordDeletion { .. }
+            | A::RecordIdGap { .. }
+            | A::ChunkChecksumMismatch { .. }
+            | A::RecordChecksumMismatch { .. }
+            | A::FileHeaderChecksumMismatch { .. }
+            | A::LogFileGuidMismatch { .. } => Self::Critical,
+
+            A::LogCleared { .. }
+            | A::NextRecordIdInconsistency { .. }
+            | A::TimestampAnomaly { .. } => Self::Error,
+
+            A::FileNotCleanlyShutdown
+            | A::FileFull
+            | A::ChunkCountMismatch { .. }
+            | A::InvalidChunkDataLength(_) => Self::Warning,
+
+            A::ExportTimestampCorruption { .. }
+            | A::ChecksumMismatch => Self::Info,
+        }
+    }
+}
+
 mod report;
 
 /// EVTX forensic analysis tool.
@@ -53,6 +98,12 @@ enum Cmd {
     Verify {
         /// Path to the EVTX file.
         path: PathBuf,
+        /// Emit one JSON object per line (NDJSON) instead of a JSON array.
+        #[arg(long)]
+        stream: bool,
+        /// Only report anomalies at or above this severity (info|warning|error|critical).
+        #[arg(long, value_enum)]
+        min_severity: Option<SeverityFilter>,
     },
     /// Output all events in chronological order as a JSON array.
     ///
@@ -172,7 +223,8 @@ enum Cmd {
         mermaid: bool,
     },
     /// Extract unique field values, IOCs, PowerShell blocks, WMI events,
-    /// scheduled tasks, or process command lines from events.
+    /// scheduled tasks, process command lines, lateral movement indicators,
+    /// RDP sessions, SMB share access, or Defender detections from events.
     ///
     /// Modes (mutually exclusive):
     ///   `wt extract <PATH> <FIELD>`              — unique field values as `{value, count}` array
@@ -181,31 +233,53 @@ enum Cmd {
     ///   `wt extract --wmi <PATH>`               — WMI provider/subscription events (EID 5857-5861)
     ///   `wt extract --scheduled-task <PATH>`    — scheduled task XML (EID 4698/4702)
     ///   `wt extract --cmdline <PATH>`           — process command lines with LOLBin tagging (EID 4688)
+    ///   `wt extract --lateral <PATH>`           — lateral movement indicators (EID 4648/4769/4776)
+    ///   `wt extract --rdp <PATH>`               — RDP session events (EID 4778/4779)
+    ///   `wt extract --smb <PATH>`               — SMB share access events (EID 5140/5145)
+    ///   `wt extract --defender <PATH>`          — Windows Defender detections (EID 1116/1117/1006)
     Extract {
         /// Path to the EVTX file (always required).
         path: PathBuf,
         /// Field name to search for in event data (e.g. `SubjectUserName`).
         /// Required unless a mode flag is given.
-        #[arg(required_unless_present_any = &["ioc", "powershell", "wmi", "scheduled_task", "cmdline"])]
+        #[arg(required_unless_present_any = &["ioc", "powershell", "wmi", "scheduled_task", "cmdline", "lateral", "rdp", "smb", "defender"])]
         field: Option<String>,
         /// Extract indicators of compromise instead of a named field.
-        #[arg(long, conflicts_with_all = &["powershell", "wmi", "scheduled_task", "cmdline"])]
+        #[arg(long, conflicts_with_all = &["powershell", "wmi", "scheduled_task", "cmdline", "lateral", "rdp", "smb", "defender"])]
         ioc: bool,
         /// Reassemble PowerShell EID 4104 script blocks instead of a named field.
-        #[arg(long, conflicts_with_all = &["ioc", "wmi", "scheduled_task", "cmdline"])]
+        #[arg(long, conflicts_with_all = &["ioc", "wmi", "scheduled_task", "cmdline", "lateral", "rdp", "smb", "defender"])]
         powershell: bool,
         /// With `--powershell`: suppress base64 `-EncodedCommand` decoding.
         #[arg(long, requires = "powershell")]
         no_deobfuscate: bool,
         /// Extract WMI provider/subscription events (EID 5857/5858/5860/5861).
-        #[arg(long, conflicts_with_all = &["ioc", "powershell", "scheduled_task", "cmdline"])]
+        #[arg(long, conflicts_with_all = &["ioc", "powershell", "scheduled_task", "cmdline", "lateral", "rdp", "smb", "defender"])]
         wmi: bool,
         /// Extract scheduled task XML from EID 4698 (created) and EID 4702 (updated).
-        #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "cmdline"])]
+        #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "cmdline", "lateral", "rdp", "smb", "defender"])]
         scheduled_task: bool,
         /// Extract EID 4688 process command lines with LOLBin (wscript, mshta, …) tagging.
-        #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "scheduled_task"])]
+        #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "scheduled_task", "lateral", "rdp", "smb", "defender"])]
         cmdline: bool,
+        /// Extract lateral movement indicators (EID 4648/4769/4776).
+        #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "scheduled_task", "cmdline", "rdp", "smb", "defender"])]
+        lateral: bool,
+        /// Extract RDP session events (EID 4778/4779).
+        #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "scheduled_task", "cmdline", "lateral", "smb", "defender"])]
+        rdp: bool,
+        /// Extract SMB share access events (EID 5140/5145).
+        #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "scheduled_task", "cmdline", "lateral", "rdp", "defender"])]
+        smb: bool,
+        /// Extract Windows Defender detections (EID 1116/1117/1006).
+        #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "scheduled_task", "cmdline", "lateral", "rdp", "smb"])]
+        defender: bool,
+        /// Output format: json (default) or csv.
+        #[arg(long, value_enum, default_value = "json")]
+        format: OutputFormat,
+        /// Emit one JSON object per line (NDJSON) instead of a JSON array.
+        #[arg(long)]
+        stream: bool,
     },
     /// One-line forensic overview of an EVTX file.
     ///
@@ -351,18 +425,30 @@ fn main() {
     let cli = Cli::parse();
     let _carve = cli.carve;
     let code = match cli.command {
-        Cmd::Verify { path } => {
+        Cmd::Verify { path, stream, min_severity } => {
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
             match winevt_carver::verify_integrity(&path) {
-                Ok(indicators) => {
-                    match serde_json::to_string_pretty(&indicators) {
-                        Ok(json) => println!("{json}"),
-                        Err(e) => {
-                            eprintln!("error: {e}");
-                            std::process::exit(EXIT_ERROR);
+                Ok(mut indicators) => {
+                    // Apply --min-severity filter.
+                    if let Some(min) = min_severity {
+                        indicators.retain(|a| SeverityFilter::from_anomaly(a) >= min);
+                    }
+                    if stream {
+                        for a in &indicators {
+                            if let Ok(line) = serde_json::to_string(a) {
+                                println!("{line}");
+                            }
+                        }
+                    } else {
+                        match serde_json::to_string_pretty(&indicators) {
+                            Ok(json) => println!("{json}"),
+                            Err(e) => {
+                                eprintln!("error: {e}");
+                                std::process::exit(EXIT_ERROR);
+                            }
                         }
                     }
                     if indicators.is_empty() { EXIT_CLEAN } else { EXIT_DETECTIONS }
@@ -601,11 +687,43 @@ fn main() {
                 Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
-        Cmd::Extract { field, path, ioc, powershell, no_deobfuscate, wmi, scheduled_task, cmdline } => {
+        Cmd::Extract { field, path, ioc, powershell, no_deobfuscate, wmi, scheduled_task, cmdline, lateral, rdp, smb, defender, format, stream } => {
+            // Emit a serializable slice as JSON (array or NDJSON).
+            fn emit_json<T: serde::Serialize>(items: &[T], ndjson: bool) {
+                if ndjson {
+                    for item in items {
+                        if let Ok(line) = serde_json::to_string(item) {
+                            println!("{line}");
+                        }
+                    }
+                } else {
+                    match serde_json::to_string_pretty(items) {
+                        Ok(json) => println!("{json}"),
+                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    }
+                }
+            }
+
+            // Emit a serializable slice as CSV (header from field names).
+            fn emit_csv<T: serde::Serialize>(items: &[T]) {
+                let mut wtr = csv::Writer::from_writer(std::io::stdout());
+                for item in items {
+                    if let Err(e) = wtr.serialize(item) {
+                        eprintln!("error: {e}");
+                        std::process::exit(EXIT_ERROR);
+                    }
+                }
+                if let Err(e) = wtr.flush() {
+                    eprintln!("error: {e}");
+                    std::process::exit(EXIT_ERROR);
+                }
+            }
+
             if !path.exists() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
+
             if ioc {
                 match winevt_analyze::ioc_extract(&path) {
                     Ok(report) => {
@@ -632,10 +750,7 @@ fn main() {
                             }
                             v
                         }).collect();
-                        match serde_json::to_string_pretty(&enriched) {
-                            Ok(json) => println!("{json}"),
-                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                        }
+                        emit_json(&enriched, stream);
                         EXIT_CLEAN
                     }
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
@@ -643,10 +758,7 @@ fn main() {
             } else if wmi {
                 match winevt_analyze::wmi_events(&path) {
                     Ok(events) => {
-                        match serde_json::to_string_pretty(&events) {
-                            Ok(json) => println!("{json}"),
-                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                        }
+                        if format == OutputFormat::Csv { emit_csv(&events); } else { emit_json(&events, stream); }
                         EXIT_CLEAN
                     }
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
@@ -654,10 +766,7 @@ fn main() {
             } else if scheduled_task {
                 match winevt_analyze::scheduled_tasks(&path) {
                     Ok(tasks) => {
-                        match serde_json::to_string_pretty(&tasks) {
-                            Ok(json) => println!("{json}"),
-                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                        }
+                        if format == OutputFormat::Csv { emit_csv(&tasks); } else { emit_json(&tasks, stream); }
                         EXIT_CLEAN
                     }
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
@@ -665,10 +774,39 @@ fn main() {
             } else if cmdline {
                 match winevt_analyze::process_cmdlines(&path) {
                     Ok(execs) => {
-                        match serde_json::to_string_pretty(&execs) {
-                            Ok(json) => println!("{json}"),
-                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                        }
+                        if format == OutputFormat::Csv { emit_csv(&execs); } else { emit_json(&execs, stream); }
+                        EXIT_CLEAN
+                    }
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                }
+            } else if lateral {
+                match winevt_analyze::lateral_movement(&path) {
+                    Ok(events) => {
+                        if format == OutputFormat::Csv { emit_csv(&events); } else { emit_json(&events, stream); }
+                        EXIT_CLEAN
+                    }
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                }
+            } else if rdp {
+                match winevt_analyze::rdp_sessions(&path) {
+                    Ok(events) => {
+                        if format == OutputFormat::Csv { emit_csv(&events); } else { emit_json(&events, stream); }
+                        EXIT_CLEAN
+                    }
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                }
+            } else if smb {
+                match winevt_analyze::smb_access(&path) {
+                    Ok(events) => {
+                        if format == OutputFormat::Csv { emit_csv(&events); } else { emit_json(&events, stream); }
+                        EXIT_CLEAN
+                    }
+                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                }
+            } else if defender {
+                match winevt_analyze::defender_events(&path) {
+                    Ok(events) => {
+                        if format == OutputFormat::Csv { emit_csv(&events); } else { emit_json(&events, stream); }
                         EXIT_CLEAN
                     }
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
@@ -677,10 +815,7 @@ fn main() {
                 let field_name = field.as_deref().unwrap_or("");
                 match winevt_analyze::extract_field(&path, field_name) {
                     Ok(values) => {
-                        match serde_json::to_string_pretty(&values) {
-                            Ok(json) => println!("{json}"),
-                            Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
-                        }
+                        if format == OutputFormat::Csv { emit_csv(&values); } else { emit_json(&values, stream); }
                         EXIT_CLEAN
                     }
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
