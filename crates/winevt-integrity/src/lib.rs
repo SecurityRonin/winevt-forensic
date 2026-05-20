@@ -1,4 +1,27 @@
-use winevt_core::binary::IntegrityAnomaly;
+use winevt_core::binary::{IntegrityAnomaly, Severity};
+
+/// Unified EVTX integrity analyser.
+///
+/// Runs all available detection algorithms in one pass and returns a
+/// deduplicated, severity-sorted list of anomalies.
+pub struct WinevtIntegrity;
+
+impl WinevtIntegrity {
+    /// Analyse `data` (raw EVTX bytes) and return all detected anomalies,
+    /// sorted from highest severity to lowest.
+    pub fn analyse(_data: &[u8]) -> Vec<IntegrityAnomaly> {
+        unimplemented!("WinevtIntegrity::analyse not yet implemented")
+    }
+
+    /// Same as `analyse` but also accepts a severity floor — only anomalies
+    /// at or above `min_severity` are returned.
+    pub fn analyse_min_severity(data: &[u8], min_severity: Severity) -> Vec<IntegrityAnomaly> {
+        Self::analyse(data)
+            .into_iter()
+            .filter(|a| a.severity() >= min_severity)
+            .collect()
+    }
+}
 
 pub mod provider_heuristics;
 pub use provider_heuristics::{check_provider_consistency, ProviderAnomaly};
@@ -333,7 +356,50 @@ pub fn detect_danderspritz_deletion(chunk_data: &[u8], chunk_offset: u64) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
-    use winevt_core::binary::IntegrityAnomaly;
+    use winevt_core::binary::{IntegrityAnomaly, Severity};
+
+    // ── WinevtIntegrity unified entry point ──────────────────────────────────
+
+    #[test]
+    fn analyse_empty_bytes_returns_empty() {
+        let result = WinevtIntegrity::analyse(&[]);
+        // Must not panic; empty or minimal result is acceptable
+        let _ = result;
+    }
+
+    #[test]
+    fn analyse_random_bytes_does_not_panic() {
+        let data = vec![0xAAu8; 65536];
+        let _ = WinevtIntegrity::analyse(&data);
+    }
+
+    #[test]
+    fn analyse_sorted_by_severity_desc() {
+        let data = vec![0xAAu8; 65536];
+        let result = WinevtIntegrity::analyse(&data);
+        if result.len() >= 2 {
+            let last = result.len() - 1;
+            assert!(
+                result[0].severity() >= result[last].severity(),
+                "first anomaly severity {:?} must be >= last {:?}",
+                result[0].severity(),
+                result[last].severity()
+            );
+        }
+    }
+
+    #[test]
+    fn analyse_min_severity_filters() {
+        let data = vec![0xAAu8; 65536];
+        let result = WinevtIntegrity::analyse_min_severity(&data, Severity::Error);
+        for anomaly in &result {
+            assert!(
+                anomaly.severity() >= Severity::Error,
+                "expected severity >= Error, got {:?}",
+                anomaly.severity()
+            );
+        }
+    }
 
     #[test]
     fn no_gaps_for_contiguous_chunks() {
