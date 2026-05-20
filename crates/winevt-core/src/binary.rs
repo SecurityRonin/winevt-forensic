@@ -73,14 +73,21 @@ impl EvtxChunkHeader {
         if buf[0..8] != ELFCHNK_MAGIC {
             return None;
         }
+        let last_event_record_data_offset = u32::from_le_bytes(buf[44..48].try_into().ok()?);
+        let free_space_offset = u32::from_le_bytes(buf[48..52].try_into().ok()?);
+        if u64::from(last_event_record_data_offset) > CHUNK_SIZE
+            || u64::from(free_space_offset) > CHUNK_SIZE
+        {
+            return None;
+        }
         Some(Self {
             first_event_record_number: u64::from_le_bytes(buf[8..16].try_into().ok()?),
             last_event_record_number: u64::from_le_bytes(buf[16..24].try_into().ok()?),
             first_event_record_id: u64::from_le_bytes(buf[24..32].try_into().ok()?),
             last_event_record_id: u64::from_le_bytes(buf[32..40].try_into().ok()?),
             header_size: u32::from_le_bytes(buf[40..44].try_into().ok()?),
-            last_event_record_data_offset: u32::from_le_bytes(buf[44..48].try_into().ok()?),
-            free_space_offset: u32::from_le_bytes(buf[48..52].try_into().ok()?),
+            last_event_record_data_offset,
+            free_space_offset,
             event_records_checksum: u32::from_le_bytes(buf[52..56].try_into().ok()?),
             header_checksum: u32::from_le_bytes(buf[0x78..0x7C].try_into().ok()?),
         })
@@ -102,8 +109,12 @@ impl EvtxRecordHeader {
         if buf[0..4] != RECORD_MAGIC {
             return None;
         }
+        let size = u32::from_le_bytes(buf[4..8].try_into().ok()?);
+        if size < 24 || u64::from(size) > CHUNK_SIZE {
+            return None;
+        }
         Some(Self {
-            size: u32::from_le_bytes(buf[4..8].try_into().ok()?),
+            size,
             record_id: u64::from_le_bytes(buf[8..16].try_into().ok()?),
             timestamp: u64::from_le_bytes(buf[16..24].try_into().ok()?),
         })
