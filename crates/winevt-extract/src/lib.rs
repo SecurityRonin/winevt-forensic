@@ -13,6 +13,12 @@ use std::path::Path;
 use std::sync::OnceLock;
 use thiserror::Error;
 
+// Re-export semantic event types whose schema is owned by forensicnomicon.
+pub use forensicnomicon::evtx::{
+    DefenderEvent, LateralMovementEvent, ProcessExecution, RdpSessionEvent, ScheduledTask,
+    SmbAccessEvent, WmiEvent,
+};
+
 // ── Error type ────────────────────────────────────────────────────────────────
 
 #[derive(Error, Debug)]
@@ -1610,19 +1616,6 @@ fn collect_field_values(v: &serde_json::Value, field_name: &str, out: &mut std::
 
 // ── Lateral movement (EID 4648/4769/4776) ────────────────────────────────────
 
-/// An explicit-credential / Kerberos / NTLM lateral-movement event.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct LateralMovementEvent {
-    pub timestamp: String,
-    pub event_id: u32,
-    pub source_user: Option<String>,
-    pub target_user: Option<String>,
-    pub target_host: Option<String>,
-    pub logon_type: Option<u32>,
-    pub auth_package: Option<String>,
-    pub encryption_type: Option<String>,
-}
-
 /// Extract lateral-movement indicators from EID 4648 (explicit logon),
 /// 4769 (Kerberos service ticket), and 4776 (NTLM auth attempt).
 pub fn lateral_movement(path: &Path) -> Result<Vec<LateralMovementEvent>, AnalyzeError> {
@@ -1712,16 +1705,6 @@ pub fn lateral_movement(path: &Path) -> Result<Vec<LateralMovementEvent>, Analyz
 
 // ── RDP sessions (EID 4778/4779) ─────────────────────────────────────────────
 
-/// A Remote Desktop session reconnect or disconnect event.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct RdpSessionEvent {
-    pub timestamp: String,
-    pub event_id: u32,
-    pub user: Option<String>,
-    pub session_id: Option<u32>,
-    pub source_ip: Option<String>,
-}
-
 /// Extract RDP session events from EID 4778 (reconnected) and 4779 (disconnected).
 pub fn rdp_sessions(path: &Path) -> Result<Vec<RdpSessionEvent>, AnalyzeError> {
     let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
@@ -1757,18 +1740,6 @@ pub fn rdp_sessions(path: &Path) -> Result<Vec<RdpSessionEvent>, AnalyzeError> {
 }
 
 // ── SMB share access (EID 5140/5145) ─────────────────────────────────────────
-
-/// A network share access or access-check event.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct SmbAccessEvent {
-    pub timestamp: String,
-    pub event_id: u32,
-    pub subject_user: Option<String>,
-    pub share_name: Option<String>,
-    pub share_path: Option<String>,
-    pub relative_target: Option<String>,
-    pub ip_address: Option<String>,
-}
 
 /// Extract SMB share access events from EID 5140 (share accessed) and
 /// 5145 (share object access check).
@@ -1806,18 +1777,6 @@ pub fn smb_access(path: &Path) -> Result<Vec<SmbAccessEvent>, AnalyzeError> {
 }
 
 // ── Microsoft Defender events (EID 1006/1116/1117) ───────────────────────────
-
-/// A Microsoft Defender malware detection or action event.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct DefenderEvent {
-    pub timestamp: String,
-    pub event_id: u32,
-    pub threat_name: Option<String>,
-    pub severity: Option<String>,
-    pub path: Option<String>,
-    pub action_taken: Option<String>,
-    pub process_name: Option<String>,
-}
 
 /// Extract Microsoft Defender events from EID 1116 (malware detected),
 /// 1117 (action taken), and 1006 (scan result — malware found).
@@ -1865,21 +1824,6 @@ pub fn defender_events(path: &Path) -> Result<Vec<DefenderEvent>, AnalyzeError> 
 }
 
 // ── WMI events (EID 5857-5861) ────────────────────────────────────────────────
-
-/// A WMI activity event extracted from EID 5857/5858/5860/5861.
-///
-/// EID 5860 = temporary subscription, EID 5861 = permanent subscription.
-/// These are the persistence-relevant events — a new permanent subscription
-/// is a classic WMI backdoor indicator.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct WmiEvent {
-    pub timestamp: String,
-    pub event_id: u32,
-    pub provider: Option<String>,
-    pub filter_name: Option<String>,
-    pub consumer_name: Option<String>,
-    pub query: Option<String>,
-}
 
 /// Extract WMI provider/subscription events from EID 5857, 5858, 5860, 5861.
 pub fn wmi_events(path: &Path) -> Result<Vec<WmiEvent>, AnalyzeError> {
@@ -1964,20 +1908,6 @@ pub fn wmi_events(path: &Path) -> Result<Vec<WmiEvent>, AnalyzeError> {
 
 // ── Scheduled tasks (EID 4698/4702) ───────────────────────────────────────────
 
-/// A scheduled task creation or modification event.
-///
-/// EID 4698 = task created, EID 4702 = task updated.
-/// The `task_content` field is the raw XML from the event, which may contain
-/// inline VBScript or JScript bodies — a common evasion technique.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct ScheduledTask {
-    pub timestamp: String,
-    pub event_id: u32,
-    pub task_name: Option<String>,
-    pub task_content: Option<String>,
-    pub subject_user: Option<String>,
-}
-
 /// Extract scheduled task events from EID 4698 (created) and EID 4702 (updated).
 pub fn scheduled_tasks(path: &Path) -> Result<Vec<ScheduledTask>, AnalyzeError> {
     let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
@@ -2011,22 +1941,6 @@ pub fn scheduled_tasks(path: &Path) -> Result<Vec<ScheduledTask>, AnalyzeError> 
 }
 
 // ── Process command lines (EID 4688) ─────────────────────────────────────────
-
-/// A process-creation event with LOLBin detection.
-///
-/// LOLBins ("living off the land binaries") are Windows-native signed
-/// executables routinely abused for code execution, download, or lateral
-/// movement: wscript, cscript, mshta, regsvr32, rundll32, certutil, msiexec.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct ProcessExecution {
-    pub timestamp: String,
-    pub pid: u64,
-    pub parent_pid: u64,
-    pub image: String,
-    pub command_line: String,
-    pub parent_image: Option<String>,
-    pub is_lolbin: bool,
-}
 
 const LOLBINS: &[&str] = &[
     "wscript.exe",

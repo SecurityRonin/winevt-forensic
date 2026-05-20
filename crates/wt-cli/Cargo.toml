@@ -13,7 +13,7 @@ path = "src/main.rs"
 [dependencies]
 winevt-carver.workspace = true
 winevt-writer.workspace = true
-winevt-analyze.workspace = true
+winevt-extract.workspace = true
 winevt-triage.workspace = true
 clap.workspace = true
 anyhow.workspace = true

@@ -476,9 +476,9 @@ fn main() {
                 println!("[]");
                 std::process::exit(EXIT_CLEAN);
             }
-            let mut all_entries: Vec<winevt_analyze::TimelineEntry> = Vec::new();
+            let mut all_entries: Vec<winevt_extract::TimelineEntry> = Vec::new();
             for src in &sources {
-                if let Ok(mut entries) = winevt_analyze::timeline(src) {
+                if let Ok(mut entries) = winevt_extract::timeline(src) {
                     all_entries.append(&mut entries);
                 }
             }
@@ -511,7 +511,7 @@ fn main() {
                 std::process::exit(EXIT_NOT_FOUND);
             }
             if mermaid || graph {
-                match winevt_analyze::logon_graph(&path) {
+                match winevt_extract::logon_graph(&path) {
                     Ok(g) => {
                         if mermaid {
                             println!("graph LR");
@@ -531,7 +531,7 @@ fn main() {
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
             } else {
-                match winevt_analyze::sessions(&path) {
+                match winevt_extract::sessions(&path) {
                     Ok(all_sessions) => {
                         let filtered: Vec<_> = all_sessions
                             .into_iter()
@@ -560,7 +560,7 @@ fn main() {
             }
             // --process: all EID 4688 processes sorted LFO
             if process {
-                match winevt_analyze::rare_processes(&path, usize::MAX) {
+                match winevt_extract::rare_processes(&path, usize::MAX) {
                     Ok(procs) => {
                         match serde_json::to_string_pretty(&procs) {
                             Ok(json) => println!("{json}"),
@@ -572,7 +572,7 @@ fn main() {
                 }
             } else if anomaly {
                 // --anomaly: z-score anomaly detection mode
-                match winevt_analyze::anomaly(&path, min_z) {
+                match winevt_extract::anomaly(&path, min_z) {
                     Ok(entries) => {
                         let has_anomalies = !entries.is_empty();
                         match serde_json::to_string_pretty(&entries) {
@@ -585,7 +585,7 @@ fn main() {
                 }
             } else {
                 // standard event-ID frequency mode
-                match winevt_analyze::frequency(&path) {
+                match winevt_extract::frequency(&path) {
                     Ok(mut report) => {
                         // LFO: least-frequent-first for threat hunting
                         report.by_event_id.sort_by(|a, b| a.count.cmp(&b.count).then(a.event_id.cmp(&b.event_id)));
@@ -628,7 +628,7 @@ fn main() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
-            match winevt_analyze::search(&path, &query, regex) {
+            match winevt_extract::search(&path, &query, regex) {
                 Ok(entries) => {
                     let has_matches = !entries.is_empty();
                     if stream {
@@ -655,7 +655,7 @@ fn main() {
                 eprintln!("error: path not found: {}", b.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
-            match winevt_analyze::diff(&a, &b) {
+            match winevt_extract::diff(&a, &b) {
                 Ok(d) => {
                     let is_different = !d.added.is_empty() || !d.removed.is_empty();
                     match serde_json::to_string_pretty(&d) {
@@ -672,7 +672,7 @@ fn main() {
                 eprintln!("error: path not found: {}", path.display());
                 std::process::exit(EXIT_NOT_FOUND);
             }
-            match winevt_analyze::process_tree(&path) {
+            match winevt_extract::process_tree(&path) {
                 Ok(nodes) => {
                     if mermaid {
                         println!("graph LR");
@@ -731,7 +731,7 @@ fn main() {
             }
 
             if ioc {
-                match winevt_analyze::ioc_extract(&path) {
+                match winevt_extract::ioc_extract(&path) {
                     Ok(report) => {
                         let has_iocs = !report.iocs.is_empty();
                         match serde_json::to_string_pretty(&report) {
@@ -743,12 +743,12 @@ fn main() {
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
             } else if powershell {
-                match winevt_analyze::powershell_blocks(&path) {
+                match winevt_extract::powershell_blocks(&path) {
                     Ok(blocks) => {
                         let enriched: Vec<serde_json::Value> = blocks.iter().map(|b| {
                             let mut v = serde_json::to_value(b).unwrap_or(serde_json::Value::Null);
                             if !no_deobfuscate {
-                                if let Some(decoded) = winevt_analyze::deobfuscate_ps(&b.text) {
+                                if let Some(decoded) = winevt_extract::deobfuscate_ps(&b.text) {
                                     if let Some(obj) = v.as_object_mut() {
                                         obj.insert("decoded_command".to_string(), serde_json::Value::String(decoded));
                                     }
@@ -762,7 +762,7 @@ fn main() {
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
             } else if wmi {
-                match winevt_analyze::wmi_events(&path) {
+                match winevt_extract::wmi_events(&path) {
                     Ok(events) => {
                         if format == OutputFormat::Csv { emit_csv(&events); } else { emit_json(&events, stream); }
                         EXIT_CLEAN
@@ -770,7 +770,7 @@ fn main() {
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
             } else if scheduled_task {
-                match winevt_analyze::scheduled_tasks(&path) {
+                match winevt_extract::scheduled_tasks(&path) {
                     Ok(tasks) => {
                         if format == OutputFormat::Csv { emit_csv(&tasks); } else { emit_json(&tasks, stream); }
                         EXIT_CLEAN
@@ -778,7 +778,7 @@ fn main() {
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
             } else if cmdline {
-                match winevt_analyze::process_cmdlines(&path) {
+                match winevt_extract::process_cmdlines(&path) {
                     Ok(execs) => {
                         if format == OutputFormat::Csv { emit_csv(&execs); } else { emit_json(&execs, stream); }
                         EXIT_CLEAN
@@ -786,7 +786,7 @@ fn main() {
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
             } else if lateral {
-                match winevt_analyze::lateral_movement(&path) {
+                match winevt_extract::lateral_movement(&path) {
                     Ok(events) => {
                         if format == OutputFormat::Csv { emit_csv(&events); } else { emit_json(&events, stream); }
                         EXIT_CLEAN
@@ -794,7 +794,7 @@ fn main() {
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
             } else if rdp {
-                match winevt_analyze::rdp_sessions(&path) {
+                match winevt_extract::rdp_sessions(&path) {
                     Ok(events) => {
                         if format == OutputFormat::Csv { emit_csv(&events); } else { emit_json(&events, stream); }
                         EXIT_CLEAN
@@ -802,7 +802,7 @@ fn main() {
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
             } else if smb {
-                match winevt_analyze::smb_access(&path) {
+                match winevt_extract::smb_access(&path) {
                     Ok(events) => {
                         if format == OutputFormat::Csv { emit_csv(&events); } else { emit_json(&events, stream); }
                         EXIT_CLEAN
@@ -810,7 +810,7 @@ fn main() {
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
             } else if defender {
-                match winevt_analyze::defender_events(&path) {
+                match winevt_extract::defender_events(&path) {
                     Ok(events) => {
                         if format == OutputFormat::Csv { emit_csv(&events); } else { emit_json(&events, stream); }
                         EXIT_CLEAN
@@ -819,7 +819,7 @@ fn main() {
                 }
             } else {
                 let field_name = field.as_deref().unwrap_or("");
-                match winevt_analyze::extract_field(&path, field_name) {
+                match winevt_extract::extract_field(&path, field_name) {
                     Ok(values) => {
                         if format == OutputFormat::Csv { emit_csv(&values); } else { emit_json(&values, stream); }
                         EXIT_CLEAN
@@ -855,9 +855,9 @@ fn main() {
                 Err(_) => ("N/A".to_string(), serde_json::json!(null), serde_json::json!(null)),
             };
 
-            let freq = winevt_analyze::frequency(&path);
+            let freq = winevt_extract::frequency(&path);
             let indicators = winevt_carver::verify_integrity(&path).unwrap_or_default();
-            let ioc_report = winevt_analyze::ioc_extract(&path);
+            let ioc_report = winevt_extract::ioc_extract(&path);
 
             let (total_events, top_event_ids, first_ts, last_ts) = match freq {
                 Ok(report) => {
@@ -865,7 +865,7 @@ fn main() {
                         .take(5)
                         .map(|f| serde_json::json!({ "event_id": f.event_id, "count": f.count }))
                         .collect();
-                    let (first, last) = match winevt_analyze::timeline(&path) {
+                    let (first, last) = match winevt_extract::timeline(&path) {
                         Ok(entries) => {
                             let first = entries.iter().map(|e| e.timestamp.as_str()).min().map(str::to_owned);
                             let last  = entries.iter().map(|e| e.timestamp.as_str()).max().map(str::to_owned);

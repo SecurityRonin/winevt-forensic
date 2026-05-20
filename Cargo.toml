@@ -7,7 +7,7 @@ members = [
     "crates/winevt-memory",
     "crates/winevt-binxml",
     "crates/winevt-writer",
-    "crates/winevt-analyze",
+    "crates/winevt-extract",
     "crates/winevt-manifest",
     "crates/winevt-triage",
     "crates/wt-cli",
@@ -38,9 +38,9 @@ winevt-integrity = { path = "crates/winevt-integrity" }
 winevt-carver = { path = "crates/winevt-carver" }
 winevt-memory = { path = "crates/winevt-memory" }
 winevt-writer = { path = "crates/winevt-writer" }
-winevt-analyze = { path = "crates/winevt-analyze" }
+winevt-extract = { path = "crates/winevt-extract" }
 winevt-manifest = { path = "crates/winevt-manifest" }
-forensicnomicon = { path = "../forensicnomicon" }
+forensicnomicon = { path = "../forensicnomicon", features = ["serde"] }
 winevt-triage = { path = "crates/winevt-triage" }
 wt-cli = { path = "crates/wt-cli" }
 
