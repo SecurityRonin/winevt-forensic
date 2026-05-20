@@ -461,6 +461,40 @@ pub fn frequency(path: &Path) -> Result<FrequencyReport, AnalyzeError> {
     })
 }
 
+// ── Unified extraction ────────────────────────────────────────────────────────
+
+/// Extract every supported semantic event type from an EVTX file and return
+/// them as a timestamp-sorted `Vec<EvtxEvent>`.
+///
+/// Each extractor is called independently; a failure in one (e.g. no matching
+/// EIDs) is silently skipped so the others can still contribute results.
+pub fn extract_all(path: &Path) -> Result<Vec<EvtxEvent>, AnalyzeError> {
+    // Verify the path is accessible before fanning out.
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+
+    let mut events: Vec<EvtxEvent> = Vec::new();
+
+    macro_rules! push_all {
+        ($fn:ident, $variant:ident) => {
+            if let Ok(items) = $fn(path) {
+                events.extend(items.into_iter().map(EvtxEvent::$variant));
+            }
+        };
+    }
+
+    push_all!(lateral_movement, LateralMovement);
+    push_all!(rdp_sessions, RdpSession);
+    push_all!(smb_access, SmbAccess);
+    push_all!(defender_events, Defender);
+    push_all!(wmi_events, Wmi);
+    push_all!(scheduled_tasks, ScheduledTask);
+    push_all!(process_cmdlines, ProcessExecution);
+
+    events.sort_unstable_by(|a, b| a.timestamp().cmp(b.timestamp()));
+
+    Ok(events)
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
