@@ -117,22 +117,6 @@ pub fn compute_checksum(data: &[u8]) -> u32 {
     h.finalize()
 }
 
-/// Severity level of an [`IntegrityAnomaly`].
-///
-/// Variants are ordered from least to most severe so that `<` / `>` comparisons
-/// work naturally (e.g. `Severity::Warning < Severity::Error`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
-pub enum Severity {
-    /// Consistent with legitimate operation; worth noting.
-    Info,
-    /// Suspicious; plausible legitimate explanation exists.
-    Warning,
-    /// Strong indicator of tampering or structural corruption.
-    Error,
-    /// File cannot be reliably decoded.
-    Critical,
-}
-
 /// Structural integrity anomalies detected in an EVTX file.
 ///
 /// These variants represent low-level binary format facts only.
@@ -278,36 +262,6 @@ impl IntegrityAnomaly {
             | IntegrityAnomaly::FileNotCleanlyShutdown
             | IntegrityAnomaly::FileFull
             | IntegrityAnomaly::ChecksumMismatch => Severity::Warning,
-        }
-    }
-}
-
-impl IntegrityAnomaly {
-    /// Return the [`Severity`] assigned to this anomaly variant.
-    pub fn severity(&self) -> Severity {
-        match self {
-            // High-confidence anti-forensic manipulation
-            Self::SurgicalRecordDeletion { .. } => Severity::Critical,
-
-            // Structural violations — strong tampering / corruption signal
-            Self::ChunkChecksumMismatch { .. }
-            | Self::FileHeaderChecksumMismatch { .. }
-            | Self::RecordChecksumMismatch { .. }
-            | Self::NextRecordIdInconsistency { .. }
-            | Self::LogFileGuidMismatch { .. } => Severity::Error,
-
-            // Requires attention; may have benign explanations
-            Self::RecordIdGap { .. }
-            | Self::TimestampAnomaly { .. }
-            | Self::ChunkCountMismatch { .. }
-            | Self::ExportTimestampCorruption { .. }
-            | Self::InvalidChunkDataLength(_) => Severity::Warning,
-
-            // Informational / low-confidence
-            Self::LogCleared { .. }
-            | Self::FileNotCleanlyShutdown
-            | Self::FileFull
-            | Self::ChecksumMismatch => Severity::Info,
         }
     }
 }

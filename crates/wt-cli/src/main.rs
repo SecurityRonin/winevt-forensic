@@ -51,7 +51,10 @@ impl SeverityFilter {
 
             A::LogCleared { .. }
             | A::NextRecordIdInconsistency { .. }
-            | A::TimestampAnomaly { .. } => Self::Error,
+            | A::TimestampAnomaly { .. }
+            | A::TrailingData { .. }
+            | A::TruncatedFile { .. }
+            | A::OverlappingChunks { .. } => Self::Error,
 
             A::FileNotCleanlyShutdown
             | A::FileFull
