@@ -287,6 +287,20 @@ enum Cmd {
         #[arg(long)]
         stream: bool,
     },
+    /// Extract all supported semantic event types and emit a timestamp-sorted
+    /// unified event list.
+    ///
+    /// Each event object includes a `"kind"` discriminant field:
+    /// `LateralMovement`, `RdpSession`, `SmbAccess`, `Defender`, `Wmi`,
+    /// `ScheduledTask`, or `ProcessExecution`.
+    #[command(name = "extract-all")]
+    ExtractAll {
+        /// Path to the EVTX file.
+        path: PathBuf,
+        /// Emit one JSON object per line (NDJSON) instead of a JSON array.
+        #[arg(long)]
+        stream: bool,
+    },
     /// One-line forensic overview of an EVTX file.
     ///
     /// Outputs a JSON object with `file`, `total_events`, `time_range` (first/last),
@@ -826,6 +840,25 @@ fn main() {
                     }
                     Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
                 }
+            }
+        }
+        Cmd::ExtractAll { path, stream } => {
+            if !path.exists() {
+                eprintln!("error: path not found: {}", path.display());
+                std::process::exit(EXIT_NOT_FOUND);
+            }
+            match winevt_extract::extract_all(&path) {
+                Ok(events) => {
+                    if stream {
+                        for ev in &events {
+                            println!("{}", serde_json::to_string(ev).unwrap_or_default());
+                        }
+                    } else {
+                        println!("{}", serde_json::to_string_pretty(&events).unwrap_or_default());
+                    }
+                    EXIT_CLEAN
+                }
+                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
             }
         }
         Cmd::Info { path } => {
