@@ -158,10 +158,9 @@ impl WinevtIntegrity {
         // Export timestamp corruption (Fox-IT 2019)
         out.extend(detect_export_timestamp_corruption(&all_records_export));
 
-        // Phantom record injection
+        // Phantom record injection — convert suspicious PhantomAlerts to IntegrityAnomaly
         all_records_phantom.sort_by_key(|&(id, _)| id);
-        // detect_phantom_records returns PhantomAlert, not IntegrityAnomaly — skip from unified result
-        // (PhantomAlert is a separate diagnostic type without an IntegrityAnomaly mapping)
+        out.extend(phantom_alerts_to_anomalies(&detect_phantom_records(&all_records_phantom)));
 
         // ── Dedup + sort by severity descending ───────────────────────────────
         // Use Debug repr for dedup (IntegrityAnomaly derives Debug).
@@ -402,6 +401,24 @@ pub fn detect_phantom_records(records: &[(u64, i64)]) -> Vec<PhantomAlert> {
         }
     }
     out
+}
+
+/// Convert `PhantomAlert` results from [`detect_phantom_records`] into
+/// [`IntegrityAnomaly::PhantomRecordInjection`] entries.
+///
+/// Only alerts where `suspicious == true` are converted; benign gaps (large
+/// timestamp delta proportional to missing record count) are silently dropped.
+pub fn phantom_alerts_to_anomalies(alerts: &[PhantomAlert]) -> Vec<IntegrityAnomaly> {
+    alerts
+        .iter()
+        .filter(|a| a.suspicious)
+        .map(|a| IntegrityAnomaly::PhantomRecordInjection {
+            gap_start_id: a.gap_start_id,
+            gap_end_id: a.gap_end_id,
+            prev_timestamp_ns: a.prev_timestamp_ns,
+            next_timestamp_ns: a.next_timestamp_ns,
+        })
+        .collect()
 }
 
 /// Detect the wevtutil / Event Viewer export timestamp corruption described by Fox-IT.
