@@ -102,6 +102,22 @@ pub fn compute_checksum(data: &[u8]) -> u32 {
     h.finalize()
 }
 
+/// Severity level of an [`IntegrityAnomaly`].
+///
+/// Variants are ordered from least to most severe so that `<` / `>` comparisons
+/// work naturally (e.g. `Severity::Warning < Severity::Error`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+pub enum Severity {
+    /// Consistent with legitimate operation; worth noting.
+    Info,
+    /// Suspicious; plausible legitimate explanation exists.
+    Warning,
+    /// Strong indicator of tampering or structural corruption.
+    Error,
+    /// File cannot be reliably decoded.
+    Critical,
+}
+
 /// Structural integrity anomalies detected in an EVTX file.
 ///
 /// These variants represent low-level binary format facts only.
@@ -200,6 +216,55 @@ pub enum IntegrityAnomaly {
         expected: u128,
         actual: u128,
     },
+    /// Unexpected bytes follow the last valid chunk in the file.
+    TrailingData {
+        /// Byte offset where unexpected data begins after the last valid chunk.
+        offset: u64,
+        /// Number of unexpected bytes.
+        len: usize,
+    },
+    /// The file ends before all chunks declared in the file header are present.
+    TruncatedFile {
+        /// Chunk count declared in the file header.
+        declared_chunks: u16,
+        /// Chunks actually found in the file.
+        found_chunks: usize,
+    },
+    /// Two chunk byte-ranges overlap, indicating structural corruption.
+    OverlappingChunks {
+        /// Byte offset of the first (earlier) chunk.
+        chunk_a_offset: u64,
+        /// Byte offset of the second (later) chunk whose range overlaps chunk_a.
+        chunk_b_offset: u64,
+    },
+}
+
+impl IntegrityAnomaly {
+    /// Returns the [`Severity`] of this anomaly.
+    pub fn severity(&self) -> Severity {
+        match self {
+            IntegrityAnomaly::SurgicalRecordDeletion { .. } => Severity::Critical,
+
+            IntegrityAnomaly::ChunkChecksumMismatch { .. }
+            | IntegrityAnomaly::RecordChecksumMismatch { .. }
+            | IntegrityAnomaly::FileHeaderChecksumMismatch { .. }
+            | IntegrityAnomaly::LogFileGuidMismatch { .. }
+            | IntegrityAnomaly::NextRecordIdInconsistency { .. }
+            | IntegrityAnomaly::RecordIdGap { .. }
+            | IntegrityAnomaly::ChunkCountMismatch { .. }
+            | IntegrityAnomaly::InvalidChunkDataLength(_)
+            | IntegrityAnomaly::TrailingData { .. }
+            | IntegrityAnomaly::TruncatedFile { .. }
+            | IntegrityAnomaly::OverlappingChunks { .. } => Severity::Error,
+
+            IntegrityAnomaly::TimestampAnomaly { .. }
+            | IntegrityAnomaly::ExportTimestampCorruption { .. }
+            | IntegrityAnomaly::LogCleared { .. }
+            | IntegrityAnomaly::FileNotCleanlyShutdown
+            | IntegrityAnomaly::FileFull
+            | IntegrityAnomaly::ChecksumMismatch => Severity::Warning,
+        }
+    }
 }
 
 #[cfg(test)]
