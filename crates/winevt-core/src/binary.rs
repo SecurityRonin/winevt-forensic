@@ -221,4 +221,185 @@ mod tests {
         assert_eq!(CHUNK_SIZE,           forensicnomicon::evtx::CHUNK_SIZE);
         assert_eq!(CHUNK_RECORDS_OFFSET, forensicnomicon::evtx::CHUNK_RECORDS_OFFSET);
     }
+
+    // ── Severity ordering ────────────────────────────────────────────────────
+
+    #[test]
+    fn severity_ordering() {
+        assert!(Severity::Info < Severity::Warning);
+        assert!(Severity::Warning < Severity::Error);
+        assert!(Severity::Error < Severity::Critical);
+    }
+
+    // ── severity() mapping for every existing variant ────────────────────────
+
+    #[test]
+    fn severity_surgical_record_deletion_is_critical() {
+        let a = IntegrityAnomaly::SurgicalRecordDeletion {
+            chunk_offset: 0,
+            absorbing_record_id: 1,
+            stated_size: 100,
+            ghost_offset_in_chunk: 50,
+        };
+        assert_eq!(a.severity(), Severity::Critical);
+    }
+
+    #[test]
+    fn severity_chunk_checksum_mismatch_is_error() {
+        let a = IntegrityAnomaly::ChunkChecksumMismatch {
+            chunk_offset: 0,
+            computed: 1,
+            stored: 2,
+        };
+        assert_eq!(a.severity(), Severity::Error);
+    }
+
+    #[test]
+    fn severity_record_checksum_mismatch_is_error() {
+        let a = IntegrityAnomaly::RecordChecksumMismatch {
+            chunk_offset: 0,
+            computed: 1,
+            stored: 2,
+        };
+        assert_eq!(a.severity(), Severity::Error);
+    }
+
+    #[test]
+    fn severity_file_header_checksum_mismatch_is_error() {
+        let a = IntegrityAnomaly::FileHeaderChecksumMismatch {
+            computed: 1,
+            stored: 2,
+        };
+        assert_eq!(a.severity(), Severity::Error);
+    }
+
+    #[test]
+    fn severity_log_file_guid_mismatch_is_error() {
+        let a = IntegrityAnomaly::LogFileGuidMismatch {
+            chunk_index: 1,
+            expected: 0,
+            actual: 1,
+        };
+        assert_eq!(a.severity(), Severity::Error);
+    }
+
+    #[test]
+    fn severity_next_record_id_inconsistency_is_error() {
+        let a = IntegrityAnomaly::NextRecordIdInconsistency {
+            header_next: 5,
+            actual_highest: 3,
+        };
+        assert_eq!(a.severity(), Severity::Error);
+    }
+
+    #[test]
+    fn severity_record_id_gap_is_error() {
+        let a = IntegrityAnomaly::RecordIdGap {
+            chunk_offset: 0,
+            expected: 5,
+            found: 10,
+        };
+        assert_eq!(a.severity(), Severity::Error);
+    }
+
+    #[test]
+    fn severity_chunk_count_mismatch_is_error() {
+        let a = IntegrityAnomaly::ChunkCountMismatch {
+            header_count: 5,
+            actual_count: 3,
+        };
+        assert_eq!(a.severity(), Severity::Error);
+    }
+
+    #[test]
+    fn severity_invalid_chunk_data_length_is_error() {
+        let a = IntegrityAnomaly::InvalidChunkDataLength(999);
+        assert_eq!(a.severity(), Severity::Error);
+    }
+
+    #[test]
+    fn severity_timestamp_anomaly_is_warning() {
+        let a = IntegrityAnomaly::TimestampAnomaly {
+            chunk_offset: 0,
+            record_id: 1,
+            prev_ts: 100,
+            this_ts: 50,
+        };
+        assert_eq!(a.severity(), Severity::Warning);
+    }
+
+    #[test]
+    fn severity_export_timestamp_corruption_is_warning() {
+        let a = IntegrityAnomaly::ExportTimestampCorruption {
+            record_id: 1,
+            chunk_offset: 0,
+        };
+        assert_eq!(a.severity(), Severity::Warning);
+    }
+
+    #[test]
+    fn severity_log_cleared_is_warning() {
+        let a = IntegrityAnomaly::LogCleared {
+            channel: "Security".to_string(),
+            timestamp: 0,
+            user_sid: None,
+        };
+        assert_eq!(a.severity(), Severity::Warning);
+    }
+
+    #[test]
+    fn severity_file_not_cleanly_shutdown_is_warning() {
+        assert_eq!(IntegrityAnomaly::FileNotCleanlyShutdown.severity(), Severity::Warning);
+    }
+
+    #[test]
+    fn severity_file_full_is_warning() {
+        assert_eq!(IntegrityAnomaly::FileFull.severity(), Severity::Warning);
+    }
+
+    #[test]
+    fn severity_checksum_mismatch_is_warning() {
+        assert_eq!(IntegrityAnomaly::ChecksumMismatch.severity(), Severity::Warning);
+    }
+
+    // ── New variants: existence + Debug serialisation + severity ─────────────
+
+    #[test]
+    fn trailing_data_exists_and_debug() {
+        let a = IntegrityAnomaly::TrailingData { offset: 65536, len: 128 };
+        let s = format!("{a:?}");
+        assert!(s.contains("TrailingData"));
+    }
+
+    #[test]
+    fn trailing_data_severity_is_error() {
+        let a = IntegrityAnomaly::TrailingData { offset: 0, len: 1 };
+        assert_eq!(a.severity(), Severity::Error);
+    }
+
+    #[test]
+    fn truncated_file_exists_and_debug() {
+        let a = IntegrityAnomaly::TruncatedFile { declared_chunks: 10, found_chunks: 7 };
+        let s = format!("{a:?}");
+        assert!(s.contains("TruncatedFile"));
+    }
+
+    #[test]
+    fn truncated_file_severity_is_error() {
+        let a = IntegrityAnomaly::TruncatedFile { declared_chunks: 10, found_chunks: 7 };
+        assert_eq!(a.severity(), Severity::Error);
+    }
+
+    #[test]
+    fn overlapping_chunks_exists_and_debug() {
+        let a = IntegrityAnomaly::OverlappingChunks { chunk_a_offset: 512, chunk_b_offset: 1024 };
+        let s = format!("{a:?}");
+        assert!(s.contains("OverlappingChunks"));
+    }
+
+    #[test]
+    fn overlapping_chunks_severity_is_error() {
+        let a = IntegrityAnomaly::OverlappingChunks { chunk_a_offset: 0, chunk_b_offset: 512 };
+        assert_eq!(a.severity(), Severity::Error);
+    }
 }
