@@ -2240,4 +2240,91 @@ mod ioc_tests {
         panic!("No EID 1 found");
     }
 
+    // ── lateral_movement (error paths + empty result) ─────────────────────────
+
+    #[test]
+    fn lateral_movement_nonexistent_path_returns_error() {
+        let result = lateral_movement(Path::new("/nonexistent/security.evtx"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn lateral_movement_no_relevant_eids_returns_empty() {
+        // Powershell-Invoke-Obfuscation-string-menu.evtx has only EID 4104 events —
+        // none of 4648/4769/4776 — so lateral_movement should return Ok(vec![]).
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../tests/data/hayabusa-sample-evtx/DeepBlueCLI/Powershell-Invoke-Obfuscation-string-menu.evtx",
+        );
+        if !path.exists() {
+            eprintln!("SKIP: corpus file not found");
+            return;
+        }
+        let result = lateral_movement(&path).expect("should succeed");
+        assert!(result.is_empty(), "expected no lateral movement events");
+    }
+
+    // ── rdp_sessions (error paths + empty result) ─────────────────────────────
+
+    #[test]
+    fn rdp_sessions_nonexistent_path_returns_error() {
+        let result = rdp_sessions(Path::new("/nonexistent/security.evtx"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rdp_sessions_no_relevant_eids_returns_empty() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../tests/data/hayabusa-sample-evtx/DeepBlueCLI/Powershell-Invoke-Obfuscation-string-menu.evtx",
+        );
+        if !path.exists() {
+            eprintln!("SKIP: corpus file not found");
+            return;
+        }
+        let result = rdp_sessions(&path).expect("should succeed");
+        assert!(result.is_empty(), "expected no RDP session events");
+    }
+
+    // ── smb_access (error paths + empty result) ───────────────────────────────
+
+    #[test]
+    fn smb_access_nonexistent_path_returns_error() {
+        let result = smb_access(Path::new("/nonexistent/security.evtx"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn smb_access_no_relevant_eids_returns_empty() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../tests/data/hayabusa-sample-evtx/DeepBlueCLI/Powershell-Invoke-Obfuscation-string-menu.evtx",
+        );
+        if !path.exists() {
+            eprintln!("SKIP: corpus file not found");
+            return;
+        }
+        let result = smb_access(&path).expect("should succeed");
+        assert!(result.is_empty(), "expected no SMB access events");
+    }
+
+    // ── defender_events (error paths + empty result) ──────────────────────────
+
+    #[test]
+    fn defender_events_nonexistent_path_returns_error() {
+        let result = defender_events(Path::new("/nonexistent/defender.evtx"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn defender_events_no_relevant_eids_returns_empty() {
+        // A PowerShell log has no Defender EIDs 1006/1116/1117.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../tests/data/hayabusa-sample-evtx/DeepBlueCLI/Powershell-Invoke-Obfuscation-string-menu.evtx",
+        );
+        if !path.exists() {
+            eprintln!("SKIP: corpus file not found");
+            return;
+        }
+        let result = defender_events(&path).expect("should succeed");
+        assert!(result.is_empty(), "expected no Defender events");
+    }
+
 }
