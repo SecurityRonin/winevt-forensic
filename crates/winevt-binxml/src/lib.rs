@@ -17,6 +17,8 @@ pub enum BinXmlError {
     StringTableOverflow { offset: usize, chunk_size: usize },
     #[error("payload truncated at offset {offset}")]
     Truncated { offset: usize },
+    #[error("iteration limit of {limit} steps exceeded — possible infinite-loop attack")]
+    IterationLimitExceeded { limit: usize },
 }
 
 /// Maximum EVTX chunk size (65 536 bytes) — string table offsets must be within this.
@@ -41,8 +43,14 @@ pub fn validate_binxml(bytes: &[u8]) -> Result<(), BinXmlError> {
         return Err(BinXmlError::InvalidFragmentHeader { offset: 0, got: bytes[0] });
     }
     // Walk tokens starting after the 4-byte fragment header (token + major + minor + flags)
+    const MAX_STEPS: usize = 65_536; // one step per byte is the worst-case legitimate payload
+    let mut steps = 0usize;
     let mut pos = 4usize;
     while pos < bytes.len() {
+        steps += 1;
+        if steps > MAX_STEPS {
+            return Err(BinXmlError::IterationLimitExceeded { limit: MAX_STEPS });
+        }
         let token = bytes[pos];
         if token == 0x00 {
             // EndOfStream — valid termination
