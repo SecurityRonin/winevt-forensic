@@ -4,10 +4,14 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
+[workspace]
+
 [dependencies]
 libfuzzer-sys = "0.4"
 winevt-core = { path = "../crates/winevt-core" }
 winevt-carver = { path = "../crates/winevt-carver" }
+winevt-integrity = { path = "../crates/winevt-integrity" }
+winevt-binxml = { path = "../crates/winevt-binxml" }
 
 [[bin]]
 name = "fuzz_file_header"
@@ -30,5 +34,17 @@ doc = false
 [[bin]]
 name = "fuzz_carve_from_bytes"
 path = "fuzz_targets/fuzz_carve_from_bytes.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_integrity_analyse"
+path = "fuzz_targets/fuzz_integrity_analyse.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_validate_binxml"
+path = "fuzz_targets/fuzz_validate_binxml.rs"
 test = false
 doc = false
