@@ -62,7 +62,8 @@ impl SeverityFilter {
             | A::InvalidChunkDataLength(_) => Self::Warning,
 
             A::ExportTimestampCorruption { .. }
-            | A::ChecksumMismatch => Self::Info,
+            | A::ChecksumMismatch
+            | A::EmptyLog => Self::Info,
         }
     }
 }

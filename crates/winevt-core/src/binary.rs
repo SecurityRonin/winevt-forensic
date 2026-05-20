@@ -247,6 +247,9 @@ pub enum IntegrityAnomaly {
         /// Byte offset of the second (later) chunk whose range overlaps chunk_a.
         chunk_b_offset: u64,
     },
+    /// The file header reports zero chunks. The log was cleared and the file
+    /// was recreated but never written to, or the header is corrupt.
+    EmptyLog,
 }
 
 impl IntegrityAnomaly {
@@ -272,7 +275,8 @@ impl IntegrityAnomaly {
             | IntegrityAnomaly::LogCleared { .. }
             | IntegrityAnomaly::FileNotCleanlyShutdown
             | IntegrityAnomaly::FileFull
-            | IntegrityAnomaly::ChecksumMismatch => Severity::Warning,
+            | IntegrityAnomaly::ChecksumMismatch
+            | IntegrityAnomaly::EmptyLog => Severity::Warning,
         }
     }
 }
