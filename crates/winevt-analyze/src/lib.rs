@@ -1608,6 +1608,262 @@ fn collect_field_values(v: &serde_json::Value, field_name: &str, out: &mut std::
     }
 }
 
+// ── Lateral movement (EID 4648/4769/4776) ────────────────────────────────────
+
+/// An explicit-credential / Kerberos / NTLM lateral-movement event.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LateralMovementEvent {
+    pub timestamp: String,
+    pub event_id: u32,
+    pub source_user: Option<String>,
+    pub target_user: Option<String>,
+    pub target_host: Option<String>,
+    pub logon_type: Option<u32>,
+    pub auth_package: Option<String>,
+    pub encryption_type: Option<String>,
+}
+
+/// Extract lateral-movement indicators from EID 4648 (explicit logon),
+/// 4769 (Kerberos service ticket), and 4776 (NTLM auth attempt).
+pub fn lateral_movement(path: &Path) -> Result<Vec<LateralMovementEvent>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut events = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(id) if matches!(id, 4648 | 4769 | 4776) => id,
+            _ => continue,
+        };
+        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
+            Some(e) => e,
+            None => continue,
+        };
+
+        let ev = match event_id {
+            4648 => {
+                // Explicit credential logon (RunAs / Pass-the-Hash indicator)
+                let logon_type = event_data_str(ed, "LogonType")
+                    .and_then(|s| s.parse::<u32>().ok());
+                LateralMovementEvent {
+                    timestamp: record.timestamp.to_string(),
+                    event_id,
+                    source_user: event_data_str(ed, "SubjectUserName").map(str::to_owned),
+                    target_user: event_data_str(ed, "TargetUserName").map(str::to_owned),
+                    target_host: event_data_str(ed, "TargetServerName").map(str::to_owned),
+                    logon_type,
+                    auth_package: None,
+                    encryption_type: None,
+                }
+            }
+            4769 => {
+                // Kerberos service ticket request — flag RC4/DES encryption
+                let enc_raw = event_data_str(ed, "TicketEncryptionType");
+                let enc_type = enc_raw.map(|s| {
+                    // Parse hex (e.g. "0x17") or decimal
+                    let n = if let Some(h) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+                        u64::from_str_radix(h, 16).ok()
+                    } else {
+                        s.parse::<u64>().ok()
+                    };
+                    match n {
+                        Some(0x17) => "RC4".to_owned(),
+                        Some(0x01) | Some(0x03) => "DES".to_owned(),
+                        Some(0x11) | Some(0x12) => "AES".to_owned(),
+                        _ => s.to_owned(),
+                    }
+                });
+                LateralMovementEvent {
+                    timestamp: record.timestamp.to_string(),
+                    event_id,
+                    source_user: event_data_str(ed, "TargetUserName").map(str::to_owned),
+                    target_user: event_data_str(ed, "ServiceName").map(str::to_owned),
+                    target_host: event_data_str(ed, "ClientAddress").map(str::to_owned),
+                    logon_type: None,
+                    auth_package: Some("Kerberos".to_owned()),
+                    encryption_type: enc_type,
+                }
+            }
+            4776 => {
+                // NTLM credential validation
+                LateralMovementEvent {
+                    timestamp: record.timestamp.to_string(),
+                    event_id,
+                    source_user: event_data_str(ed, "TargetUserName").map(str::to_owned),
+                    target_user: None,
+                    target_host: event_data_str(ed, "Workstation").map(str::to_owned),
+                    logon_type: None,
+                    auth_package: event_data_str(ed, "PackageName").map(str::to_owned),
+                    encryption_type: None,
+                }
+            }
+            _ => continue,
+        };
+        events.push(ev);
+    }
+    Ok(events)
+}
+
+// ── RDP sessions (EID 4778/4779) ─────────────────────────────────────────────
+
+/// A Remote Desktop session reconnect or disconnect event.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RdpSessionEvent {
+    pub timestamp: String,
+    pub event_id: u32,
+    pub user: Option<String>,
+    pub session_id: Option<u32>,
+    pub source_ip: Option<String>,
+}
+
+/// Extract RDP session events from EID 4778 (reconnected) and 4779 (disconnected).
+pub fn rdp_sessions(path: &Path) -> Result<Vec<RdpSessionEvent>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut events = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(id) if matches!(id, 4778 | 4779) => id,
+            _ => continue,
+        };
+        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
+            Some(e) => e,
+            None => continue,
+        };
+        let session_id = event_data_str(ed, "SessionID")
+            .and_then(|s| s.parse::<u32>().ok());
+        events.push(RdpSessionEvent {
+            timestamp: record.timestamp.to_string(),
+            event_id,
+            user: event_data_str(ed, "AccountName").map(str::to_owned),
+            session_id,
+            source_ip: event_data_str(ed, "ClientAddress").map(str::to_owned),
+        });
+    }
+    Ok(events)
+}
+
+// ── SMB share access (EID 5140/5145) ─────────────────────────────────────────
+
+/// A network share access or access-check event.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SmbAccessEvent {
+    pub timestamp: String,
+    pub event_id: u32,
+    pub subject_user: Option<String>,
+    pub share_name: Option<String>,
+    pub share_path: Option<String>,
+    pub relative_target: Option<String>,
+    pub ip_address: Option<String>,
+}
+
+/// Extract SMB share access events from EID 5140 (share accessed) and
+/// 5145 (share object access check).
+pub fn smb_access(path: &Path) -> Result<Vec<SmbAccessEvent>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut events = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(id) if matches!(id, 5140 | 5145) => id,
+            _ => continue,
+        };
+        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
+            Some(e) => e,
+            None => continue,
+        };
+        events.push(SmbAccessEvent {
+            timestamp: record.timestamp.to_string(),
+            event_id,
+            subject_user: event_data_str(ed, "SubjectUserName").map(str::to_owned),
+            share_name: event_data_str(ed, "ShareName").map(str::to_owned),
+            share_path: event_data_str(ed, "ShareLocalPath").map(str::to_owned),
+            relative_target: event_data_str(ed, "RelativeTargetName").map(str::to_owned),
+            ip_address: event_data_str(ed, "IpAddress").map(str::to_owned),
+        });
+    }
+    Ok(events)
+}
+
+// ── Microsoft Defender events (EID 1006/1116/1117) ───────────────────────────
+
+/// A Microsoft Defender malware detection or action event.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DefenderEvent {
+    pub timestamp: String,
+    pub event_id: u32,
+    pub threat_name: Option<String>,
+    pub severity: Option<String>,
+    pub path: Option<String>,
+    pub action_taken: Option<String>,
+    pub process_name: Option<String>,
+}
+
+/// Extract Microsoft Defender events from EID 1116 (malware detected),
+/// 1117 (action taken), and 1006 (scan result — malware found).
+pub fn defender_events(path: &Path) -> Result<Vec<DefenderEvent>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut events = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(id) if matches!(id, 1006 | 1116 | 1117) => id,
+            _ => continue,
+        };
+        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
+            Some(e) => e,
+            None => continue,
+        };
+        // Defender logs use both named-attribute array AND flat-object formats
+        // depending on the Windows version; event_data_str handles both shapes.
+        events.push(DefenderEvent {
+            timestamp: record.timestamp.to_string(),
+            event_id,
+            threat_name: event_data_str(ed, "Threat Name")
+                .or_else(|| event_data_str(ed, "ThreatName"))
+                .map(str::to_owned),
+            severity: event_data_str(ed, "Severity Name")
+                .or_else(|| event_data_str(ed, "SeverityName"))
+                .map(str::to_owned),
+            path: event_data_str(ed, "Path").map(str::to_owned),
+            action_taken: event_data_str(ed, "Action Name")
+                .or_else(|| event_data_str(ed, "ActionName"))
+                .map(str::to_owned),
+            process_name: event_data_str(ed, "Process Name")
+                .or_else(|| event_data_str(ed, "ProcessName"))
+                .map(str::to_owned),
+        });
+    }
+    Ok(events)
+}
+
 // ── WMI events (EID 5857-5861) ────────────────────────────────────────────────
 
 /// A WMI activity event extracted from EID 5857/5858/5860/5861.
