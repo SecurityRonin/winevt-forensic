@@ -1,4 +1,7 @@
-use winevt_core::binary::{IntegrityAnomaly, Severity};
+use winevt_core::binary::{
+    EvtxChunkHeader, EvtxFileHeader, EvtxRecordHeader, IntegrityAnomaly, Severity,
+    CHUNK_RECORDS_OFFSET, CHUNK_SIZE, ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC,
+};
 
 /// Unified EVTX integrity analyser.
 ///
@@ -9,8 +12,149 @@ pub struct WinevtIntegrity;
 impl WinevtIntegrity {
     /// Analyse `data` (raw EVTX bytes) and return all detected anomalies,
     /// sorted from highest severity to lowest.
-    pub fn analyse(_data: &[u8]) -> Vec<IntegrityAnomaly> {
-        unimplemented!("WinevtIntegrity::analyse not yet implemented")
+    pub fn analyse(data: &[u8]) -> Vec<IntegrityAnomaly> {
+        let mut out: Vec<IntegrityAnomaly> = Vec::new();
+
+        // ── File header checks ────────────────────────────────────────────────
+        let file_header = if data.len() >= 128 && data[0..8] == ELFFILE_MAGIC {
+            out.extend(verify_file_header_checksum(&data[0..0x80.min(data.len())]));
+            let fh = EvtxFileHeader::parse(&data[0..128]);
+            if let Some(ref fh) = fh {
+                out.extend(check_file_flags(fh.file_flags));
+            }
+            fh
+        } else {
+            None
+        };
+
+        // ── Walk chunks ───────────────────────────────────────────────────────
+        let chunk_size = CHUNK_SIZE as usize;
+        // Start after file header if present, otherwise scan from beginning.
+        let start = if file_header.is_some() { 4096 } else { 0 };
+
+        let mut chunks: Vec<(u64, EvtxChunkHeader)> = Vec::new(); // (offset, header)
+        // (record_id, chunk_offset, header_timestamp) for export-corruption detection
+        let mut all_records_export: Vec<(u64, u64, u64)> = Vec::new();
+        // (record_id, timestamp_ns as i64) for phantom detection
+        let mut all_records_phantom: Vec<(u64, i64)> = Vec::new();
+        // GUIDs per chunk for GUID consistency
+        let mut guids: Vec<[u8; 16]> = Vec::new();
+
+        let mut i = start;
+        while i + 8 <= data.len() {
+            if data[i..i + 8] != ELFCHNK_MAGIC {
+                i += 8;
+                continue;
+            }
+
+            let chunk_end = i + chunk_size;
+            if chunk_end > data.len() {
+                // Truncated chunk — still validate what we can
+                if let Some(hdr) = EvtxChunkHeader::parse(&data[i..]) {
+                    out.extend(check_chunk_data_length(hdr.free_space_offset));
+                }
+                break;
+            }
+
+            let chunk_data = &data[i..chunk_end];
+            let chunk_offset = i as u64;
+
+            if let Some(hdr) = EvtxChunkHeader::parse(chunk_data) {
+                // Chunk header checksum
+                out.extend(verify_chunk_header_checksum(chunk_data, chunk_offset));
+
+                // Records area checksum
+                out.extend(verify_records_area_checksum(chunk_data, chunk_offset));
+
+                // Data length sanity
+                out.extend(check_chunk_data_length(hdr.free_space_offset));
+
+                // DanderSpritz deletion
+                out.extend(detect_danderspritz_deletion(chunk_data, chunk_offset));
+
+                // Extract GUID (bytes 96..112 in chunk header per EVTX spec)
+                if chunk_data.len() >= 112 {
+                    let mut guid = [0u8; 16];
+                    guid.copy_from_slice(&chunk_data[96..112]);
+                    guids.push(guid);
+                }
+
+                // Walk records for timestamp / phantom / export checks
+                let records_start = CHUNK_RECORDS_OFFSET as usize;
+                let free_end = hdr.free_space_offset as usize;
+                let records_end = free_end.min(chunk_size);
+
+                let mut rec_pairs: Vec<(u64, u64)> = Vec::new(); // (record_id, ts) for monotonicity
+                let mut pos = records_start;
+                while pos + 4 <= records_end.min(chunk_data.len()) {
+                    if chunk_data[pos..pos + 4] != RECORD_MAGIC {
+                        break;
+                    }
+                    if let Some(rhdr) = EvtxRecordHeader::parse(&chunk_data[pos..]) {
+                        let sz = rhdr.size as usize;
+                        if sz < 28 || pos + sz > records_end.min(chunk_data.len()) {
+                            break;
+                        }
+                        rec_pairs.push((rhdr.record_id, rhdr.timestamp));
+                        all_records_export.push((rhdr.record_id, chunk_offset, rhdr.timestamp));
+                        all_records_phantom
+                            .push((rhdr.record_id, rhdr.timestamp as i64));
+                        pos += sz;
+                    } else {
+                        break;
+                    }
+                }
+
+                // Timestamp monotonicity per chunk
+                out.extend(check_timestamp_monotonicity(&rec_pairs, chunk_offset));
+
+                chunks.push((chunk_offset, hdr));
+            }
+
+            i += chunk_size;
+        }
+
+        // ── Cross-chunk checks ────────────────────────────────────────────────
+
+        // Record ID gaps across chunks
+        let chunk_ranges: Vec<(u64, u64)> = chunks
+            .iter()
+            .map(|(_, h)| (h.first_event_record_number, h.last_event_record_number))
+            .collect();
+        out.extend(detect_record_id_gaps(&chunk_ranges));
+
+        // File header consistency (next_record_id vs actual highest)
+        if let Some(ref fh) = file_header {
+            let actual_highest = chunks
+                .iter()
+                .map(|(_, h)| h.last_event_record_id)
+                .max()
+                .unwrap_or(0);
+            out.extend(check_file_header_consistency(
+                fh.next_record_id,
+                actual_highest,
+            ));
+            out.extend(check_chunk_count(fh.chunk_count, chunks.len()));
+        }
+
+        // GUID consistency across chunks
+        out.extend(check_log_file_guid_consistency(&guids));
+
+        // Export timestamp corruption (Fox-IT 2019)
+        out.extend(detect_export_timestamp_corruption(&all_records_export));
+
+        // Phantom record injection
+        all_records_phantom.sort_by_key(|&(id, _)| id);
+        // detect_phantom_records returns PhantomAlert, not IntegrityAnomaly — skip from unified result
+        // (PhantomAlert is a separate diagnostic type without an IntegrityAnomaly mapping)
+
+        // ── Dedup + sort by severity descending ───────────────────────────────
+        // Use Debug repr for dedup (IntegrityAnomaly derives Debug).
+        let mut seen = std::collections::HashSet::new();
+        out.retain(|a| seen.insert(format!("{a:?}")));
+
+        out.sort_by_key(|a| std::cmp::Reverse(a.severity()));
+        out
     }
 
     /// Same as `analyse` but also accepts a severity floor — only anomalies
@@ -170,7 +314,7 @@ pub fn check_file_header_consistency(
 ///
 /// Chunk data lengths outside this range indicate a structurally corrupt or hand-crafted chunk.
 pub fn check_chunk_data_length(length: u32) -> Vec<IntegrityAnomaly> {
-    if length < 512 || length > 65536 {
+    if !(512..=65536).contains(&length) {
         vec![IntegrityAnomaly::InvalidChunkDataLength(length)]
     } else {
         vec![]
