@@ -13,10 +13,10 @@ use std::path::Path;
 use std::sync::OnceLock;
 use thiserror::Error;
 
-// Re-export semantic event types whose schema is owned by forensicnomicon.
+// Re-export semantic event types and the unified enum from forensicnomicon.
 pub use forensicnomicon::evtx::{
-    DefenderEvent, LateralMovementEvent, ProcessExecution, RdpSessionEvent, ScheduledTask,
-    SmbAccessEvent, WmiEvent,
+    DefenderEvent, EvtxEvent, LateralMovementEvent, ProcessExecution, RdpSessionEvent,
+    ScheduledTask, SmbAccessEvent, WmiEvent,
 };
 
 // ── Error type ────────────────────────────────────────────────────────────────
@@ -466,6 +466,53 @@ pub fn frequency(path: &Path) -> Result<FrequencyReport, AnalyzeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── extract_all ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn extract_all_nonexistent_path_returns_error() {
+        let result = extract_all(Path::new("/nonexistent/security.evtx"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extract_all_returns_evtx_events() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../tests/data/hayabusa-sample-evtx/DeepBlueCLI/new-user-creation.evtx",
+        );
+        if !path.exists() {
+            eprintln!("SKIP: corpus file not found");
+            return;
+        }
+        let events = extract_all(&path).expect("extract_all should succeed");
+        // File has Security events; at least some should be extracted.
+        assert!(!events.is_empty(), "expected at least one extracted event");
+    }
+
+    #[test]
+    fn extract_all_results_are_sorted_by_timestamp() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../tests/data/hayabusa-sample-evtx/DeepBlueCLI/new-user-creation.evtx",
+        );
+        if !path.exists() {
+            eprintln!("SKIP: corpus file not found");
+            return;
+        }
+        let events = extract_all(&path).expect("extract_all should succeed");
+        let timestamps: Vec<&str> = events.iter().map(|e| e.timestamp()).collect();
+        let mut sorted = timestamps.clone();
+        sorted.sort_unstable();
+        assert_eq!(timestamps, sorted, "events must be in ascending timestamp order");
+    }
+
+    #[test]
+    fn extract_all_type_is_vec_of_evtx_event() {
+        // Compile-time type assertion — fails if return type changes.
+        #[allow(dead_code)]
+        fn _assert(p: &Path) -> Result<Vec<EvtxEvent>, AnalyzeError> {
+            extract_all(p)
+        }
+    }
 
     // ── Error paths ───────────────────────────────────────────────────────────
 
