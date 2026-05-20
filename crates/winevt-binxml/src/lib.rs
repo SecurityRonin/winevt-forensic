@@ -231,4 +231,25 @@ mod tests {
         let bytes = vec![0x0F, 0x01, 0x01, 0x00, 0x00];
         assert!(validate_binxml(&bytes).is_ok());
     }
+
+    #[test]
+    fn iteration_limit_is_enforced() {
+        // Craft a payload that hits the iteration limit:
+        // Fragment header (4 bytes) + MAX_STEPS repetitions of a 1-byte token (0x02 = CloseStartElement)
+        // without an EndOfStream terminator.
+        let mut bytes = vec![0x0F, 0x01, 0x01, 0x00]; // fragment header
+        bytes.extend(std::iter::repeat(0x02u8).take(65_537)); // one past the limit
+        let result = validate_binxml(&bytes);
+        assert!(
+            matches!(result, Err(BinXmlError::IterationLimitExceeded { .. })),
+            "expected IterationLimitExceeded, got {:?}", result
+        );
+    }
+
+    #[test]
+    fn iteration_limit_not_triggered_on_normal_payload() {
+        // A normal short payload should not hit the limit.
+        let bytes = vec![0x0F, 0x01, 0x01, 0x00, 0x00]; // header + EndOfStream
+        assert!(validate_binxml(&bytes).is_ok());
+    }
 }
