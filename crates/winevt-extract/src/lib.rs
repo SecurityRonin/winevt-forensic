@@ -2007,6 +2007,7 @@ pub fn process_cmdlines(path: &Path) -> Result<Vec<ProcessExecution>, AnalyzeErr
 
         execs.push(ProcessExecution {
             timestamp: record.timestamp.to_string(),
+            event_id,
             pid,
             parent_pid,
             image,
@@ -2093,6 +2094,7 @@ mod extraction_tests {
     fn process_execution_fields_are_accessible() {
         let p = ProcessExecution {
             timestamp: "2017-12-08T12:00:00.000000Z".to_string(),
+            event_id: 4688,
             pid: 1234,
             parent_pid: 567,
             image: "C:\\Windows\\System32\\cmd.exe".to_string(),
@@ -2108,6 +2110,7 @@ mod extraction_tests {
     fn process_execution_lolbin_detected() {
         let p = ProcessExecution {
             timestamp: "2017-12-08T12:00:00.000000Z".to_string(),
+            event_id: 4688,
             pid: 999,
             parent_pid: 1,
             image: "C:\\Windows\\System32\\mshta.exe".to_string(),
@@ -2122,6 +2125,7 @@ mod extraction_tests {
     fn process_execution_serializes_to_json() {
         let p = ProcessExecution {
             timestamp: "2017-12-08T12:00:00.000000Z".to_string(),
+            event_id: 4688,
             pid: 1234,
             parent_pid: 567,
             image: "C:\\Windows\\System32\\wscript.exe".to_string(),
