@@ -64,6 +64,8 @@ impl SeverityFilter {
             A::ExportTimestampCorruption { .. }
             | A::ChecksumMismatch
             | A::EmptyLog => Self::Info,
+
+            A::PhantomRecordInjection { .. } => Self::Error,
         }
     }
 }

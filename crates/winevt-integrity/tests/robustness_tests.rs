@@ -1,5 +1,5 @@
 use winevt_core::binary::{IntegrityAnomaly, Severity};
-use winevt_integrity::WinevtIntegrity;
+use winevt_integrity::{detect_phantom_records, phantom_alerts_to_anomalies, WinevtIntegrity};
 
 // ── Minimum container size guard ─────────────────────────────────────────────
 
@@ -59,4 +59,56 @@ fn analyse_detects_empty_log_when_chunk_count_zero() {
     let anomalies = WinevtIntegrity::analyse(&buf);
     let has_empty_log = anomalies.iter().any(|a| matches!(a, IntegrityAnomaly::EmptyLog));
     assert!(has_empty_log, "zero chunk_count must produce EmptyLog; got {:?}", anomalies);
+}
+
+// ── PhantomRecordInjection ────────────────────────────────────────────────────
+
+#[test]
+fn phantom_record_injection_variant_exists() {
+    let a = IntegrityAnomaly::PhantomRecordInjection {
+        gap_start_id: 2,
+        gap_end_id: 99,
+        prev_timestamp_ns: 0,
+        next_timestamp_ns: 100,
+    };
+    assert!(format!("{a:?}").contains("PhantomRecordInjection"));
+}
+
+#[test]
+fn phantom_record_injection_severity_is_error() {
+    let a = IntegrityAnomaly::PhantomRecordInjection {
+        gap_start_id: 2,
+        gap_end_id: 99,
+        prev_timestamp_ns: 0,
+        next_timestamp_ns: 100,
+    };
+    assert_eq!(a.severity(), Severity::Error);
+}
+
+#[test]
+fn suspicious_phantom_alerts_convert_to_phantom_record_injection() {
+    // Gap: IDs jump 1→1000 (998 missing), but only 100 ns elapsed.
+    // 100 ns / 998 ≈ 0.1 ns per missing record — far below 1 ms threshold → suspicious.
+    let records = [(1u64, 0i64), (1000u64, 100i64)];
+    let alerts = detect_phantom_records(&records);
+    assert!(!alerts.is_empty(), "should detect suspicious gap");
+    assert!(alerts[0].suspicious, "gap must be flagged suspicious");
+
+    let anomalies = phantom_alerts_to_anomalies(&alerts);
+    assert!(
+        anomalies.iter().any(|a| matches!(a, IntegrityAnomaly::PhantomRecordInjection { .. })),
+        "suspicious alerts must produce PhantomRecordInjection; got {:?}", anomalies
+    );
+}
+
+#[test]
+fn benign_gap_does_not_produce_phantom_record_injection() {
+    // Gap: IDs jump 1→100 (98 missing), 500 ms elapsed → 5.1 ms per record → benign.
+    let records = [(1u64, 0i64), (100u64, 500_000_000i64)];
+    let alerts = detect_phantom_records(&records);
+    let anomalies = phantom_alerts_to_anomalies(&alerts);
+    assert!(
+        !anomalies.iter().any(|a| matches!(a, IntegrityAnomaly::PhantomRecordInjection { .. })),
+        "benign gap must not produce PhantomRecordInjection"
+    );
 }

@@ -250,6 +250,19 @@ pub enum IntegrityAnomaly {
     /// The file header reports zero chunks. The log was cleared and the file
     /// was recreated but never written to, or the header is corrupt.
     EmptyLog,
+    /// A record-ID gap whose timestamp delta is too small to account for the
+    /// missing records, suggesting phantom records were injected without
+    /// advancing the clock — a deliberate anti-forensic technique.
+    PhantomRecordInjection {
+        /// First record ID in the gap (inclusive).
+        gap_start_id: u64,
+        /// Last record ID in the gap (inclusive).
+        gap_end_id: u64,
+        /// Timestamp (nanoseconds) of the record immediately before the gap.
+        prev_timestamp_ns: i64,
+        /// Timestamp (nanoseconds) of the record immediately after the gap.
+        next_timestamp_ns: i64,
+    },
 }
 
 impl IntegrityAnomaly {
@@ -269,6 +282,8 @@ impl IntegrityAnomaly {
             | IntegrityAnomaly::TrailingData { .. }
             | IntegrityAnomaly::TruncatedFile { .. }
             | IntegrityAnomaly::OverlappingChunks { .. } => Severity::Error,
+
+            IntegrityAnomaly::PhantomRecordInjection { .. } => Severity::Error,
 
             IntegrityAnomaly::TimestampAnomaly { .. }
             | IntegrityAnomaly::ExportTimestampCorruption { .. }
