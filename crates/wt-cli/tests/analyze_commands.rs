@@ -593,3 +593,63 @@ fn summary_nonexistent_exits_3() {
         .expect("run wt info nonexistent");
     assert_eq!(status.code(), Some(3));
 }
+
+// ── wt extract-all ────────────────────────────────────────────────────────────
+
+#[test]
+fn extract_all_nonexistent_exits_3() {
+    let status = Command::new(wt_bin())
+        .args(["extract-all", "/nonexistent/Security.evtx"])
+        .status()
+        .expect("run wt extract-all");
+    assert_eq!(status.code(), Some(3));
+}
+
+#[test]
+fn extract_all_outputs_json_array() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract-all", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract-all");
+    assert!(output.status.success(), "exit code: {:?}", output.status.code());
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must output JSON array");
+    assert!(json.is_array(), "output must be a JSON array");
+}
+
+#[test]
+fn extract_all_events_have_kind_field() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract-all", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract-all");
+    assert!(output.status.success());
+    let events: Vec<serde_json::Value> =
+        serde_json::from_slice(&output.stdout).expect("JSON array");
+    if events.is_empty() {
+        eprintln!("SKIP: no events extracted from corpus file");
+        return;
+    }
+    for ev in &events {
+        assert!(ev.get("kind").is_some(), "each event must have a 'kind' field: {ev}");
+    }
+}
+
+#[test]
+fn extract_all_stream_flag_outputs_ndjson() {
+    let evtx = require_foxitdata!("pre-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["extract-all", "--stream", evtx.to_str().unwrap()])
+        .output()
+        .expect("run wt extract-all --stream");
+    assert!(output.status.success());
+    let text = String::from_utf8_lossy(&output.stdout);
+    // Every non-empty line must be a valid JSON object.
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let v: serde_json::Value =
+            serde_json::from_str(line).expect("each NDJSON line must be valid JSON");
+        assert!(v.is_object(), "each NDJSON line must be an object: {line}");
+    }
+}
