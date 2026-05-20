@@ -15,12 +15,27 @@ impl WinevtIntegrity {
     pub fn analyse(data: &[u8]) -> Vec<IntegrityAnomaly> {
         let mut out: Vec<IntegrityAnomaly> = Vec::new();
 
+        // ── Minimum container size guard ──────────────────────────────────────
+        // A valid EVTX file header is exactly 128 bytes. Anything shorter cannot
+        // contain a parseable header and must be treated as a truncated file.
+        if data.len() < 128 {
+            out.push(IntegrityAnomaly::TruncatedFile {
+                declared_chunks: 0,
+                found_chunks: 0,
+            });
+            return out;
+        }
+
         // ── File header checks ────────────────────────────────────────────────
-        let file_header = if data.len() >= 128 && data[0..8] == ELFFILE_MAGIC {
-            out.extend(verify_file_header_checksum(&data[0..0x80.min(data.len())]));
+        let file_header = if data[0..8] == ELFFILE_MAGIC {
+            out.extend(verify_file_header_checksum(&data[0..0x80]));
             let fh = EvtxFileHeader::parse(&data[0..128]);
             if let Some(ref fh) = fh {
                 out.extend(check_file_flags(fh.file_flags));
+                // Emit EmptyLog when the header declares zero chunks.
+                if fh.chunk_count == 0 {
+                    out.push(IntegrityAnomaly::EmptyLog);
+                }
             }
             fh
         } else {
