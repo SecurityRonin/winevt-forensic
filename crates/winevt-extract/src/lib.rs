@@ -345,6 +345,161 @@ pub fn sessions(path: &Path) -> Result<Vec<LogonSession>, AnalyzeError> {
     Ok(result)
 }
 
+/// Correlate logon sessions across **multiple** EVTX files.
+///
+/// Unlike [`sessions`] (which is file-scoped), this function merges raw
+/// 4624/4634/4647 events from all supplied paths, sorts them by timestamp,
+/// and then runs the logon/logoff correlation state machine once — so a
+/// session whose logon lands in one file and whose logoff lands in another
+/// is correctly paired and its duration computed.
+///
+/// Returns `Err` if **every** path is unreadable.  Paths that cannot be
+/// parsed are silently skipped so a corrupt EVTX in a directory does not
+/// abort the entire scan.
+///
+/// Passing an empty slice returns `Ok(vec![])`.
+pub fn sessions_multi(paths: &[&Path]) -> Result<Vec<LogonSession>, AnalyzeError> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Collect (timestamp_str, event_id, event_data_json) triples from all files.
+    struct RawEvent {
+        timestamp: String,
+        event_id: u32,
+        data: serde_json::Value,
+    }
+
+    let mut all_raw: Vec<RawEvent> = Vec::new();
+    let mut any_ok = false;
+
+    for &path in paths {
+        match evtx::EvtxParser::from_path(path) {
+            Err(_) => continue,
+            Ok(mut parser) => {
+                any_ok = true;
+                for result in parser.records_json_value() {
+                    let record = match result { Ok(r) => r, Err(_) => continue };
+                    let system = record.data.get("Event").and_then(|e| e.get("System"));
+                    let event_id = match system.and_then(event_id_from_system) {
+                        Some(id) if matches!(id, 4624 | 4634 | 4647) => id,
+                        _ => continue,
+                    };
+                    all_raw.push(RawEvent {
+                        timestamp: record.timestamp.to_string(),
+                        event_id,
+                        data: record.data,
+                    });
+                }
+            }
+        }
+    }
+
+    if !any_ok {
+        return Err(AnalyzeError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "none of the supplied paths could be opened",
+        )));
+    }
+
+    // Sort by timestamp so the correlation state machine sees events in order.
+    all_raw.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+    // Run the same correlation logic as sessions().
+    let mut open: HashMap<String, LogonSession> = HashMap::new();
+    let mut closed: Vec<LogonSession> = Vec::new();
+    let mut insertion_order: Vec<String> = Vec::new();
+
+    for raw in &all_raw {
+        let ed = match raw.data.get("Event").and_then(|e| e.get("EventData")) {
+            Some(d) => d,
+            None => continue,
+        };
+        match raw.event_id {
+            4624 => {
+                let logon_id = event_data_str(ed, "TargetLogonId").unwrap_or("-").to_owned();
+                let username  = event_data_str(ed, "TargetUserName").unwrap_or("-").to_owned();
+                let domain    = event_data_str(ed, "TargetDomainName").unwrap_or("-").to_owned();
+                let logon_type = event_data_str(ed, "LogonType")
+                    .and_then(|s| s.parse().ok()).unwrap_or(0);
+                let ip_address = event_data_str(ed, "IpAddress")
+                    .map(str::to_owned)
+                    .filter(|ip| ip != "-" && !ip.is_empty());
+                let session = LogonSession {
+                    logon_id: logon_id.clone(), username, domain, logon_type,
+                    ip_address, logon_time: Some(raw.timestamp.clone()),
+                    logoff_time: None, duration_secs: None,
+                };
+                if !open.contains_key(&logon_id) {
+                    insertion_order.push(logon_id.clone());
+                }
+                open.insert(logon_id, session);
+            }
+            4634 | 4647 => {
+                let logon_id = match event_data_str(ed, "TargetLogonId") {
+                    Some(id) => id.to_owned(),
+                    None => continue,
+                };
+                if let Some(mut session) = open.remove(&logon_id) {
+                    session.logoff_time = Some(raw.timestamp.clone());
+                    if let (Some(logon), Some(logoff)) =
+                        (session.logon_time.as_deref(), session.logoff_time.as_deref())
+                    {
+                        if let (Ok(t0), Ok(t1)) = (
+                            logon.parse::<jiff::Timestamp>(),
+                            logoff.parse::<jiff::Timestamp>(),
+                        ) {
+                            session.duration_secs = Some(t1.duration_since(t0).as_secs());
+                        }
+                    }
+                    closed.push(session);
+                    insertion_order.retain(|id| id != &logon_id);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut result = closed;
+    for id in &insertion_order {
+        if let Some(s) = open.remove(id) {
+            result.push(s);
+        }
+    }
+    Ok(result)
+}
+
+/// Build a merged logon graph from **multiple** EVTX files.
+///
+/// Calls [`logon_graph`] on each readable path and merges the results:
+/// nodes are unioned, edges with the same `(source, target, logon_type)`
+/// tuple have their counts summed.  Paths that fail to parse are skipped.
+///
+/// Passing an empty slice returns an empty graph (not an error).
+pub fn logon_graph_multi(paths: &[&Path]) -> Result<LogonGraph, AnalyzeError> {
+    let mut node_set = std::collections::HashSet::new();
+    let mut edge_map: HashMap<(String, String, u32), usize> = HashMap::new();
+
+    for &path in paths {
+        if let Ok(g) = logon_graph(path) {
+            for node in g.nodes { node_set.insert(node); }
+            for edge in g.edges {
+                *edge_map.entry((edge.source, edge.target, edge.logon_type))
+                    .or_insert(0) += edge.count;
+            }
+        }
+    }
+
+    let mut nodes: Vec<String> = node_set.into_iter().collect();
+    nodes.sort();
+    let mut edges: Vec<LogonEdge> = edge_map.into_iter()
+        .map(|((source, target, logon_type), count)| LogonEdge { source, target, logon_type, count })
+        .collect();
+    edges.sort_by(|a, b| a.source.cmp(&b.source).then(a.target.cmp(&b.target)));
+
+    Ok(LogonGraph { nodes, edges })
+}
+
 /// Reassemble PowerShell script blocks from EID 4104 events.
 ///
 /// Groups events by `ScriptBlockId`, sorts fragments by `MessageNumber`,

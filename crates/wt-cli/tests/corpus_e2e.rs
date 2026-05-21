@@ -329,7 +329,7 @@ fn extract_ioc_c2_corpus_nonempty() {
 // ── Frequency analysis against corpus ────────────────────────────────────────
 
 /// `wt frequency` across the full Execution corpus must exit 0 and return
-/// a non-empty JSON array sorted by count descending.
+/// a non-empty report with `total_events` and `by_event_id` sorted LFO (ascending).
 #[test]
 fn frequency_execution_corpus_sorted() {
     let exec_dir = attack_samples("Execution");
@@ -343,31 +343,30 @@ fn frequency_execution_corpus_sorted() {
         .output()
         .expect("run wt frequency execution corpus");
 
-    // Exit 2 is acceptable — some corpus files are partially corrupt.
-    let code = output.status.code().unwrap_or(-1);
-    assert!(
-        code == 0 || code == 2,
-        "must exit 0 or 2; got {code}; stderr: {}",
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "must exit 0; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
     if output.stdout.is_empty() {
-        return; // parse error path — no JSON output
+        return; // no EVTX data in corpus path
     }
 
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be JSON");
-    let arr = json.as_array().expect("must be array");
+    let arr = json["by_event_id"].as_array().expect("must have by_event_id array");
     assert!(!arr.is_empty(), "expected frequency results from Execution corpus");
 
-    // Verify descending sort by count.
+    // Verify LFO (least-frequent-first, ascending) sort by count.
     let counts: Vec<u64> = arr
         .iter()
         .filter_map(|e| e["count"].as_u64())
         .collect();
     let mut sorted = counts.clone();
-    sorted.sort_unstable_by(|a, b| b.cmp(a));
-    assert_eq!(counts, sorted, "frequency results must be sorted by count descending");
+    sorted.sort_unstable();
+    assert_eq!(counts, sorted, "by_event_id must be sorted ascending (LFO)");
 }
 
 // ── wt extract --cmdline across all LOLBin execution samples ─────────────────
