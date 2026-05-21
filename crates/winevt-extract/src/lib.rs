@@ -2631,4 +2631,72 @@ mod ioc_tests {
         process_cmdlines(p)
     }
 
+    // ── sessions_multi / logon_graph_multi (RED: functions not yet implemented) ──
+
+    #[test]
+    fn sessions_multi_empty_slice_returns_empty() {
+        // sessions_multi does not exist yet → compile error (RED)
+        let result = sessions_multi(&[]);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn sessions_multi_nonexistent_path_returns_error() {
+        let result = sessions_multi(&[std::path::Path::new("/nonexistent/Security.evtx")]);
+        assert!(result.is_err(), "single nonexistent path must error");
+    }
+
+    #[test]
+    fn sessions_multi_single_path_matches_sessions() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/fox-it-danderspritz/pre-Security.evtx");
+        if !path.exists() { return; }
+        let single = sessions(&path).expect("sessions should succeed");
+        let multi  = sessions_multi(&[&path]).expect("sessions_multi should succeed");
+        assert_eq!(multi.len(), single.len(),
+            "sessions_multi with one path must equal sessions()");
+    }
+
+    #[test]
+    fn sessions_multi_two_files_has_at_least_as_many_as_either_alone() {
+        let pre  = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/fox-it-danderspritz/pre-Security.evtx");
+        let post = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/fox-it-danderspritz/post-Security.evtx");
+        if !pre.exists() || !post.exists() { return; }
+        let n_pre  = sessions(&pre).unwrap().len();
+        let n_post = sessions(&post).unwrap().len();
+        let multi  = sessions_multi(&[&pre, &post]).expect("sessions_multi must succeed");
+        assert!(multi.len() >= n_pre.max(n_post),
+            "cross-file correlation must yield at least as many sessions as the larger file alone");
+        assert!(multi.len() <= n_pre + n_post,
+            "cross-file correlation must not invent sessions (upper bound)");
+    }
+
+    #[test]
+    fn logon_graph_multi_empty_slice_returns_empty_graph() {
+        // logon_graph_multi does not exist yet → compile error (RED)
+        let g = logon_graph_multi(&[]).expect("empty slice must succeed");
+        assert!(g.nodes.is_empty());
+        assert!(g.edges.is_empty());
+    }
+
+    #[test]
+    fn logon_graph_multi_two_files_superset_of_either_alone() {
+        let pre  = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/fox-it-danderspritz/pre-Security.evtx");
+        let post = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/fox-it-danderspritz/post-Security.evtx");
+        if !pre.exists() || !post.exists() { return; }
+        let g_pre  = logon_graph(&pre).unwrap();
+        let g_post = logon_graph(&post).unwrap();
+        let g_multi = logon_graph_multi(&[&pre, &post]).expect("must succeed");
+        // Every node from either file must appear in the merged graph.
+        for node in g_pre.nodes.iter().chain(g_post.nodes.iter()) {
+            assert!(g_multi.nodes.contains(node),
+                "merged graph must contain node '{node}' from per-file graph");
+        }
+    }
+
 }

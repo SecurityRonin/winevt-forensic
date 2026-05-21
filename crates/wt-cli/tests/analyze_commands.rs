@@ -653,3 +653,121 @@ fn extract_all_stream_flag_outputs_ndjson() {
         assert!(v.is_object(), "each NDJSON line must be an object: {line}");
     }
 }
+
+// ── Multi-input (RED: directory and multiple-path support not yet wired) ──────
+
+#[test]
+fn login_with_directory_returns_sessions_json() {
+    // wt login <dir> must walk the directory and return sessions from all EVTX files.
+    // RED: currently wt login passes the dir directly to winevt_extract::sessions()
+    // which fails because a directory is not a valid EVTX file.
+    let dir = foxitdata(".");
+    if !dir.exists() { return; }
+    let output = Command::new(wt_bin())
+        .args(["login", dir.to_str().unwrap()])
+        .output()
+        .expect("run wt login <dir>");
+    assert!(
+        output.status.success(),
+        "wt login <dir> must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be a JSON array");
+    assert!(json.is_array(), "login output must be a JSON array of sessions");
+}
+
+#[test]
+fn timeline_accepts_two_file_arguments() {
+    // wt timeline file1 file2 must merge and sort events from both files.
+    // RED: clap currently rejects a second positional argument.
+    let pre  = require_foxitdata!("pre-Security.evtx");
+    let post = require_foxitdata!("post-Security.evtx");
+    let output = Command::new(wt_bin())
+        .args(["timeline", pre.to_str().unwrap(), post.to_str().unwrap()])
+        .output()
+        .expect("run wt timeline pre post");
+    assert!(
+        output.status.success(),
+        "wt timeline with two files must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let events: Vec<serde_json::Value> =
+        serde_json::from_slice(&output.stdout).expect("must be a JSON array");
+    // pre-Security has 123 events, post-Security has 126; combined = 249
+    assert_eq!(events.len(), 249, "must merge events from both files");
+    // Result must be timestamp-sorted (no regressions)
+    let timestamps: Vec<&str> = events.iter()
+        .filter_map(|e| e.get("timestamp").and_then(|t| t.as_str()))
+        .collect();
+    let mut sorted = timestamps.clone();
+    sorted.sort();
+    assert_eq!(timestamps, sorted, "timeline must be sorted across files");
+}
+
+#[test]
+fn login_graph_with_directory_merges_graphs() {
+    // wt login --graph <dir> must return a merged graph from all EVTX files in dir.
+    // RED: currently passes dir directly to logon_graph() which errors.
+    let dir = foxitdata(".");
+    if !dir.exists() { return; }
+    let output = Command::new(wt_bin())
+        .args(["login", "--graph", dir.to_str().unwrap()])
+        .output()
+        .expect("run wt login --graph <dir>");
+    assert!(
+        output.status.success(),
+        "wt login --graph <dir> must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(json.get("nodes").is_some(), "must have 'nodes'");
+    assert!(json.get("edges").is_some(), "must have 'edges'");
+}
+
+#[test]
+fn extract_lateral_with_directory_succeeds() {
+    // wt extract --lateral <dir> must walk directory and union results.
+    // RED: currently passes dir directly to lateral_movement() which errors.
+    let dir = foxitdata(".");
+    if !dir.exists() { return; }
+    let output = Command::new(wt_bin())
+        .args(["extract", "--lateral", dir.to_str().unwrap()])
+        .output()
+        .expect("run wt extract --lateral <dir>");
+    // Exit 0 (no hits) or 1 (hits found) — either is OK; crash/error is not.
+    let code = output.status.code().unwrap_or(99);
+    assert!(
+        code == 0 || code == 1,
+        "wt extract --lateral <dir> must not crash (got exit {code}); stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // Output must be valid JSON
+    let _: serde_json::Value =
+        serde_json::from_slice(&output.stdout)
+            .expect("lateral output must be JSON even for directories");
+}
+
+#[test]
+fn frequency_with_directory_returns_valid_report() {
+    // wt frequency <dir> must aggregate frequency across all EVTX files.
+    // RED: currently passes dir directly to frequency() which errors.
+    let dir = foxitdata(".");
+    if !dir.exists() { return; }
+    let output = Command::new(wt_bin())
+        .args(["frequency", dir.to_str().unwrap()])
+        .output()
+        .expect("run wt frequency <dir>");
+    assert!(
+        output.status.success(),
+        "wt frequency <dir> must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(json.get("total_events").is_some(), "must have 'total_events'");
+    let total = json["total_events"].as_u64().unwrap_or(0);
+    // fox-it dir has pre + post = 249 events total
+    assert_eq!(total, 249, "frequency total_events must sum across all files in dir");
+}
