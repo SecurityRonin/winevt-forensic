@@ -1516,6 +1516,10 @@ pub fn process_tree(path: &Path) -> Result<Vec<ProcessNode>, AnalyzeError> {
 /// For all other logon types, `WorkstationName` is the source and is preferred
 /// over the IP because it gives the hostname.
 ///
+/// Citation: Ahmed Thabit & Ahmed Abdo, "Be careful when interpreting Windows
+/// event fields" (2025).
+/// <https://www.linkedin.com/posts/mr-ahmed-thabit_be-careful-when-interpreting-windows-event-activity-7461407456984772608-Okyl>
+///
 /// Returns `None` when no usable source can be identified (skip the event).
 fn resolve_logon_source(logon_type: u32, workstation: &str, ip: &str) -> Option<String> {
     let ip_usable = !ip.is_empty() && ip != "-" && ip != "::1" && ip != "127.0.0.1";
@@ -2874,8 +2878,9 @@ mod ioc_tests {
     }
 
     // ── EID 4624 WorkstationName vs IpAddress source disambiguation ──
-    // Ahmed Thabit / Ahmed Abdo finding: for Logon Type 10 (RDP with NLA disabled),
+    // Ahmed Thabit & Ahmed Abdo (2025): for Logon Type 10 (RDP with NLA disabled),
     // WorkstationName = destination machine, NOT the source. IpAddress is always the source.
+    // https://www.linkedin.com/posts/mr-ahmed-thabit_be-careful-when-interpreting-windows-event-activity-7461407456984772608-Okyl
 
     #[test]
     fn rdp_type10_uses_ip_not_workstation_as_source() {
