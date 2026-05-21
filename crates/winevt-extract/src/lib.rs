@@ -2854,4 +2854,50 @@ mod ioc_tests {
         }
     }
 
+    // ── EID 4624 WorkstationName vs IpAddress source disambiguation ──
+    // Ahmed Thabit / Ahmed Abdo finding: for Logon Type 10 (RDP with NLA disabled),
+    // WorkstationName = destination machine, NOT the source. IpAddress is always the source.
+
+    #[test]
+    fn rdp_type10_uses_ip_not_workstation_as_source() {
+        // WorkstationName="DEST-MACHINE" is the RDP target; source is always IpAddress.
+        let source = resolve_logon_source(10, "DEST-MACHINE", "10.10.10.13");
+        assert_eq!(
+            source.as_deref(),
+            Some("10.10.10.13"),
+            "Type 10 (RDP) must use IpAddress as source, not WorkstationName"
+        );
+    }
+
+    #[test]
+    fn network_type3_prefers_workstation_as_source() {
+        let source = resolve_logon_source(3, "SOURCE-MACHINE", "10.10.10.13");
+        assert_eq!(
+            source.as_deref(),
+            Some("SOURCE-MACHINE"),
+            "Type 3 (Network/SMB) must prefer WorkstationName as source"
+        );
+    }
+
+    #[test]
+    fn network_type3_falls_back_to_ip_when_no_workstation() {
+        let source = resolve_logon_source(3, "", "10.10.10.13");
+        assert_eq!(source.as_deref(), Some("10.10.10.13"));
+    }
+
+    #[test]
+    fn rdp_type10_with_no_usable_ip_returns_none() {
+        // No IP and WorkstationName is destination — no source can be identified.
+        let source = resolve_logon_source(10, "DEST-MACHINE", "-");
+        assert!(source.is_none(), "Type 10 with no usable IP must return None");
+    }
+
+    #[test]
+    fn rdp_type10_ignores_loopback_ip() {
+        let source = resolve_logon_source(10, "DEST-MACHINE", "127.0.0.1");
+        assert!(source.is_none(), "loopback must be filtered even for Type 10");
+        let source6 = resolve_logon_source(10, "DEST-MACHINE", "::1");
+        assert!(source6.is_none(), "IPv6 loopback must also be filtered");
+    }
+
 }
