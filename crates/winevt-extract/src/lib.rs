@@ -1508,6 +1508,32 @@ pub fn process_tree(path: &Path) -> Result<Vec<ProcessNode>, AnalyzeError> {
     Ok(nodes)
 }
 
+/// Resolve the true *source* machine from an EID 4624 event's fields.
+///
+/// For Logon Type 10 (RDP with NLA disabled), `WorkstationName` is written by
+/// Windows as the *destination* (the machine being accessed), not the source.
+/// `IpAddress` (SourceNetworkAddress) is the reliable source for all logon types.
+/// For all other logon types, `WorkstationName` is the source and is preferred
+/// over the IP because it gives the hostname.
+///
+/// Returns `None` when no usable source can be identified (skip the event).
+fn resolve_logon_source(logon_type: u32, workstation: &str, ip: &str) -> Option<String> {
+    let ip_usable = !ip.is_empty() && ip != "-" && ip != "::1" && ip != "127.0.0.1";
+    if logon_type == 10 {
+        // RDP (RemoteInteractive): WorkstationName = destination; only trust IpAddress.
+        ip_usable.then(|| ip.to_owned())
+    } else {
+        let ws_usable = !workstation.is_empty() && workstation != "-";
+        if ws_usable {
+            Some(workstation.to_owned())
+        } else if ip_usable {
+            Some(ip.to_owned())
+        } else {
+            None
+        }
+    }
+}
+
 /// Build a logon source→target graph from EID 4624 events.
 pub fn logon_graph(path: &Path) -> Result<LogonGraph, AnalyzeError> {
     let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
@@ -1541,16 +1567,9 @@ pub fn logon_graph(path: &Path) -> Result<LogonGraph, AnalyzeError> {
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
 
-        let source = if !workstation.is_empty() && workstation != "-" {
-            workstation
-        } else if !ip.is_empty()
-            && ip != "-"
-            && ip != "::1"
-            && ip != "127.0.0.1"
-        {
-            ip
-        } else {
-            continue;
+        let source = match resolve_logon_source(logon_type, &workstation, &ip) {
+            Some(s) => s,
+            None => continue,
         };
 
         *edge_map.entry((source, computer, logon_type)).or_insert(0) += 1;
