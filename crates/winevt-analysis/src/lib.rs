@@ -33,6 +33,7 @@ pub mod rpivot_chisel;
 pub mod scheduled_task;
 pub mod service_stop_avset;
 pub mod sevenz_staging;
+pub mod smb_admin_share;
 pub mod taskkill_av_cluster;
 pub mod vss;
 pub mod vssadmin_wmic;
@@ -63,6 +64,7 @@ pub use rpivot_chisel::detect_rpivot_chisel;
 pub use scheduled_task::detect_scheduled_task_creation;
 pub use service_stop_avset::detect_service_stop_avset;
 pub use sevenz_staging::detect_sevenz_staging;
+pub use smb_admin_share::detect_smb_admin_share;
 pub use taskkill_av_cluster::detect_taskkill_av_cluster;
 pub use vss::detect_vss_deletion;
 pub use vssadmin_wmic::detect_vssadmin_wmic;
@@ -136,6 +138,8 @@ pub enum EvtxDetectionKind {
     RdpEnabled,
     /// New local user account created (EID 4720) or added to local Admins group (EID 4732) (T1136.001).
     LocalAdminCreation,
+    /// Remote access to Windows admin share (ADMIN$, C$, IPC$) from a non-local IP (T1021.002).
+    SmbAdminShareAccess,
 }
 
 /// A single detection produced by an EVTX detector.
@@ -193,6 +197,7 @@ pub fn detect_all(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
     results.extend(detect_rmm_install(events));
     results.extend(detect_rdp_enable(events));
     results.extend(detect_local_admin_creation(events));
+    results.extend(detect_smb_admin_share(events));
     results.sort_by(|a, b| {
         a.timestamp_ns
             .cmp(&b.timestamp_ns)
