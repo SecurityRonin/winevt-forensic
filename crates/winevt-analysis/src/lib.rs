@@ -14,41 +14,61 @@
 )]
 
 pub mod adexplorer_recon;
+pub mod bcdedit_recovery;
 pub mod byovd;
+pub mod comsvcs_lsass;
+pub mod defender_disable;
 pub mod dll_sideload;
 pub mod fake_browser_task;
 pub mod hvci;
 pub mod hyperv;
+pub mod local_admin_creation;
 pub mod ps_history_wipe;
 pub mod ps_patterns;
 pub mod qwcrypt_proc;
 pub mod ransom_note;
+pub mod rdp_enable;
+pub mod rmm_install;
 pub mod rpivot_chisel;
 pub mod scheduled_task;
+pub mod service_stop_avset;
 pub mod sevenz_staging;
+pub mod taskkill_av_cluster;
 pub mod vss;
+pub mod vssadmin_wmic;
 pub mod webclient_service;
 pub mod webdav_lolbin;
+pub mod wevtutil_cl;
 pub mod wmi_lateral;
 pub mod workers_dev_dns;
 pub mod zemana_driver_load;
 
 pub use adexplorer_recon::detect_adexplorer_recon;
+pub use bcdedit_recovery::detect_bcdedit_recovery;
 pub use byovd::detect_byovd_driver_install;
+pub use comsvcs_lsass::detect_comsvcs_lsass;
+pub use defender_disable::detect_defender_disable;
 pub use dll_sideload::detect_dll_sideload;
 pub use fake_browser_task::detect_fake_browser_task;
 pub use hvci::detect_hvci_registry_tamper;
 pub use hyperv::detect_hyperv_vm_shutdown;
+pub use local_admin_creation::detect_local_admin_creation;
 pub use ps_history_wipe::detect_ps_history_wipe;
 pub use ps_patterns::detect_ps_qwcrypt_patterns;
 pub use qwcrypt_proc::detect_qwcrypt_process;
 pub use ransom_note::detect_ransom_note_creation;
+pub use rdp_enable::detect_rdp_enable;
+pub use rmm_install::detect_rmm_install;
 pub use rpivot_chisel::detect_rpivot_chisel;
 pub use scheduled_task::detect_scheduled_task_creation;
+pub use service_stop_avset::detect_service_stop_avset;
 pub use sevenz_staging::detect_sevenz_staging;
+pub use taskkill_av_cluster::detect_taskkill_av_cluster;
 pub use vss::detect_vss_deletion;
+pub use vssadmin_wmic::detect_vssadmin_wmic;
 pub use webclient_service::detect_webclient_service_start;
 pub use webdav_lolbin::detect_webdav_lolbin;
+pub use wevtutil_cl::detect_wevtutil_cl;
 pub use wmi_lateral::detect_wmi_lateral_movement;
 pub use workers_dev_dns::detect_workers_dev_dns;
 pub use zemana_driver_load::detect_zemana_driver_load;
@@ -96,6 +116,26 @@ pub enum EvtxDetectionKind {
     FakeBrowserTask,
     /// Non-browser process issued a DNS query for a .workers.dev domain — Cloudflare C2 (T1102).
     WorkersDevDnsQuery,
+    /// vssadmin.exe or wmic.exe deleted VSS shadow copies — inhibit system recovery (T1490).
+    VssAdminWmicDelete,
+    /// Cluster of ≥5 taskkill /IM targeting canonical AV/SQL processes within 60s (T1562.001).
+    TaskkillAvCluster,
+    /// Cluster of ≥3 service stops targeting canonical AV/backup services within 60s (T1489).
+    ServiceStopAvSet,
+    /// bcdedit.exe modified boot recovery options — pre-encryption staging (T1490).
+    BcdeditRecoveryTamper,
+    /// Event logs cleared via wevtutil.exe or PowerShell Clear-EventLog (T1070.001).
+    WevtutilLogClear,
+    /// Windows Defender or AV disabled via PowerShell Set-MpPreference or EID 5001 (T1562.001).
+    DefenderDisabled,
+    /// LSASS credential dump via comsvcs.dll MiniDump or Sysmon process-access (T1003.001).
+    ComsvcslsassDump,
+    /// RMM tool binary dropped outside standard Program Files paths (T1219).
+    RmmToolInstall,
+    /// fDenyTSConnections set to 0 — RDP enabled via registry (T1021.001).
+    RdpEnabled,
+    /// New local user account created (EID 4720) or added to local Admins group (EID 4732) (T1136.001).
+    LocalAdminCreation,
 }
 
 /// A single detection produced by an EVTX detector.
@@ -143,6 +183,16 @@ pub fn detect_all(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
     results.extend(detect_sevenz_staging(events));
     results.extend(detect_fake_browser_task(events));
     results.extend(detect_workers_dev_dns(events));
+    results.extend(detect_vssadmin_wmic(events));
+    results.extend(detect_taskkill_av_cluster(events));
+    results.extend(detect_service_stop_avset(events));
+    results.extend(detect_bcdedit_recovery(events));
+    results.extend(detect_wevtutil_cl(events));
+    results.extend(detect_defender_disable(events));
+    results.extend(detect_comsvcs_lsass(events));
+    results.extend(detect_rmm_install(events));
+    results.extend(detect_rdp_enable(events));
+    results.extend(detect_local_admin_creation(events));
     results.sort_by(|a, b| {
         a.timestamp_ns
             .cmp(&b.timestamp_ns)
