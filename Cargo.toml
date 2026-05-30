@@ -9,6 +9,7 @@ members = [
     "crates/winevt-writer",
     "crates/winevt-extract",
     "crates/winevt-manifest",
+    "crates/winevt-analysis",
     "crates/winevt-triage",
     "crates/wt-cli",
 ]

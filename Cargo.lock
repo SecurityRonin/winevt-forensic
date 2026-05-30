@@ -1815,6 +1815,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "winevt-analysis"
+version = "0.1.0"
+dependencies = [
+ "forensicnomicon",
+ "serde",
+ "winevt-core",
+]
+
+[[package]]
 name = "winevt-binxml"
 version = "0.1.0"
 dependencies = [
