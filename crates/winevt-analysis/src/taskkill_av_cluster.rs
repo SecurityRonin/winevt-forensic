@@ -18,7 +18,54 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// ransomware staging (T1562.001 — Impair Defenses: Disable/Modify Tools,
 /// T1489 — Service Stop).
 pub fn detect_taskkill_av_cluster(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    // Collect matching (timestamp, canonical_process, event) tuples
+    let mut matches: Vec<(i64, &str, &EvtxEvent)> = events
+        .iter()
+        .filter(|ev| is_process_event(ev))
+        .filter(|ev| basename(image(ev)).to_lowercase() == "taskkill.exe")
+        .filter_map(|ev| {
+            killed_canonical_process(ev).map(|proc| (ev.timestamp_ns, proc, ev))
+        })
+        .collect();
+
+    matches.sort_by_key(|(ts, _, _)| *ts);
+
+    let mut detections = Vec::new();
+    let mut i = 0;
+    while i < matches.len() {
+        let window_start = matches[i].0;
+        let window_end = window_start + RANSOMWARE_KILL_WINDOW_NS;
+        let window: Vec<_> = matches[i..]
+            .iter()
+            .take_while(|(ts, _, _)| *ts <= window_end)
+            .collect();
+        if window.len() >= RANSOMWARE_KILL_CLUSTER_THRESHOLD {
+            let processes: Vec<String> = window.iter().map(|(_, p, _)| p.to_string()).collect();
+            let last_ev = window.last().unwrap().2;
+            detections.push(EvtxDetection {
+                kind: EvtxDetectionKind::TaskkillAvCluster,
+                mitre_technique_id: "T1562.001",
+                tactic: "Defense Evasion",
+                description: format!(
+                    "Ransomware AV/SQL process-kill cluster: {} kills in {}ms — [{}]",
+                    window.len(),
+                    (window.last().unwrap().0 - window_start) / 1_000_000,
+                    processes.join(", ")
+                ),
+                evidence: processes
+                    .iter()
+                    .map(|p| format!("killed={p}"))
+                    .collect(),
+                timestamp_ns: window_start,
+                event_id: last_ev.event_id,
+                channel: last_ev.channel.clone(),
+            });
+            i += window.len();
+        } else {
+            i += 1;
+        }
+    }
+    detections
 }
 
 fn is_process_event(ev: &EvtxEvent) -> bool {

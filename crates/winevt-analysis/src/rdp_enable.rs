@@ -17,7 +17,41 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// Fires on Sysmon EID 13 (RegistryEvent — Value Set) when `TargetObject`
 /// contains `fDenyTSConnections` and `Details` indicates a 0 value.
 pub fn detect_rdp_enable(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| ev.event_id == EID_SYSMON_REGISTRY_MODIFY && ev.channel == SYSMON_CHANNEL)
+        .filter_map(|ev| {
+            let target = ev.data.get("TargetObject").map(String::as_str).unwrap_or("");
+            if !target.contains(RDP_FDENYTSC_KEY_FRAGMENT) {
+                return None;
+            }
+            let details = ev.data.get("Details").map(String::as_str).unwrap_or("");
+            // Allow "0", "DWORD (0x00000000)", "0x0", "0x00000000"
+            let details_lower = details.to_lowercase();
+            let is_enable = details == "0"
+                || details_lower.contains("0x00000000")
+                || details_lower.contains("dword (0x0)")
+                || details_lower == "0x0";
+            if !is_enable {
+                return None;
+            }
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::RdpEnabled,
+                mitre_technique_id: "T1021.001",
+                tactic: "Lateral Movement",
+                description: format!(
+                    "RDP enabled via registry: '{target}' set to '{details}'"
+                ),
+                evidence: vec![
+                    format!("TargetObject={target}"),
+                    format!("Details={details}"),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -18,7 +18,56 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 ///
 /// ~30/76 ransomware families attempt Defender disablement (T1562.001).
 pub fn detect_defender_disable(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter_map(|ev| {
+            // Signal 1: PowerShell EID 4104 with Defender tamper patterns
+            if ev.event_id == EID_PS_SCRIPT_BLOCK && ev.channel == POWERSHELL_OPERATIONAL_CHANNEL {
+                let script = ev
+                    .data
+                    .get("ScriptBlockText")
+                    .map(String::as_str)
+                    .unwrap_or("");
+                if let Some(&pat) = DEFENDER_TAMPER_PATTERNS.iter().find(|&&p| script.contains(p)) {
+                    return Some(EvtxDetection {
+                        kind: EvtxDetectionKind::DefenderDisabled,
+                        mitre_technique_id: "T1562.001",
+                        tactic: "Defense Evasion",
+                        description: format!(
+                            "Defender/AV tamper pattern '{pat}' in PowerShell script block"
+                        ),
+                        evidence: vec![
+                            format!(
+                                "ScriptBlockText snippet: ...{}...",
+                                &script[..script.len().min(120)]
+                            ),
+                            format!("matched_pattern={pat}"),
+                        ],
+                        timestamp_ns: ev.timestamp_ns,
+                        event_id: ev.event_id,
+                        channel: ev.channel.clone(),
+                    });
+                }
+            }
+            // Signal 2: Defender EID 5001 — real-time protection disabled
+            if ev.event_id == EID_DEFENDER_REALTIME_DISABLED && ev.channel == DEFENDER_CHANNEL {
+                return Some(EvtxDetection {
+                    kind: EvtxDetectionKind::DefenderDisabled,
+                    mitre_technique_id: "T1562.001",
+                    tactic: "Defense Evasion",
+                    description: "Windows Defender real-time protection was disabled (EID 5001)".to_string(),
+                    evidence: vec![
+                        format!("event_id={}", ev.event_id),
+                        format!("channel={}", ev.channel),
+                    ],
+                    timestamp_ns: ev.timestamp_ns,
+                    event_id: ev.event_id,
+                    channel: ev.channel.clone(),
+                });
+            }
+            None
+        })
+        .collect()
 }
 
 #[cfg(test)]

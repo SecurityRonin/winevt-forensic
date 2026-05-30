@@ -20,7 +20,84 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// Near-zero FP for signal 1 — rundll32+comsvcs+MiniDump is effectively unique
 /// to credential dumping.  Signal 2 has higher FP but is still actionable.
 pub fn detect_comsvcs_lsass(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter_map(|ev| {
+            // Signal 1: process create with comsvcs.dll + MiniDump in CommandLine
+            if is_process_event(ev) {
+                let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+                let cl_lower = cl.to_lowercase();
+                let has_comsvcs = COMSVCS_MINIDUMP_PATTERNS
+                    .iter()
+                    .filter(|&&p| p.to_lowercase().contains("comsvcs"))
+                    .any(|&p| cl_lower.contains(&p.to_lowercase()));
+                let has_minidump = COMSVCS_MINIDUMP_PATTERNS
+                    .iter()
+                    .filter(|&&p| p.to_lowercase().contains("minidump"))
+                    .any(|&p| cl_lower.contains(&p.to_lowercase()));
+                if has_comsvcs && has_minidump {
+                    let image = ev
+                        .data
+                        .get("Image")
+                        .or_else(|| ev.data.get("NewProcessName"))
+                        .map(String::as_str)
+                        .unwrap_or("");
+                    return Some(EvtxDetection {
+                        kind: EvtxDetectionKind::ComsvcslsassDump,
+                        mitre_technique_id: "T1003.001",
+                        tactic: "Credential Access",
+                        description: format!(
+                            "comsvcs.dll MiniDump credential dump in command line: '{cl}'"
+                        ),
+                        evidence: vec![
+                            format!("Image={image}"),
+                            format!("CommandLine={cl}"),
+                        ],
+                        timestamp_ns: ev.timestamp_ns,
+                        event_id: ev.event_id,
+                        channel: ev.channel.clone(),
+                    });
+                }
+            }
+            // Signal 2: Sysmon EID 10 with TargetImage = lsass.exe
+            if ev.event_id == EID_SYSMON_PROCESS_ACCESS && ev.channel == SYSMON_CHANNEL {
+                let target = ev
+                    .data
+                    .get("TargetImage")
+                    .map(String::as_str)
+                    .unwrap_or("");
+                if basename(target).to_lowercase() == LSASS_IMAGE_NAME {
+                    let source = ev
+                        .data
+                        .get("SourceImage")
+                        .map(String::as_str)
+                        .unwrap_or("unknown");
+                    let access = ev
+                        .data
+                        .get("GrantedAccess")
+                        .map(String::as_str)
+                        .unwrap_or("unknown");
+                    return Some(EvtxDetection {
+                        kind: EvtxDetectionKind::ComsvcslsassDump,
+                        mitre_technique_id: "T1003.001",
+                        tactic: "Credential Access",
+                        description: format!(
+                            "Process '{source}' opened handle to lsass.exe with access mask '{access}'"
+                        ),
+                        evidence: vec![
+                            format!("SourceImage={source}"),
+                            format!("TargetImage={target}"),
+                            format!("GrantedAccess={access}"),
+                        ],
+                        timestamp_ns: ev.timestamp_ns,
+                        event_id: ev.event_id,
+                        channel: ev.channel.clone(),
+                    });
+                }
+            }
+            None
+        })
+        .collect()
 }
 
 fn is_process_event(ev: &EvtxEvent) -> bool {

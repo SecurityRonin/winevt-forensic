@@ -15,7 +15,66 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// ~60 of the 76 families in `RANSOM_NOTE_FILENAMES` issue one or both commands.
 /// Fires on Security EID 4688 (Process Creation) or Sysmon EID 1.
 pub fn detect_vssadmin_wmic(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| is_process_event(ev))
+        .filter_map(|ev| {
+            let image = ev
+                .data
+                .get("Image")
+                .or_else(|| ev.data.get("NewProcessName"))
+                .map(String::as_str)
+                .unwrap_or("");
+            let base = basename(image).to_lowercase();
+            let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+            let cl_lower = cl.to_lowercase();
+
+            if base == "vssadmin.exe" {
+                if let Some(&pat) = VSSADMIN_SHADOW_DELETE_PATTERNS
+                    .iter()
+                    .find(|&&p| cl_lower.contains(p))
+                {
+                    return Some(EvtxDetection {
+                        kind: EvtxDetectionKind::VssAdminWmicDelete,
+                        mitre_technique_id: "T1490",
+                        tactic: "Impact",
+                        description: format!(
+                            "vssadmin.exe shadow copy deletion '{pat}' in command line: '{cl}'"
+                        ),
+                        evidence: vec![
+                            format!("Image={image}"),
+                            format!("CommandLine={cl}"),
+                        ],
+                        timestamp_ns: ev.timestamp_ns,
+                        event_id: ev.event_id,
+                        channel: ev.channel.clone(),
+                    });
+                }
+            } else if base == "wmic.exe" {
+                if let Some(&pat) = WMIC_SHADOW_DELETE_PATTERNS
+                    .iter()
+                    .find(|&&p| cl_lower.contains(p))
+                {
+                    return Some(EvtxDetection {
+                        kind: EvtxDetectionKind::VssAdminWmicDelete,
+                        mitre_technique_id: "T1490",
+                        tactic: "Impact",
+                        description: format!(
+                            "wmic.exe shadow copy deletion '{pat}' in command line: '{cl}'"
+                        ),
+                        evidence: vec![
+                            format!("Image={image}"),
+                            format!("CommandLine={cl}"),
+                        ],
+                        timestamp_ns: ev.timestamp_ns,
+                        event_id: ev.event_id,
+                        channel: ev.channel.clone(),
+                    });
+                }
+            }
+            None
+        })
+        .collect()
 }
 
 fn is_process_event(ev: &EvtxEvent) -> bool {

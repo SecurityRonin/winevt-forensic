@@ -19,7 +19,42 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 ///
 /// Near-zero FP — bcdedit is almost never used interactively outside IT imaging.
 pub fn detect_bcdedit_recovery(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| is_process_event(ev))
+        .filter_map(|ev| {
+            let image = ev
+                .data
+                .get("Image")
+                .or_else(|| ev.data.get("NewProcessName"))
+                .map(String::as_str)
+                .unwrap_or("");
+            if basename(image).to_lowercase() != "bcdedit.exe" {
+                return None;
+            }
+            let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+            let cl_lower = cl.to_lowercase();
+            let matched = BCDEDIT_RECOVERY_DISABLE_PATTERNS
+                .iter()
+                .find(|&&p| cl_lower.contains(p))?;
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::BcdeditRecoveryTamper,
+                mitre_technique_id: "T1490",
+                tactic: "Impact",
+                description: format!(
+                    "bcdedit.exe recovery tamper '{matched}' in command line: '{cl}'"
+                ),
+                evidence: vec![
+                    format!("Image={image}"),
+                    format!("CommandLine={cl}"),
+                    format!("matched_pattern={matched}"),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 fn is_process_event(ev: &EvtxEvent) -> bool {

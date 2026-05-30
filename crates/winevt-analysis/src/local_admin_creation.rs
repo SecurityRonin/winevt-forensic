@@ -20,7 +20,78 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// ~20/76 ransomware families create local admin accounts for persistence
 /// or lateral movement RDP (T1098 — Account Manipulation).
 pub fn detect_local_admin_creation(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| ev.channel == "Security")
+        .filter_map(|ev| {
+            // Signal 1: EID 4720 — user account created
+            if ev.event_id == EID_USER_ACCOUNT_CREATED {
+                let user = ev
+                    .data
+                    .get("TargetUserName")
+                    .map(String::as_str)
+                    .unwrap_or("unknown");
+                let domain = ev
+                    .data
+                    .get("TargetDomainName")
+                    .map(String::as_str)
+                    .unwrap_or("unknown");
+                return Some(EvtxDetection {
+                    kind: EvtxDetectionKind::LocalAdminCreation,
+                    mitre_technique_id: "T1136.001",
+                    tactic: "Persistence",
+                    description: format!(
+                        "Local user account created: '{domain}\\{user}'"
+                    ),
+                    evidence: vec![
+                        format!("TargetUserName={user}"),
+                        format!("TargetDomainName={domain}"),
+                    ],
+                    timestamp_ns: ev.timestamp_ns,
+                    event_id: ev.event_id,
+                    channel: ev.channel.clone(),
+                });
+            }
+            // Signal 2: EID 4732 — member added to local Administrators group
+            if ev.event_id == EID_USER_ADDED_TO_LOCAL_GROUP {
+                let group_sid = ev
+                    .data
+                    .get("GroupSid")
+                    .map(String::as_str)
+                    .unwrap_or("");
+                if group_sid != LOCAL_ADMINS_GROUP_SID {
+                    return None;
+                }
+                let user = ev
+                    .data
+                    .get("TargetUserName")
+                    .map(String::as_str)
+                    .unwrap_or("unknown");
+                let group = ev
+                    .data
+                    .get("GroupName")
+                    .map(String::as_str)
+                    .unwrap_or("Administrators");
+                return Some(EvtxDetection {
+                    kind: EvtxDetectionKind::LocalAdminCreation,
+                    mitre_technique_id: "T1136.001",
+                    tactic: "Persistence",
+                    description: format!(
+                        "User '{user}' added to local group '{group}' (SID {LOCAL_ADMINS_GROUP_SID})"
+                    ),
+                    evidence: vec![
+                        format!("TargetUserName={user}"),
+                        format!("GroupSid={group_sid}"),
+                        format!("GroupName={group}"),
+                    ],
+                    timestamp_ns: ev.timestamp_ns,
+                    event_id: ev.event_id,
+                    channel: ev.channel.clone(),
+                });
+            }
+            None
+        })
+        .collect()
 }
 
 #[cfg(test)]

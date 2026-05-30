@@ -18,7 +18,53 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// services stopped within `RANSOMWARE_KILL_WINDOW_NS` is near-zero-FP
 /// (T1489 — Service Stop; T1562.001 — Impair Defenses).
 pub fn detect_service_stop_avset(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    // Collect matching (timestamp, svc_name, event) tuples
+    let mut matches: Vec<(i64, &str, &EvtxEvent)> = events
+        .iter()
+        .filter(|ev| is_process_event(ev))
+        .filter_map(|ev| {
+            stopped_canonical_service(ev).map(|svc| (ev.timestamp_ns, svc, ev))
+        })
+        .collect();
+
+    matches.sort_by_key(|(ts, _, _)| *ts);
+
+    let mut detections = Vec::new();
+    let mut i = 0;
+    while i < matches.len() {
+        let window_start = matches[i].0;
+        let window_end = window_start + RANSOMWARE_KILL_WINDOW_NS;
+        let window: Vec<_> = matches[i..]
+            .iter()
+            .take_while(|(ts, _, _)| *ts <= window_end)
+            .collect();
+        if window.len() >= RANSOMWARE_SERVICE_STOP_CLUSTER_THRESHOLD {
+            let services: Vec<String> = window.iter().map(|(_, s, _)| s.to_string()).collect();
+            let last_ev = window.last().unwrap().2;
+            detections.push(EvtxDetection {
+                kind: EvtxDetectionKind::ServiceStopAvSet,
+                mitre_technique_id: "T1489",
+                tactic: "Impact",
+                description: format!(
+                    "Ransomware AV/backup service-stop cluster: {} stops in {}ms — [{}]",
+                    window.len(),
+                    (window.last().unwrap().0 - window_start) / 1_000_000,
+                    services.join(", ")
+                ),
+                evidence: services
+                    .iter()
+                    .map(|s| format!("stopped={s}"))
+                    .collect(),
+                timestamp_ns: window_start,
+                event_id: last_ev.event_id,
+                channel: last_ev.channel.clone(),
+            });
+            i += window.len();
+        } else {
+            i += 1;
+        }
+    }
+    detections
 }
 
 fn is_process_event(ev: &EvtxEvent) -> bool {

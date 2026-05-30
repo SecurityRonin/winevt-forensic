@@ -19,7 +19,73 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 ///
 /// ~30/76 ransomware families clear logs post-encryption (T1070.001).
 pub fn detect_wevtutil_cl(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter_map(|ev| {
+            // Signal 1: wevtutil process create
+            if is_process_event(ev) {
+                let image = ev
+                    .data
+                    .get("Image")
+                    .or_else(|| ev.data.get("NewProcessName"))
+                    .map(String::as_str)
+                    .unwrap_or("");
+                if basename(image).to_lowercase() == "wevtutil.exe" {
+                    let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+                    let cl_lower = cl.to_lowercase();
+                    if let Some(&pat) = WEVTUTIL_CLEAR_SUBSTRINGS
+                        .iter()
+                        .find(|&&p| cl_lower.contains(p))
+                    {
+                        return Some(EvtxDetection {
+                            kind: EvtxDetectionKind::WevtutilLogClear,
+                            mitre_technique_id: "T1070.001",
+                            tactic: "Defense Evasion",
+                            description: format!(
+                                "wevtutil log-clear pattern '{pat}' in command line: '{cl}'"
+                            ),
+                            evidence: vec![
+                                format!("Image={image}"),
+                                format!("CommandLine={cl}"),
+                            ],
+                            timestamp_ns: ev.timestamp_ns,
+                            event_id: ev.event_id,
+                            channel: ev.channel.clone(),
+                        });
+                    }
+                }
+            }
+            // Signal 2: PowerShell script block containing log-clear patterns
+            if ev.event_id == EID_PS_SCRIPT_BLOCK && ev.channel == POWERSHELL_OPERATIONAL_CHANNEL {
+                let script = ev
+                    .data
+                    .get("ScriptBlockText")
+                    .map(String::as_str)
+                    .unwrap_or("");
+                if let Some(&pat) = PS_CLEAR_EVENTLOG_PATTERNS
+                    .iter()
+                    .find(|&&p| script.contains(p))
+                {
+                    return Some(EvtxDetection {
+                        kind: EvtxDetectionKind::WevtutilLogClear,
+                        mitre_technique_id: "T1070.001",
+                        tactic: "Defense Evasion",
+                        description: format!(
+                            "PowerShell log-clear pattern '{pat}' in script block"
+                        ),
+                        evidence: vec![
+                            format!("ScriptBlockText snippet: ...{}...", &script[..script.len().min(120)]),
+                            format!("matched_pattern={pat}"),
+                        ],
+                        timestamp_ns: ev.timestamp_ns,
+                        event_id: ev.event_id,
+                        channel: ev.channel.clone(),
+                    });
+                }
+            }
+            None
+        })
+        .collect()
 }
 
 fn is_process_event(ev: &EvtxEvent) -> bool {

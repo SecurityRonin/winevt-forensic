@@ -18,7 +18,35 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// Fires on Sysmon EID 11 (File Create) when `TargetFilename` basename is in
 /// `RMM_BINARY_NAMES` and the full path does NOT start with a safe install prefix.
 pub fn detect_rmm_install(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| ev.event_id == EID_SYSMON_FILE_CREATE && ev.channel == SYSMON_CHANNEL)
+        .filter_map(|ev| {
+            let target = ev.data.get("TargetFilename").map(String::as_str)?;
+            let base = basename(target).to_lowercase();
+            let matched = RMM_BINARY_NAMES
+                .iter()
+                .find(|&&name| name.to_lowercase() == base)?;
+            if is_safe_path(target) {
+                return None;
+            }
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::RmmToolInstall,
+                mitre_technique_id: "T1219",
+                tactic: "Command and Control",
+                description: format!(
+                    "RMM tool '{matched}' dropped outside standard install paths: '{target}'"
+                ),
+                evidence: vec![
+                    format!("TargetFilename={target}"),
+                    format!("matched_binary={matched}"),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 fn basename(path: &str) -> &str {
