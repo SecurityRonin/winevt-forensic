@@ -14,7 +14,26 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 ///
 /// Returns one detection per matching event.
 pub fn detect_vss_deletion(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!("implement vss detector")
+    events
+        .iter()
+        .filter(|ev| {
+            ev.channel == "Application"
+                && (ev.event_id == EID_VSS_ERROR || ev.event_id == EID_VSS_SNAPSHOT_DELETED)
+        })
+        .map(|ev| EvtxDetection {
+            kind: EvtxDetectionKind::VssDeletion,
+            mitre_technique_id: "T1490",
+            tactic: "Impact",
+            description: format!(
+                "VSS shadow copy deletion event (EID {}): inhibit system recovery",
+                ev.event_id
+            ),
+            evidence: vec![format!("event_id={}", ev.event_id), format!("channel={}", ev.channel)],
+            timestamp_ns: ev.timestamp_ns,
+            event_id: ev.event_id,
+            channel: ev.channel.clone(),
+        })
+        .collect()
 }
 
 #[cfg(test)]

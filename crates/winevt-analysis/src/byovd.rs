@@ -1,6 +1,8 @@
 //! Detect BYOVD (Bring Your Own Vulnerable Driver) service installation (T1068).
 
-use forensicnomicon::heuristics::evtx::BYOVD_DRIVER_NAMES;
+use forensicnomicon::heuristics::evtx::{
+    BYOVD_DRIVER_NAMES, EID_SERVICE_INSTALLED, EID_SERVICE_INSTALLED_SECURITY,
+};
 use winevt_core::EvtxEvent;
 
 use crate::{EvtxDetection, EvtxDetectionKind};
@@ -12,7 +14,31 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// AntiMalware driver (`zamguard64`) to terminate EDR/AV at kernel level
 /// before deploying the encryptor (T1068).
 pub fn detect_byovd_driver_install(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!("implement byovd detector")
+    events
+        .iter()
+        .filter(|ev| {
+            (ev.event_id == EID_SERVICE_INSTALLED && ev.channel == "System")
+                || (ev.event_id == EID_SERVICE_INSTALLED_SECURITY && ev.channel == "Security")
+        })
+        .filter_map(|ev| {
+            let name = ev.data.get("ServiceName")?;
+            BYOVD_DRIVER_NAMES
+                .iter()
+                .find(|&&pat| name.eq_ignore_ascii_case(pat))
+                .map(|&pat| EvtxDetection {
+                    kind: EvtxDetectionKind::ByovdDriverInstall,
+                    mitre_technique_id: "T1068",
+                    tactic: "Privilege Escalation",
+                    description: format!(
+                        "Known-vulnerable driver service installed: '{name}' — possible BYOVD attack"
+                    ),
+                    evidence: vec![format!("ServiceName={name}"), format!("matched_ioc={pat}")],
+                    timestamp_ns: ev.timestamp_ns,
+                    event_id: ev.event_id,
+                    channel: ev.channel.clone(),
+                })
+        })
+        .collect()
 }
 
 #[cfg(test)]

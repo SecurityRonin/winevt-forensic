@@ -21,7 +21,47 @@ const EID_SYSMON_PROCESS_CREATE: u32 = 1;
 ///
 /// Returns one detection per matching event.
 pub fn detect_webdav_lolbin(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!("implement webdav_lolbin detector")
+    events
+        .iter()
+        .filter(|ev| {
+            (ev.event_id == EID_PROCESS_CREATED && ev.channel == "Security")
+                || (ev.event_id == EID_SYSMON_PROCESS_CREATE
+                    && ev.channel.contains("Sysmon"))
+        })
+        .filter_map(|ev| {
+            let path = ev
+                .data
+                .get("NewProcessName")
+                .or_else(|| ev.data.get("Image"))?;
+            let cmdline = ev.data.get("CommandLine")?;
+            let base = basename(path);
+            let is_lolbin = WEBDAV_LOL_PROCESSES
+                .iter()
+                .any(|&proc| base.eq_ignore_ascii_case(proc));
+            if !is_lolbin {
+                return None;
+            }
+            let webdav_indicator = WEBDAV_COMMANDLINE_INDICATORS
+                .iter()
+                .find(|&&ind| cmdline.contains(ind))?;
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::WebdavLolbinUsage,
+                mitre_technique_id: "T1102",
+                tactic: "Command and Control",
+                description: format!(
+                    "LOLBin '{base}' initiated WebDAV connection (indicator: '{webdav_indicator}')"
+                ),
+                evidence: vec![
+                    format!("process={base}"),
+                    format!("CommandLine={cmdline}"),
+                    format!("webdav_indicator={webdav_indicator}"),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 fn basename(path: &str) -> &str {

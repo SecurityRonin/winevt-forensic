@@ -17,7 +17,37 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 ///
 /// Returns one detection per matching event.
 pub fn detect_hyperv_vm_shutdown(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!("implement hyperv detector")
+    events
+        .iter()
+        .filter(|ev| {
+            ev.channel == HYPERV_VMMS_CHANNEL
+                && (ev.event_id == EID_HYPERV_VM_STATE_CHANGE
+                    || ev.event_id == EID_HYPERV_VM_STOPPED)
+        })
+        .map(|ev| {
+            let vm_name = ev
+                .data
+                .get("VmName")
+                .map(String::as_str)
+                .unwrap_or("<unknown>");
+            EvtxDetection {
+                kind: EvtxDetectionKind::HypervVmShutdown,
+                mitre_technique_id: "T1486",
+                tactic: "Impact",
+                description: format!(
+                    "Hyper-V VM shut down (EID {}): '{vm_name}' — pre-encryption staging",
+                    ev.event_id
+                ),
+                evidence: vec![
+                    format!("VmName={vm_name}"),
+                    format!("event_id={}", ev.event_id),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

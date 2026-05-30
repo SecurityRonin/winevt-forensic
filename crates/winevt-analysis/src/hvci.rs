@@ -17,7 +17,39 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// `HypervisorEnforcedCodeIntegrity` before installing the Zemana BYOVD
 /// driver, allowing it to bypass Driver Signature Enforcement (T1562.001).
 pub fn detect_hvci_registry_tamper(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!("implement hvci detector")
+    events
+        .iter()
+        .filter(|ev| ev.event_id == EID_REGISTRY_VALUE_SET && ev.channel == "Security")
+        .filter_map(|ev| {
+            let key = ev.data.get("ObjectName")?;
+            let value = ev.data.get("ObjectValueName")?;
+            let key_matches = HVCI_REGISTRY_KEY_PATHS
+                .iter()
+                .any(|&frag| key.contains(frag));
+            let value_matches = HVCI_REGISTRY_VALUE_NAMES
+                .iter()
+                .any(|&v| value == v);
+            if key_matches && value_matches {
+                Some(EvtxDetection {
+                    kind: EvtxDetectionKind::HvciRegistryTamper,
+                    mitre_technique_id: "T1562.001",
+                    tactic: "Defense Evasion",
+                    description: format!(
+                        "HVCI/VBS registry value modified: '{value}' at '{key}'"
+                    ),
+                    evidence: vec![
+                        format!("ObjectName={key}"),
+                        format!("ObjectValueName={value}"),
+                    ],
+                    timestamp_ns: ev.timestamp_ns,
+                    event_id: ev.event_id,
+                    channel: ev.channel.clone(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

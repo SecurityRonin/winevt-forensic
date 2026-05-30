@@ -17,7 +17,31 @@ const EID_TASKSCHEDULER_TASK_REGISTERED: u32 = 106;
 ///
 /// Returns one detection per matching event.
 pub fn detect_scheduled_task_creation(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!("implement scheduled_task detector")
+    events
+        .iter()
+        .filter(|ev| {
+            (ev.event_id == EID_SECURITY_TASK_CREATED && ev.channel == "Security")
+                || (ev.event_id == EID_TASKSCHEDULER_TASK_REGISTERED
+                    && ev.channel.contains("TaskScheduler"))
+        })
+        .map(|ev| {
+            let task_name = ev
+                .data
+                .get("TaskName")
+                .map(String::as_str)
+                .unwrap_or("<unknown>");
+            EvtxDetection {
+                kind: EvtxDetectionKind::ScheduledTaskCreation,
+                mitre_technique_id: "T1053.005",
+                tactic: "Persistence",
+                description: format!("Scheduled task created: '{task_name}'"),
+                evidence: vec![format!("TaskName={task_name}"), format!("event_id={}", ev.event_id)],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -18,7 +18,39 @@ const EID_SYSMON_PROCESS_CREATE: u32 = 1;
 ///
 /// Returns one detection per matching event.
 pub fn detect_qwcrypt_process(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!("implement qwcrypt_proc detector")
+    events
+        .iter()
+        .filter(|ev| {
+            (ev.event_id == EID_PROCESS_CREATED && ev.channel == "Security")
+                || (ev.event_id == EID_SYSMON_PROCESS_CREATE
+                    && ev.channel.contains("Sysmon"))
+        })
+        .filter_map(|ev| {
+            let path = ev
+                .data
+                .get("NewProcessName")
+                .or_else(|| ev.data.get("Image"))?;
+            let base = basename(path);
+            QWCRYPT_IOC_FILENAMES
+                .iter()
+                .find(|&&ioc| base.eq_ignore_ascii_case(ioc))
+                .map(|&ioc| EvtxDetection {
+                    kind: EvtxDetectionKind::QwcryptProcessExecution,
+                    mitre_technique_id: "T1486",
+                    tactic: "Impact",
+                    description: format!(
+                        "QWCrypt/RedCurl binary executed: '{base}'"
+                    ),
+                    evidence: vec![
+                        format!("process={path}"),
+                        format!("matched_ioc={ioc}"),
+                    ],
+                    timestamp_ns: ev.timestamp_ns,
+                    event_id: ev.event_id,
+                    channel: ev.channel.clone(),
+                })
+        })
+        .collect()
 }
 
 fn basename(path: &str) -> &str {

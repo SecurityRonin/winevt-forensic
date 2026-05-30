@@ -17,7 +17,37 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 ///
 /// Returns one detection per matching event.
 pub fn detect_ps_qwcrypt_patterns(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!("implement ps_patterns detector")
+    events
+        .iter()
+        .filter(|ev| {
+            ev.event_id == EID_PS_SCRIPT_BLOCK && ev.channel == POWERSHELL_OPERATIONAL_CHANNEL
+        })
+        .filter_map(|ev| {
+            let script = ev.data.get("ScriptBlockText")?;
+            let script_lower = script.to_lowercase();
+            QWCRYPT_PS_PATTERNS
+                .iter()
+                .find(|&&pat| script_lower.contains(&pat.to_lowercase()))
+                .map(|&matched| EvtxDetection {
+                    kind: EvtxDetectionKind::PsScriptBlockQwcrypt,
+                    mitre_technique_id: "T1059.001",
+                    tactic: "Execution",
+                    description: format!(
+                        "QWCrypt PowerShell pattern detected in script block: '{matched}'"
+                    ),
+                    evidence: vec![
+                        format!("matched_pattern={matched}"),
+                        format!(
+                            "script_excerpt={}",
+                            script.chars().take(120).collect::<String>()
+                        ),
+                    ],
+                    timestamp_ns: ev.timestamp_ns,
+                    event_id: ev.event_id,
+                    channel: ev.channel.clone(),
+                })
+        })
+        .collect()
 }
 
 #[cfg(test)]
