@@ -14,7 +14,42 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// False positives: legitimate RPC/Named-pipe connections use `IPC$` — correlate
 /// with surrounding events (service install, psexec patterns) for high confidence.
 pub fn detect_smb_admin_share(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| ev.event_id == EID_SMB_SHARE_ACCESS && ev.channel == "Security")
+        .filter_map(|ev| {
+            let share_field = ev.data.get("ShareName").map(String::as_str).unwrap_or("");
+            let share = share_name_component(share_field);
+            let matched = ADMIN_SHARE_NAMES
+                .iter()
+                .find(|&&name| name.eq_ignore_ascii_case(share))?;
+            let ip = ev.data.get("IpAddress").map(String::as_str).unwrap_or("-");
+            if is_local_ip(ip) {
+                return None;
+            }
+            let user = ev
+                .data
+                .get("SubjectUserName")
+                .map(String::as_str)
+                .unwrap_or("unknown");
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::SmbAdminShareAccess,
+                mitre_technique_id: "T1021.002",
+                tactic: "Lateral Movement",
+                description: format!(
+                    "Remote SMB admin share access: '{matched}' from {ip} by '{user}'"
+                ),
+                evidence: vec![
+                    format!("ShareName={share_field}"),
+                    format!("IpAddress={ip}"),
+                    format!("SubjectUserName={user}"),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 /// Extract the share name component from a ShareName field value.
