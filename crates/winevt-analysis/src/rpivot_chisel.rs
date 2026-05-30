@@ -19,7 +19,56 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 ///
 /// Both fire on EID 4688 (Security) or Sysmon EID 1, checking `CommandLine`.
 pub fn detect_rpivot_chisel(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| is_process_event(ev))
+        .filter_map(|ev| {
+            let cl = cmdline(ev)?;
+            let cl_lower = cl.to_lowercase();
+            // Check Chisel indicators first, then RPivot
+            if let Some(&indicator) = CHISEL_CMDLINE_INDICATORS
+                .iter()
+                .find(|&&ind| cl_lower.contains(&ind.to_lowercase()))
+            {
+                return Some(EvtxDetection {
+                    kind: EvtxDetectionKind::RpivotChisel,
+                    mitre_technique_id: "T1090",
+                    tactic: "Command and Control",
+                    description: format!(
+                        "Chisel tunnel tool indicator '{indicator}' in command line: '{cl}'"
+                    ),
+                    evidence: vec![
+                        format!("CommandLine={cl}"),
+                        format!("matched_indicator={indicator}"),
+                    ],
+                    timestamp_ns: ev.timestamp_ns,
+                    event_id: ev.event_id,
+                    channel: ev.channel.clone(),
+                });
+            }
+            if let Some(&indicator) = RPIVOT_CMDLINE_INDICATORS
+                .iter()
+                .find(|&&ind| cl_lower.contains(&ind.to_lowercase()))
+            {
+                return Some(EvtxDetection {
+                    kind: EvtxDetectionKind::RpivotChisel,
+                    mitre_technique_id: "T1090",
+                    tactic: "Command and Control",
+                    description: format!(
+                        "RPivot tunnel indicator '{indicator}' in command line: '{cl}'"
+                    ),
+                    evidence: vec![
+                        format!("CommandLine={cl}"),
+                        format!("matched_indicator={indicator}"),
+                    ],
+                    timestamp_ns: ev.timestamp_ns,
+                    event_id: ev.event_id,
+                    channel: ev.channel.clone(),
+                });
+            }
+            None
+        })
+        .collect()
 }
 
 fn cmdline<'a>(ev: &'a winevt_core::EvtxEvent) -> Option<&'a str> {

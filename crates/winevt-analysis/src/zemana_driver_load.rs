@@ -15,7 +15,34 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// Legitimate Zemana installs from `C:\Program Files\Zemana\*`.  Any load of a
 /// Zemana-signed driver from outside that path is a BYOVD indicator (T1068).
 pub fn detect_zemana_driver_load(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| ev.event_id == EID_SYSMON_DRIVER_LOAD && ev.channel == SYSMON_CHANNEL)
+        .filter_map(|ev| {
+            if !is_zemana_signed(ev) {
+                return None;
+            }
+            let path = ev.data.get("ImageLoaded")?;
+            if is_standard_zemana_path(path) {
+                return None;
+            }
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::ZemanaDriverLoad,
+                mitre_technique_id: "T1068",
+                tactic: "Privilege Escalation",
+                description: format!(
+                    "Zemana-signed driver loaded from non-standard path: '{path}' — BYOVD EDR killer"
+                ),
+                evidence: vec![
+                    format!("ImageLoaded={path}"),
+                    format!("Thumbprint={ZEMANA_SIGNER_THUMBPRINT}"),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 fn is_zemana_signed(ev: &winevt_core::EvtxEvent) -> bool {

@@ -17,7 +17,31 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// create) or EID 13 (RegistryEvent value set) with `TargetObject` containing
 /// the key path fragment fires on first run.
 pub fn detect_adexplorer_recon(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| {
+            (ev.event_id == EID_SYSMON_REGISTRY_ADD || ev.event_id == EID_SYSMON_REGISTRY_MODIFY)
+                && ev.channel == SYSMON_CHANNEL
+        })
+        .filter_map(|ev| {
+            let key = ev.data.get("TargetObject")?;
+            if !key.contains(ADEXPLORER_EULAACCEPTED_KEY_FRAGMENT) {
+                return None;
+            }
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::AdExplorerRecon,
+                mitre_technique_id: "T1087",
+                tactic: "Discovery",
+                description: format!(
+                    "Sysinternals AD Explorer first-run registry key written — domain recon tombstone: '{key}'"
+                ),
+                evidence: vec![format!("TargetObject={key}")],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

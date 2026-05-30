@@ -19,7 +19,34 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// `TaskName` exists (basic name-based check — action path is rarely available
 /// in EventData without parsing the task XML).
 pub fn detect_fake_browser_task(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| {
+            (ev.event_id == EID_TASK_REGISTERED || ev.event_id == EID_TASK_UPDATED)
+                && ev.channel == TASKSCHEDULER_CHANNEL
+        })
+        .filter_map(|ev| {
+            let task_name = ev.data.get("TaskName")?;
+            let matched = BROWSER_UPDATE_TASK_PATTERNS
+                .iter()
+                .find(|&&pat| task_name.contains(pat))?;
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::FakeBrowserTask,
+                mitre_technique_id: "T1053.005",
+                tactic: "Persistence",
+                description: format!(
+                    "Browser-update-themed scheduled task registered: '{task_name}' (matched '{matched}') — potential RedCurl persistence"
+                ),
+                evidence: vec![
+                    format!("TaskName={task_name}"),
+                    format!("matched_pattern={matched}"),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

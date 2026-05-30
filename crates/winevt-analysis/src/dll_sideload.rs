@@ -16,7 +16,35 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// copy of ADNotificationManager.exe from `%APPDATA%`, `%LOCALAPPDATA%\Temp\`,
 /// or `C:\ProgramData\<random>\` (T1574.002).
 pub fn detect_dll_sideload(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| ev.event_id == EID_SYSMON_IMAGE_LOAD && ev.channel == SYSMON_CHANNEL)
+        .filter_map(|ev| {
+            let loaded = ev.data.get("ImageLoaded")?;
+            let base = basename(loaded).to_lowercase();
+            let matched = SIDELOAD_HIJACK_DLLS
+                .iter()
+                .find(|&&dll| dll.to_lowercase() == base)?;
+            if is_safe_system_path(loaded) {
+                return None;
+            }
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::DllSideloadHijack,
+                mitre_technique_id: "T1574.002",
+                tactic: "Defense Evasion",
+                description: format!(
+                    "DLL sideload: '{matched}' loaded from non-system path '{loaded}'"
+                ),
+                evidence: vec![
+                    format!("ImageLoaded={loaded}"),
+                    format!("matched_dll={matched}"),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 fn basename(path: &str) -> &str {

@@ -15,7 +15,35 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// suspicious — especially `rundll32.exe`, `powershell.exe`, `pcalua.exe`,
 /// `python.exe`, and `ADNotificationManager.exe`.
 pub fn detect_workers_dev_dns(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| ev.event_id == EID_SYSMON_DNS_QUERY && ev.channel == SYSMON_CHANNEL)
+        .filter_map(|ev| {
+            let query = ev.data.get("QueryName")?;
+            if !query.ends_with(CLOUDFLARE_WORKERS_DOMAIN_SUFFIX) {
+                return None;
+            }
+            let image = ev.data.get("Image").map(String::as_str).unwrap_or("");
+            if is_browser(image) {
+                return None;
+            }
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::WorkersDevDnsQuery,
+                mitre_technique_id: "T1102",
+                tactic: "Command and Control",
+                description: format!(
+                    "Non-browser process queried Cloudflare Workers domain: '{query}' (process: '{image}')"
+                ),
+                evidence: vec![
+                    format!("QueryName={query}"),
+                    format!("Image={image}"),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 fn basename(path: &str) -> &str {

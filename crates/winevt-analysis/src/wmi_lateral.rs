@@ -19,7 +19,52 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 ///    `\\127.0.0.1\ADMIN$\__<timestamp>` (the temp output file path used by
 ///    Impacket's wmiexec.py), visible in EID 4688 or Sysmon EID 1.
 pub fn detect_wmi_lateral_movement(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter_map(|ev| {
+            // Signal 1: WMI permanent event consumer (EID 5861)
+            if ev.event_id == EID_WMI_FILTER_TRIGGERED && ev.channel == WMI_ACTIVITY_CHANNEL {
+                let user = ev.data.get("User").map(String::as_str).unwrap_or("unknown");
+                return Some(EvtxDetection {
+                    kind: EvtxDetectionKind::WmiLateralMovement,
+                    mitre_technique_id: "T1047",
+                    tactic: "Lateral Movement",
+                    description: format!(
+                        "WMI permanent event consumer registered by '{user}' — high-fidelity lateral movement or persistence indicator"
+                    ),
+                    evidence: vec![format!("User={user}"), format!("channel={}", ev.channel)],
+                    timestamp_ns: ev.timestamp_ns,
+                    event_id: ev.event_id,
+                    channel: ev.channel.clone(),
+                });
+            }
+            // Signal 2: Impacket wmiexec output-redirect in process CommandLine
+            if is_process_event(ev) {
+                let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+                if let Some(&indicator) = WMI_IMPACKET_INDICATORS
+                    .iter()
+                    .find(|&&ind| cl.contains(ind))
+                {
+                    return Some(EvtxDetection {
+                        kind: EvtxDetectionKind::WmiLateralMovement,
+                        mitre_technique_id: "T1047",
+                        tactic: "Lateral Movement",
+                        description: format!(
+                            "Impacket wmiexec output-redirect pattern '{indicator}' in command line"
+                        ),
+                        evidence: vec![
+                            format!("CommandLine={cl}"),
+                            format!("matched_indicator={indicator}"),
+                        ],
+                        timestamp_ns: ev.timestamp_ns,
+                        event_id: ev.event_id,
+                        channel: ev.channel.clone(),
+                    });
+                }
+            }
+            None
+        })
+        .collect()
 }
 
 fn is_process_event(ev: &winevt_core::EvtxEvent) -> bool {

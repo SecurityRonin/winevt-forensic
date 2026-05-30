@@ -16,7 +16,42 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// The combination of: 7-Zip binary + `-mhe` in CommandLine + parent process
 /// in `STAGING_PARENT_IMAGES` is a high-confidence staging indicator (T1560.001).
 pub fn detect_sevenz_staging(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| is_process_event(ev))
+        .filter_map(|ev| {
+            let image = ev.data.get("Image").map(String::as_str).unwrap_or("");
+            let base = basename(image).to_lowercase();
+            if !ARCHIVER_PROCESS_NAMES.iter().any(|a| a.to_lowercase() == base) {
+                return None;
+            }
+            let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+            if !cl.contains(ARCHIVER_HEADER_ENCRYPT_FLAG) {
+                return None;
+            }
+            let parent = ev.data.get("ParentImage").map(String::as_str).unwrap_or("");
+            let parent_base = basename(parent).to_lowercase();
+            if !STAGING_PARENT_IMAGES.iter().any(|p| p.to_lowercase() == parent_base) {
+                return None;
+            }
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::SevenZipStagingEncrypted,
+                mitre_technique_id: "T1560.001",
+                tactic: "Collection",
+                description: format!(
+                    "7-Zip with header-encryption (-mhe) spawned by suspicious parent '{parent}': '{cl}'"
+                ),
+                evidence: vec![
+                    format!("Image={image}"),
+                    format!("CommandLine={cl}"),
+                    format!("ParentImage={parent}"),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 fn basename(path: &str) -> &str {

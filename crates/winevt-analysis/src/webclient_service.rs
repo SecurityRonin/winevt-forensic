@@ -12,7 +12,35 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// near-zero-FP precursor to any rundll32/certutil WebDAV payload download on
 /// enterprise hosts that don't use WebDAV legitimately (T1102, T1105).
 pub fn detect_webclient_service_start(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| ev.event_id == EID_SCM_SERVICE_STATE_CHANGE && ev.channel == "System")
+        .filter_map(|ev| {
+            let svc = ev.data.get("param1")?;
+            let state = ev.data.get("param2")?;
+            if !svc.eq_ignore_ascii_case(WEBCLIENT_SERVICE_NAME) {
+                return None;
+            }
+            if !state.eq_ignore_ascii_case("Running") {
+                return None;
+            }
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::WebClientServiceStart,
+                mitre_technique_id: "T1102",
+                tactic: "Command and Control",
+                description: format!(
+                    "WebClient (Mini-Redirector) service started — enables WebDAV UNC path delivery"
+                ),
+                evidence: vec![
+                    format!("service={svc}"),
+                    format!("state={state}"),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

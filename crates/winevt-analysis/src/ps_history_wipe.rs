@@ -18,7 +18,29 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// action; deletions across multiple user profiles within seconds indicate
 /// automated ransomware cleanup.
 pub fn detect_ps_history_wipe(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| {
+            (ev.event_id == EID_SYSMON_FILE_DELETE || ev.event_id == EID_SYSMON_FILE_DELETE_DETECTED)
+                && ev.channel == SYSMON_CHANNEL
+        })
+        .filter_map(|ev| {
+            let path = ev.data.get("TargetFilename")?;
+            if !path.contains(PS_HISTORY_PATH_FRAGMENT) {
+                return None;
+            }
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::PsHistoryWipe,
+                mitre_technique_id: "T1070.003",
+                tactic: "Defense Evasion",
+                description: format!("PowerShell history file deleted: '{path}'"),
+                evidence: vec![format!("TargetFilename={path}")],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
