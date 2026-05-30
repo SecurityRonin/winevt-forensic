@@ -18,6 +18,7 @@ pub mod hvci;
 pub mod hyperv;
 pub mod ps_patterns;
 pub mod qwcrypt_proc;
+pub mod ransom_note;
 pub mod scheduled_task;
 pub mod vss;
 pub mod webdav_lolbin;
@@ -27,6 +28,7 @@ pub use hvci::detect_hvci_registry_tamper;
 pub use hyperv::detect_hyperv_vm_shutdown;
 pub use ps_patterns::detect_ps_qwcrypt_patterns;
 pub use qwcrypt_proc::detect_qwcrypt_process;
+pub use ransom_note::detect_ransom_note_creation;
 pub use scheduled_task::detect_scheduled_task_creation;
 pub use vss::detect_vss_deletion;
 pub use webdav_lolbin::detect_webdav_lolbin;
@@ -52,6 +54,8 @@ pub enum EvtxDetectionKind {
     PsScriptBlockQwcrypt,
     /// A LOLBin process initiated a WebDAV connection — staging or exfiltration (T1102).
     WebdavLolbinUsage,
+    /// A ransom note file was created on disk (T1486 — Data Encrypted for Impact).
+    RansomNoteCreated,
 }
 
 /// A single detection produced by an EVTX detector.
@@ -88,6 +92,7 @@ pub fn detect_all(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
     results.extend(detect_qwcrypt_process(events));
     results.extend(detect_ps_qwcrypt_patterns(events));
     results.extend(detect_webdav_lolbin(events));
+    results.extend(detect_ransom_note_creation(events));
     results.sort_by(|a, b| {
         a.timestamp_ns
             .cmp(&b.timestamp_ns)
