@@ -13,25 +13,45 @@
     clippy::must_use_candidate,
 )]
 
+pub mod adexplorer_recon;
 pub mod byovd;
+pub mod dll_sideload;
+pub mod fake_browser_task;
 pub mod hvci;
 pub mod hyperv;
+pub mod ps_history_wipe;
 pub mod ps_patterns;
 pub mod qwcrypt_proc;
 pub mod ransom_note;
+pub mod rpivot_chisel;
 pub mod scheduled_task;
+pub mod sevenz_staging;
 pub mod vss;
+pub mod webclient_service;
 pub mod webdav_lolbin;
+pub mod wmi_lateral;
+pub mod workers_dev_dns;
+pub mod zemana_driver_load;
 
+pub use adexplorer_recon::detect_adexplorer_recon;
 pub use byovd::detect_byovd_driver_install;
+pub use dll_sideload::detect_dll_sideload;
+pub use fake_browser_task::detect_fake_browser_task;
 pub use hvci::detect_hvci_registry_tamper;
 pub use hyperv::detect_hyperv_vm_shutdown;
+pub use ps_history_wipe::detect_ps_history_wipe;
 pub use ps_patterns::detect_ps_qwcrypt_patterns;
 pub use qwcrypt_proc::detect_qwcrypt_process;
 pub use ransom_note::detect_ransom_note_creation;
+pub use rpivot_chisel::detect_rpivot_chisel;
 pub use scheduled_task::detect_scheduled_task_creation;
+pub use sevenz_staging::detect_sevenz_staging;
 pub use vss::detect_vss_deletion;
+pub use webclient_service::detect_webclient_service_start;
 pub use webdav_lolbin::detect_webdav_lolbin;
+pub use wmi_lateral::detect_wmi_lateral_movement;
+pub use workers_dev_dns::detect_workers_dev_dns;
+pub use zemana_driver_load::detect_zemana_driver_load;
 
 use winevt_core::EvtxEvent;
 
@@ -56,6 +76,26 @@ pub enum EvtxDetectionKind {
     WebdavLolbinUsage,
     /// A ransom note file was created on disk (T1486 — Data Encrypted for Impact).
     RansomNoteCreated,
+    /// WebClient (Mini-Redirector) service started — precursor to WebDAV payload delivery (T1102).
+    WebClientServiceStart,
+    /// Sysinternals AD Explorer first-run registry key created — domain recon tombstone (T1087).
+    AdExplorerRecon,
+    /// Zemana signed driver loaded from a non-standard path — BYOVD EDR killer (T1068).
+    ZemanaDriverLoad,
+    /// srvcli.dll or netutils.dll loaded from a user-writable path — DLL sideload (T1574.002).
+    DllSideloadHijack,
+    /// ConsoleHost_history.txt deleted — PowerShell history anti-forensics (T1070.003).
+    PsHistoryWipe,
+    /// RPivot or Chisel tunnel tool executed — reverse proxy / SOCKS5 (T1090).
+    RpivotChisel,
+    /// WMI permanent event consumer created or Impacket wmiexec output-redirect detected (T1047).
+    WmiLateralMovement,
+    /// 7-Zip executed with header-encryption flag (-mhe) from a suspicious parent (T1560.001).
+    SevenZipStagingEncrypted,
+    /// Scheduled task with browser-update name but action path outside Program Files (T1053.005).
+    FakeBrowserTask,
+    /// Non-browser process issued a DNS query for a .workers.dev domain — Cloudflare C2 (T1102).
+    WorkersDevDnsQuery,
 }
 
 /// A single detection produced by an EVTX detector.
@@ -93,6 +133,16 @@ pub fn detect_all(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
     results.extend(detect_ps_qwcrypt_patterns(events));
     results.extend(detect_webdav_lolbin(events));
     results.extend(detect_ransom_note_creation(events));
+    results.extend(detect_webclient_service_start(events));
+    results.extend(detect_adexplorer_recon(events));
+    results.extend(detect_zemana_driver_load(events));
+    results.extend(detect_dll_sideload(events));
+    results.extend(detect_ps_history_wipe(events));
+    results.extend(detect_rpivot_chisel(events));
+    results.extend(detect_wmi_lateral_movement(events));
+    results.extend(detect_sevenz_staging(events));
+    results.extend(detect_fake_browser_task(events));
+    results.extend(detect_workers_dev_dns(events));
     results.sort_by(|a, b| {
         a.timestamp_ns
             .cmp(&b.timestamp_ns)

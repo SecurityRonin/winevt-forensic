@@ -15,7 +15,33 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 ///
 /// Returns one detection per matching event.
 pub fn detect_ransom_note_creation(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!("implement ransom_note detector")
+    events
+        .iter()
+        .filter(|ev| ev.event_id == EID_SYSMON_FILE_CREATE && ev.channel == SYSMON_CHANNEL)
+        .filter_map(|ev| {
+            let path = ev.data.get("TargetFilename")?;
+            let base = basename(path);
+            let base_lower = base.to_lowercase();
+            RANSOM_NOTE_FILENAMES
+                .iter()
+                .find(|&&note| note.to_lowercase() == base_lower)
+                .map(|&matched| EvtxDetection {
+                    kind: EvtxDetectionKind::RansomNoteCreated,
+                    mitre_technique_id: "T1486",
+                    tactic: "Impact",
+                    description: format!(
+                        "Ransom note created: '{path}' (matched '{matched}')"
+                    ),
+                    evidence: vec![
+                        format!("TargetFilename={path}"),
+                        format!("matched_note={matched}"),
+                    ],
+                    timestamp_ns: ev.timestamp_ns,
+                    event_id: ev.event_id,
+                    channel: ev.channel.clone(),
+                })
+        })
+        .collect()
 }
 
 fn basename(path: &str) -> &str {
