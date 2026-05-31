@@ -23,7 +23,47 @@ use crate::{EvtxDetection, EvtxDetectionKind};
 /// Sources: Sysmon EID 1 (`ParentImage` field) and Security EID 4688
 /// (`ParentProcessName` field, requires Windows 8.1+ audit policy).
 pub fn detect_explorer_lolbin(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
-    todo!()
+    events
+        .iter()
+        .filter(|ev| is_process_event(ev))
+        .filter_map(|ev| {
+            let parent_base = basename(parent_image(ev)).to_lowercase();
+            if !SHELL_PARENT_PROCESS_NAMES
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(&parent_base))
+            {
+                return None;
+            }
+            let img = image(ev);
+            let img_base = basename(img).to_lowercase();
+            let matched = WEBDAV_LOL_PROCESSES
+                .iter()
+                .find(|&&lol| lol.eq_ignore_ascii_case(&img_base))?;
+            let parent = parent_image(ev);
+            let cmdline = ev
+                .data
+                .get("CommandLine")
+                .map(String::as_str)
+                .unwrap_or("");
+            Some(EvtxDetection {
+                kind: EvtxDetectionKind::ExplorerLolbinExecution,
+                mitre_technique_id: "T1204.002",
+                tactic: "Execution",
+                description: format!(
+                    "LOLBin '{matched}' spawned by shell '{}'  — likely user-executed LNK/script",
+                    basename(parent)
+                ),
+                evidence: vec![
+                    format!("Image={img}"),
+                    format!("ParentImage={parent}"),
+                    format!("CommandLine={cmdline}"),
+                ],
+                timestamp_ns: ev.timestamp_ns,
+                event_id: ev.event_id,
+                channel: ev.channel.clone(),
+            })
+        })
+        .collect()
 }
 
 fn is_process_event(ev: &EvtxEvent) -> bool {
