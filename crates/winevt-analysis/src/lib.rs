@@ -19,6 +19,7 @@ pub mod byovd;
 pub mod comsvcs_lsass;
 pub mod defender_disable;
 pub mod dll_sideload;
+pub mod explorer_lolbin;
 pub mod fake_browser_task;
 pub mod hvci;
 pub mod hyperv;
@@ -50,6 +51,7 @@ pub use byovd::detect_byovd_driver_install;
 pub use comsvcs_lsass::detect_comsvcs_lsass;
 pub use defender_disable::detect_defender_disable;
 pub use dll_sideload::detect_dll_sideload;
+pub use explorer_lolbin::detect_explorer_lolbin;
 pub use fake_browser_task::detect_fake_browser_task;
 pub use hvci::detect_hvci_registry_tamper;
 pub use hyperv::detect_hyperv_vm_shutdown;
@@ -140,6 +142,8 @@ pub enum EvtxDetectionKind {
     LocalAdminCreation,
     /// Remote access to Windows admin share (ADMIN$, C$, IPC$) from a non-local IP (T1021.002).
     SmbAdminShareAccess,
+    /// LOLBin process spawned directly by explorer.exe — user executed a malicious LNK/script (T1204.002).
+    ExplorerLolbinExecution,
 }
 
 /// A single detection produced by an EVTX detector.
@@ -198,6 +202,7 @@ pub fn detect_all(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
     results.extend(detect_rdp_enable(events));
     results.extend(detect_local_admin_creation(events));
     results.extend(detect_smb_admin_share(events));
+    results.extend(detect_explorer_lolbin(events));
     results.sort_by(|a, b| {
         a.timestamp_ns
             .cmp(&b.timestamp_ns)
