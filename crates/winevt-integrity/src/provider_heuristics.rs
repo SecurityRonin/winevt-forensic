@@ -148,6 +148,81 @@ pub fn check_provider_consistency(
     out
 }
 
+
+impl forensicnomicon::report::Observation for ProviderAnomaly {
+    fn severity(&self) -> Option<forensicnomicon::report::Severity> {
+        use forensicnomicon::report::Severity;
+        Some(match self {
+            ProviderAnomaly::GuidSpoofing { .. } => Severity::High,
+            ProviderAnomaly::ChannelMismatch { .. } => Severity::Medium,
+            ProviderAnomaly::UnexpectedEventId { .. } => Severity::Low,
+        })
+    }
+
+    fn category(&self) -> forensicnomicon::report::Category {
+        use forensicnomicon::report::Category;
+        match self {
+            ProviderAnomaly::GuidSpoofing { .. } => Category::Concealment,
+            ProviderAnomaly::ChannelMismatch { .. } => Category::Structure,
+            ProviderAnomaly::UnexpectedEventId { .. } => Category::Provenance,
+        }
+    }
+
+    fn code(&self) -> &'static str {
+        match self {
+            ProviderAnomaly::UnexpectedEventId { .. } => "WINEVT-PROVIDER-UNEXPECTED-EVENTID",
+            ProviderAnomaly::GuidSpoofing { .. } => "WINEVT-PROVIDER-GUID-SPOOFING",
+            ProviderAnomaly::ChannelMismatch { .. } => "WINEVT-PROVIDER-CHANNEL-MISMATCH",
+        }
+    }
+
+    fn note(&self) -> String {
+        match self {
+            ProviderAnomaly::UnexpectedEventId { provider_name, event_id } => {
+                format!("event ID {event_id} is not in the expected set for provider '{provider_name}'")
+            }
+            ProviderAnomaly::GuidSpoofing { provider_name, .. } => {
+                format!("provider name '{provider_name}' matches a known provider but its GUID does not")
+            }
+            ProviderAnomaly::ChannelMismatch { provider_name, expected_channel, actual_channel } => {
+                format!("provider '{provider_name}' logged to '{actual_channel}', expected '{expected_channel}'")
+            }
+        }
+    }
+
+    fn mitre(&self) -> &'static [&'static str] {
+        match self {
+            ProviderAnomaly::GuidSpoofing { .. } => &["T1036"],
+            _ => &[],
+        }
+    }
+
+    fn evidence(&self) -> Vec<forensicnomicon::report::Evidence> {
+        let ev = |field: &str, value: String| forensicnomicon::report::Evidence {
+            field: field.to_string(),
+            value,
+            location: None,
+        };
+        let hex = |g: &[u8; 16]| g.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        match self {
+            ProviderAnomaly::UnexpectedEventId { provider_name, event_id } => vec![
+                ev("provider_name", provider_name.clone()),
+                ev("event_id", event_id.to_string()),
+            ],
+            ProviderAnomaly::GuidSpoofing { provider_name, expected_guid, actual_guid } => vec![
+                ev("provider_name", provider_name.clone()),
+                ev("expected_guid", hex(expected_guid)),
+                ev("actual_guid", hex(actual_guid)),
+            ],
+            ProviderAnomaly::ChannelMismatch { provider_name, expected_channel, actual_channel } => vec![
+                ev("provider_name", provider_name.clone()),
+                ev("expected_channel", expected_channel.clone()),
+                ev("actual_channel", actual_channel.clone()),
+            ],
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
