@@ -31,7 +31,7 @@ fn analyse_truncated_anomaly_is_error_severity() {
     let anomalies = WinevtIntegrity::analyse(&[]);
     let truncated = anomalies.iter().find(|a| matches!(a, IntegrityAnomaly::TruncatedFile { .. }));
     let a = truncated.expect("TruncatedFile must be present");
-    assert_eq!(a.severity(), Severity::Error);
+    assert_eq!(a.severity(), Severity::High);
 }
 
 // ── EmptyLog variant ──────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ fn empty_log_variant_exists_and_debug() {
 
 #[test]
 fn empty_log_severity_is_warning() {
-    assert_eq!(IntegrityAnomaly::EmptyLog.severity(), Severity::Warning);
+    assert_eq!(IntegrityAnomaly::EmptyLog.severity(), Severity::Medium);
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn phantom_record_injection_severity_is_error() {
         prev_timestamp_ns: 0,
         next_timestamp_ns: 100,
     };
-    assert_eq!(a.severity(), Severity::Error);
+    assert_eq!(a.severity(), Severity::High);
 }
 
 #[test]

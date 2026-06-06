@@ -4,20 +4,9 @@ pub use forensicnomicon::evtx::{
     CHUNK_RECORDS_OFFSET, CHUNK_SIZE, ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC,
 };
 
-/// Severity level for an [`IntegrityAnomaly`], ordered from lowest to highest.
-///
-/// Implements [`PartialOrd`] and [`Ord`] so callers can filter with `>=`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
-pub enum Severity {
-    /// Informational — low confidence or non-suspicious condition.
-    Info,
-    /// Warrants attention but may have a benign explanation.
-    Warning,
-    /// Structural violation that strongly suggests tampering or corruption.
-    Error,
-    /// High-confidence indicator of deliberate anti-forensic manipulation.
-    Critical,
-}
+/// The canonical 5-level severity scale, shared across every SecurityRonin
+/// analyzer via [`forensicnomicon::report`].
+pub use forensicnomicon::report::Severity;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct EvtxFileHeader {
@@ -281,9 +270,9 @@ impl IntegrityAnomaly {
             | IntegrityAnomaly::InvalidChunkDataLength(_)
             | IntegrityAnomaly::TrailingData { .. }
             | IntegrityAnomaly::TruncatedFile { .. }
-            | IntegrityAnomaly::OverlappingChunks { .. } => Severity::Error,
+            | IntegrityAnomaly::OverlappingChunks { .. } => Severity::High,
 
-            IntegrityAnomaly::PhantomRecordInjection { .. } => Severity::Error,
+            IntegrityAnomaly::PhantomRecordInjection { .. } => Severity::High,
 
             IntegrityAnomaly::TimestampAnomaly { .. }
             | IntegrityAnomaly::ExportTimestampCorruption { .. }
@@ -291,11 +280,57 @@ impl IntegrityAnomaly {
             | IntegrityAnomaly::FileNotCleanlyShutdown
             | IntegrityAnomaly::FileFull
             | IntegrityAnomaly::ChecksumMismatch
-            | IntegrityAnomaly::EmptyLog => Severity::Warning,
+            | IntegrityAnomaly::EmptyLog => Severity::Medium,
         }
     }
 }
 
+
+
+impl IntegrityAnomaly {
+    /// Stable, scheme-prefixed machine code for this anomaly.
+    #[must_use]
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::LogCleared { .. } => "WINEVT-LOG-CLEARED",
+            Self::RecordIdGap { .. } => "WINEVT-RECORD-ID-GAP",
+            Self::ChecksumMismatch => "WINEVT-CHECKSUM-MISMATCH",
+            Self::ChunkChecksumMismatch { .. } => "WINEVT-CHUNK-CHECKSUM-MISMATCH",
+            Self::RecordChecksumMismatch { .. } => "WINEVT-RECORD-CHECKSUM-MISMATCH",
+            Self::NextRecordIdInconsistency { .. } => "WINEVT-NEXT-RECORD-ID-INCONSISTENCY",
+            Self::TimestampAnomaly { .. } => "WINEVT-TIMESTAMP-ANOMALY",
+            Self::FileHeaderChecksumMismatch { .. } => "WINEVT-FILE-HEADER-CHECKSUM-MISMATCH",
+            Self::FileNotCleanlyShutdown => "WINEVT-FILE-NOT-CLEANLY-SHUTDOWN",
+            Self::FileFull => "WINEVT-FILE-FULL",
+            Self::ChunkCountMismatch { .. } => "WINEVT-CHUNK-COUNT-MISMATCH",
+            Self::ExportTimestampCorruption { .. } => "WINEVT-EXPORT-TIMESTAMP-CORRUPTION",
+            Self::SurgicalRecordDeletion { .. } => "WINEVT-SURGICAL-RECORD-DELETION",
+            Self::InvalidChunkDataLength(..) => "WINEVT-INVALID-CHUNK-DATA-LENGTH",
+            Self::LogFileGuidMismatch { .. } => "WINEVT-LOG-FILE-GUID-MISMATCH",
+            Self::TrailingData { .. } => "WINEVT-TRAILING-DATA",
+            Self::TruncatedFile { .. } => "WINEVT-TRUNCATED-FILE",
+            Self::OverlappingChunks { .. } => "WINEVT-OVERLAPPING-CHUNKS",
+            Self::EmptyLog => "WINEVT-EMPTY-LOG",
+            Self::PhantomRecordInjection { .. } => "WINEVT-PHANTOM-RECORD-INJECTION",
+        }
+    }
+}
+
+impl forensicnomicon::report::Observation for IntegrityAnomaly {
+    fn severity(&self) -> Option<Severity> {
+        Some(self.severity())
+    }
+    fn code(&self) -> &'static str {
+        self.code()
+    }
+    fn note(&self) -> String {
+        self.code()
+            .strip_prefix("WINEVT-")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .replace('-', " ")
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,9 +355,9 @@ mod tests {
 
     #[test]
     fn severity_ordering() {
-        assert!(Severity::Info < Severity::Warning);
-        assert!(Severity::Warning < Severity::Error);
-        assert!(Severity::Error < Severity::Critical);
+        assert!(Severity::Info < Severity::Medium);
+        assert!(Severity::Medium < Severity::High);
+        assert!(Severity::High < Severity::Critical);
     }
 
     // ── severity() mapping for every existing variant ────────────────────────
@@ -345,7 +380,7 @@ mod tests {
             computed: 1,
             stored: 2,
         };
-        assert_eq!(a.severity(), Severity::Error);
+        assert_eq!(a.severity(), Severity::High);
     }
 
     #[test]
@@ -355,7 +390,7 @@ mod tests {
             computed: 1,
             stored: 2,
         };
-        assert_eq!(a.severity(), Severity::Error);
+        assert_eq!(a.severity(), Severity::High);
     }
 
     #[test]
@@ -364,7 +399,7 @@ mod tests {
             computed: 1,
             stored: 2,
         };
-        assert_eq!(a.severity(), Severity::Error);
+        assert_eq!(a.severity(), Severity::High);
     }
 
     #[test]
@@ -374,7 +409,7 @@ mod tests {
             expected: 0,
             actual: 1,
         };
-        assert_eq!(a.severity(), Severity::Error);
+        assert_eq!(a.severity(), Severity::High);
     }
 
     #[test]
@@ -383,7 +418,7 @@ mod tests {
             header_next: 5,
             actual_highest: 3,
         };
-        assert_eq!(a.severity(), Severity::Error);
+        assert_eq!(a.severity(), Severity::High);
     }
 
     #[test]
@@ -393,7 +428,7 @@ mod tests {
             expected: 5,
             found: 10,
         };
-        assert_eq!(a.severity(), Severity::Error);
+        assert_eq!(a.severity(), Severity::High);
     }
 
     #[test]
@@ -402,13 +437,13 @@ mod tests {
             header_count: 5,
             actual_count: 3,
         };
-        assert_eq!(a.severity(), Severity::Error);
+        assert_eq!(a.severity(), Severity::High);
     }
 
     #[test]
     fn severity_invalid_chunk_data_length_is_error() {
         let a = IntegrityAnomaly::InvalidChunkDataLength(999);
-        assert_eq!(a.severity(), Severity::Error);
+        assert_eq!(a.severity(), Severity::High);
     }
 
     #[test]
@@ -419,7 +454,7 @@ mod tests {
             prev_ts: 100,
             this_ts: 50,
         };
-        assert_eq!(a.severity(), Severity::Warning);
+        assert_eq!(a.severity(), Severity::Medium);
     }
 
     #[test]
@@ -428,7 +463,7 @@ mod tests {
             record_id: 1,
             chunk_offset: 0,
         };
-        assert_eq!(a.severity(), Severity::Warning);
+        assert_eq!(a.severity(), Severity::Medium);
     }
 
     #[test]
@@ -438,22 +473,22 @@ mod tests {
             timestamp: 0,
             user_sid: None,
         };
-        assert_eq!(a.severity(), Severity::Warning);
+        assert_eq!(a.severity(), Severity::Medium);
     }
 
     #[test]
     fn severity_file_not_cleanly_shutdown_is_warning() {
-        assert_eq!(IntegrityAnomaly::FileNotCleanlyShutdown.severity(), Severity::Warning);
+        assert_eq!(IntegrityAnomaly::FileNotCleanlyShutdown.severity(), Severity::Medium);
     }
 
     #[test]
     fn severity_file_full_is_warning() {
-        assert_eq!(IntegrityAnomaly::FileFull.severity(), Severity::Warning);
+        assert_eq!(IntegrityAnomaly::FileFull.severity(), Severity::Medium);
     }
 
     #[test]
     fn severity_checksum_mismatch_is_warning() {
-        assert_eq!(IntegrityAnomaly::ChecksumMismatch.severity(), Severity::Warning);
+        assert_eq!(IntegrityAnomaly::ChecksumMismatch.severity(), Severity::Medium);
     }
 
     // ── New variants: existence + Debug serialisation + severity ─────────────
@@ -468,7 +503,7 @@ mod tests {
     #[test]
     fn trailing_data_severity_is_error() {
         let a = IntegrityAnomaly::TrailingData { offset: 0, len: 1 };
-        assert_eq!(a.severity(), Severity::Error);
+        assert_eq!(a.severity(), Severity::High);
     }
 
     #[test]
@@ -481,7 +516,7 @@ mod tests {
     #[test]
     fn truncated_file_severity_is_error() {
         let a = IntegrityAnomaly::TruncatedFile { declared_chunks: 10, found_chunks: 7 };
-        assert_eq!(a.severity(), Severity::Error);
+        assert_eq!(a.severity(), Severity::High);
     }
 
     #[test]
@@ -494,6 +529,6 @@ mod tests {
     #[test]
     fn overlapping_chunks_severity_is_error() {
         let a = IntegrityAnomaly::OverlappingChunks { chunk_a_offset: 0, chunk_b_offset: 512 };
-        assert_eq!(a.severity(), Severity::Error);
+        assert_eq!(a.severity(), Severity::High);
     }
 }

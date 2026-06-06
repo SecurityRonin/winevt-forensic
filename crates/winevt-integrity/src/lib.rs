@@ -567,10 +567,10 @@ mod tests {
     #[test]
     fn analyse_min_severity_filters() {
         let data = vec![0xAAu8; 65536];
-        let result = WinevtIntegrity::analyse_min_severity(&data, Severity::Error);
+        let result = WinevtIntegrity::analyse_min_severity(&data, Severity::High);
         for anomaly in &result {
             assert!(
-                anomaly.severity() >= Severity::Error,
+                anomaly.severity() >= Severity::High,
                 "expected severity >= Error, got {:?}",
                 anomaly.severity()
             );
