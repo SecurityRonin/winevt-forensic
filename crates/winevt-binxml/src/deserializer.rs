@@ -22,7 +22,7 @@ use crate::tokens::{
     TOK_NORMAL_SUBSTITUTION, TOK_OPEN_START_ELEMENT, TOK_OPTIONAL_SUBSTITUTION,
     TOK_TEMPLATE_INSTANCE, TOK_VALUE,
 };
-use crate::value::{read_value, ValueError};
+use crate::value::{read_value, BinXmlValue, ValueError};
 use thiserror::Error;
 
 /// Maximum element-nesting depth before bailing.
@@ -66,21 +66,21 @@ struct Limits {
     max_tokens: usize,
 }
 
-/// Decode a template-free BinXml fragment into a list of top-level nodes.
-///
-/// `chunk` is the full chunk slice (the addressing base for name references).
-/// `has_dep_id` is true only when decoding a template-definition body.
+/// Decode a (top-level, template-free or template-instance) BinXml fragment
+/// into a list of top-level nodes. `chunk` is the full chunk slice (the
+/// addressing base for name references).
 pub fn deserialize_fragment(
     cur: &mut Cursor<'_>,
     chunk: &[u8],
     names: &mut NameCache,
-    has_dep_id: bool,
 ) -> Result<Vec<Node>, DeserializeError> {
+    let end = chunk.len();
     run(
         cur,
         chunk,
         names,
-        has_dep_id,
+        None,
+        end,
         Limits {
             max_depth: MAX_DEPTH,
             max_tokens: MAX_TOKENS,
@@ -89,18 +89,25 @@ pub fn deserialize_fragment(
 }
 
 /// The token loop with explicit limits.
+///
+/// `substitutions` is `Some` only when decoding a template-definition body —
+/// it both enables substitution resolution and signals the `dependency_id` that
+/// open-element headers carry in that context. `end` is a hard stop position in
+/// the chunk (the def body's declared end, or `chunk.len()` at top level).
 fn run(
     cur: &mut Cursor<'_>,
     chunk: &[u8],
     names: &mut NameCache,
-    has_dep_id: bool,
+    substitutions: Option<&[BinXmlValue]>,
+    end: usize,
     limits: Limits,
 ) -> Result<Vec<Node>, DeserializeError> {
+    let has_dep_id = substitutions.is_some();
     let mut stack: Vec<Element> = Vec::new();
     let mut roots: Vec<Node> = Vec::new();
     let mut steps = 0usize;
 
-    while !cur.is_empty() {
+    while cur.position() < end && !cur.is_empty() {
         steps += 1;
         if steps > limits.max_tokens {
             return Err(DeserializeError::IterationLimit {
@@ -272,7 +279,7 @@ mod tests {
     fn decode(buf: &[u8]) -> Result<Vec<Node>, DeserializeError> {
         let mut names = NameCache::new();
         let mut cur = Cursor::new(buf);
-        deserialize_fragment(&mut cur, buf, &mut names, false)
+        deserialize_fragment(&mut cur, buf, &mut names)
     }
 
     fn elem(name: &str) -> Element {
@@ -443,7 +450,7 @@ mod tests {
             max_tokens: MAX_TOKENS,
         };
         assert!(matches!(
-            run(&mut cur, &b, &mut names, false, limits),
+            run(&mut cur, &b, &mut names, None, b.len(), limits),
             Err(DeserializeError::DepthLimit { limit: 2 })
         ));
     }
@@ -463,7 +470,7 @@ mod tests {
             max_tokens: 1,
         };
         assert!(matches!(
-            run(&mut cur, &b, &mut names, false, limits),
+            run(&mut cur, &b, &mut names, None, b.len(), limits),
             Err(DeserializeError::IterationLimit { limit: 1 })
         ));
     }
