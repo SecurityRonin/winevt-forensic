@@ -17,10 +17,10 @@ use crate::ir::{Element, Node};
 use crate::name::NameCache;
 use crate::tokens::{
     is_valid_token_byte, read_attribute_name, read_fragment_header, read_open_start_element,
-    token_base, token_has_more, TokenError, TOK_ATTRIBUTE, TOK_CLOSE_EMPTY_ELEMENT,
-    TOK_CLOSE_START_ELEMENT, TOK_END_ELEMENT, TOK_END_OF_STREAM, TOK_FRAGMENT_HEADER,
-    TOK_NORMAL_SUBSTITUTION, TOK_OPEN_START_ELEMENT, TOK_OPTIONAL_SUBSTITUTION,
-    TOK_TEMPLATE_INSTANCE, TOK_VALUE,
+    read_substitution_descriptor, token_base, token_has_more, TokenError, TOK_ATTRIBUTE,
+    TOK_CLOSE_EMPTY_ELEMENT, TOK_CLOSE_START_ELEMENT, TOK_END_ELEMENT, TOK_END_OF_STREAM,
+    TOK_FRAGMENT_HEADER, TOK_NORMAL_SUBSTITUTION, TOK_OPEN_START_ELEMENT,
+    TOK_OPTIONAL_SUBSTITUTION, TOK_TEMPLATE_INSTANCE, TOK_VALUE,
 };
 use crate::value::{read_value, BinXmlValue, ValueError};
 use thiserror::Error;
@@ -240,9 +240,18 @@ fn resolve_substitution(
     stack: &mut [Element],
     roots: &mut Vec<Node>,
 ) -> Result<(), DeserializeError> {
-    // RED stub — implemented in the GREEN commit.
-    let _ = (cur, substitutions, optional, stack, roots);
-    Err(DeserializeError::Unsupported("substitution"))
+    let desc = read_substitution_descriptor(cur, optional)?;
+    let subs = substitutions
+        .ok_or(DeserializeError::Unsupported("substitution outside template"))?;
+    if desc.ignore {
+        return Ok(()); // optional + Null placeholder — omit
+    }
+    match subs.get(desc.index as usize) {
+        // Null value or out-of-range index produce no node.
+        Some(BinXmlValue::Null) | None => {}
+        Some(value) => attach(stack, roots, Node::Text(value.render())),
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -382,23 +391,27 @@ mod tests {
     }
 
     #[test]
-    fn template_instance_token_is_unsupported_here() {
+    fn truncated_template_instance_errors() {
+        // A 0x0c with no valid header/body must error gracefully (not panic).
         let mut b = Vec::new();
         frag_header(&mut b);
         b.push(TOK_TEMPLATE_INSTANCE);
-        assert!(matches!(
-            decode(&b),
-            Err(DeserializeError::Unsupported(_))
-        ));
+        assert!(decode(&b).is_err());
     }
 
     #[test]
-    fn substitution_tokens_are_unsupported_here() {
+    fn top_level_substitution_is_unsupported() {
+        // A substitution token with no template values in scope is an error.
         for tok in [TOK_NORMAL_SUBSTITUTION, TOK_OPTIONAL_SUBSTITUTION] {
             let mut b = Vec::new();
             frag_header(&mut b);
             b.push(tok);
-            assert!(matches!(decode(&b), Err(DeserializeError::Unsupported(_))));
+            b.extend_from_slice(&0u16.to_le_bytes()); // substitution index
+            b.push(0x01); // value_type String (non-Null, so not ignored)
+            assert!(matches!(
+                decode(&b),
+                Err(DeserializeError::Unsupported(_))
+            ));
         }
     }
 

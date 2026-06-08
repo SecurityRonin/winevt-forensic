@@ -16,7 +16,7 @@ use crate::cursor::Cursor;
 use crate::deserializer::{run, DeserializeError, Limits};
 use crate::ir::Node;
 use crate::name::NameCache;
-use crate::value::{read_value, BinXmlValue};
+use crate::value::read_value;
 
 /// Allocation cap on the substitution-value count of one instance.
 const MAX_SUBSTITUTIONS: usize = 4096;
@@ -30,9 +30,61 @@ pub(crate) fn read_template_instance(
     names: &mut NameCache,
     limits: Limits,
 ) -> Result<Vec<Node>, DeserializeError> {
-    // RED stub — implemented in the GREEN commit.
-    let _ = (cur, chunk, names, limits);
-    Err(DeserializeError::Unsupported("template instance"))
+    // Instance header: unused u8, template_id u32, definition offset u32.
+    let _unused = cur.read_u8()?;
+    let _template_id = cur.read_u32_le()?;
+    let def_offset = cur.read_u32_le()? as usize;
+
+    // The definition is either present inline here (first use in the chunk) or
+    // already written elsewhere in the chunk (a back-reference).
+    let (body_offset, body_len) = if cur.position() == def_offset {
+        let data_size = read_def_header(cur)?;
+        let body_offset = cur.position();
+        cur.skip(data_size)?; // skip past the inline definition body
+        (body_offset, data_size)
+    } else {
+        let mut at_def = Cursor::at(chunk, def_offset);
+        let data_size = read_def_header(&mut at_def)?;
+        (at_def.position(), data_size)
+    };
+
+    // Substitution value array: count, then count×(size u16, type u8, unused u8),
+    // then the raw values back-to-back.
+    let count = cur.read_u32_le()? as usize;
+    if count > MAX_SUBSTITUTIONS {
+        return Err(DeserializeError::Unsupported("too many substitutions"));
+    }
+    let mut descriptors = Vec::with_capacity(count);
+    for _ in 0..count {
+        let size = cur.read_u16_le()? as usize;
+        let value_type = cur.read_u8()?;
+        let _unused = cur.read_u8()?;
+        descriptors.push((size, value_type));
+    }
+    let mut values = Vec::with_capacity(count);
+    for (size, value_type) in &descriptors {
+        // Scalar values only for now; array/embedded-BinXml types surface as
+        // ValueError::Unsupported, which propagates here.
+        values.push(read_value(cur, *value_type, Some(*size))?);
+    }
+
+    // Parse the definition body with the values in scope so placeholders resolve
+    // inline. Names resolve against the full chunk; the cursor is bounded to the
+    // body's declared end.
+    let body_end = body_offset
+        .checked_add(body_len)
+        .filter(|end| *end <= chunk.len())
+        .ok_or(DeserializeError::Unsupported("template body out of bounds"))?;
+    let mut body_cur = Cursor::at(chunk, body_offset);
+    run(&mut body_cur, chunk, names, Some(&values), body_end, limits)
+}
+
+/// Read a definition header (`next u32, guid[16], data_size u32`) and return the
+/// definition body's `data_size`.
+fn read_def_header(cur: &mut Cursor<'_>) -> Result<usize, DeserializeError> {
+    let _next = cur.read_u32_le()?;
+    let _guid = cur.take(16)?;
+    Ok(cur.read_u32_le()? as usize)
 }
 
 #[cfg(test)]
@@ -123,15 +175,186 @@ mod tests {
         assert_eq!(nodes, vec![Node::Element(event)]);
     }
 
+    fn decode_all(b: &[u8]) -> Vec<Node> {
+        let mut names = NameCache::new();
+        let mut cur = Cursor::new(b);
+        deserialize_fragment(&mut cur, b, &mut names).unwrap()
+    }
+
+    fn event_with(children: Vec<Node>) -> Vec<Node> {
+        vec![Node::Element(Element {
+            name: "Event".to_string(),
+            attributes: Vec::new(),
+            children,
+        })]
+    }
+
     #[test]
     fn another_substitution_value_resolves() {
-        let b = build_record("C:\\evil.exe");
+        assert_eq!(
+            decode_all(&build_record("C:\\evil.exe")),
+            event_with(vec![Node::Text("C:\\evil.exe".to_string())])
+        );
+    }
+
+    /// Generalized builder: definition body `<Event>{subst}</Event>` where the
+    /// def-body substitution is `subst_token` (0x0d/0x0e) with declared
+    /// `decl_type`, and the single instance value has `value_type` + `value_bytes`.
+    fn build_subst(subst_token: u8, decl_type: u8, value_type: u8, value_bytes: &[u8]) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&[0x0f, 0x01, 0x01, 0x00]);
+        b.push(0x0c);
+        b.push(0x00);
+        b.extend_from_slice(&1u32.to_le_bytes());
+        let def_off_pos = b.len();
+        b.extend_from_slice(&0u32.to_le_bytes());
+        let def_offset = b.len() as u32;
+        b[def_off_pos..def_off_pos + 4].copy_from_slice(&def_offset.to_le_bytes());
+        b.extend_from_slice(&0u32.to_le_bytes());
+        b.extend_from_slice(&[0u8; 16]);
+        let data_size_pos = b.len();
+        b.extend_from_slice(&0u32.to_le_bytes());
+        let body_start = b.len();
+        b.extend_from_slice(&[0x0f, 0x01, 0x01, 0x00]);
+        b.push(0x01);
+        b.extend_from_slice(&0u16.to_le_bytes());
+        b.extend_from_slice(&0u32.to_le_bytes());
+        push_inline_name(&mut b, "Event");
+        b.push(0x02);
+        b.push(subst_token);
+        b.extend_from_slice(&0u16.to_le_bytes()); // index 0
+        b.push(decl_type);
+        b.push(0x04);
+        b.push(0x00);
+        let body_len = (b.len() - body_start) as u32;
+        b[data_size_pos..data_size_pos + 4].copy_from_slice(&body_len.to_le_bytes());
+        // one instance value
+        b.extend_from_slice(&1u32.to_le_bytes()); // count
+        b.extend_from_slice(&(value_bytes.len() as u16).to_le_bytes());
+        b.push(value_type);
+        b.push(0x00); // unused
+        b.extend_from_slice(value_bytes);
+        b.push(0x00);
+        b
+    }
+
+    #[test]
+    fn optional_null_substitution_is_omitted() {
+        // 0x0e optional + declared Null type → ignored placeholder, no child.
+        let b = build_subst(0x0e, 0x00, 0x00, &[]);
+        assert_eq!(decode_all(&b), event_with(vec![]));
+    }
+
+    #[test]
+    fn null_substitution_value_is_omitted() {
+        // 0x0d normal, but the instance value is Null → no child.
+        let b = build_subst(0x0d, 0x01, 0x00, &[]);
+        assert_eq!(decode_all(&b), event_with(vec![]));
+    }
+
+    #[test]
+    fn excessive_substitution_count_is_rejected() {
+        // A crafted instance claiming more substitutions than the cap must be
+        // rejected before allocating per-descriptor storage.
+        let big = build_excess_count();
         let mut names = NameCache::new();
-        let mut cur = Cursor::new(&b);
-        let nodes = deserialize_fragment(&mut cur, &b, &mut names).unwrap();
-        let Node::Element(event) = &nodes[0] else {
-            panic!("expected element");
-        };
-        assert_eq!(event.children, vec![Node::Text("C:\\evil.exe".to_string())]);
+        let mut cur = Cursor::new(&big);
+        assert!(matches!(
+            deserialize_fragment(&mut cur, &big, &mut names),
+            Err(DeserializeError::Unsupported(_))
+        ));
+    }
+
+    /// A record whose declared substitution count exceeds [`MAX_SUBSTITUTIONS`].
+    fn build_excess_count() -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&[0x0f, 0x01, 0x01, 0x00]);
+        b.push(0x0c);
+        b.push(0x00);
+        b.extend_from_slice(&1u32.to_le_bytes());
+        let def_off_pos = b.len();
+        b.extend_from_slice(&0u32.to_le_bytes());
+        let def_offset = b.len() as u32;
+        b[def_off_pos..def_off_pos + 4].copy_from_slice(&def_offset.to_le_bytes());
+        b.extend_from_slice(&0u32.to_le_bytes());
+        b.extend_from_slice(&[0u8; 16]);
+        let data_size_pos = b.len();
+        b.extend_from_slice(&0u32.to_le_bytes());
+        let body_start = b.len();
+        b.extend_from_slice(&[0x0f, 0x01, 0x01, 0x00, 0x00]); // minimal body: header + EOS
+        let body_len = (b.len() - body_start) as u32;
+        b[data_size_pos..data_size_pos + 4].copy_from_slice(&body_len.to_le_bytes());
+        b.extend_from_slice(&(MAX_SUBSTITUTIONS as u32 + 1).to_le_bytes()); // count
+        b
+    }
+
+    #[test]
+    fn back_referenced_definition_resolves() {
+        // Two instances sharing one definition: the second references the first's
+        // definition by offset (the non-inline path).
+        let b = build_two_instances("aaa", "bbb");
+        let nodes = decode_all(&b);
+        assert_eq!(nodes.len(), 2, "two instances → two elements");
+        assert_eq!(nodes[0], Node::Element(Element {
+            name: "Event".to_string(),
+            attributes: Vec::new(),
+            children: vec![Node::Text("aaa".to_string())],
+        }));
+        assert_eq!(nodes[1], Node::Element(Element {
+            name: "Event".to_string(),
+            attributes: Vec::new(),
+            children: vec![Node::Text("bbb".to_string())],
+        }));
+    }
+
+    fn push_value_array(b: &mut Vec<u8>, value: &str) {
+        let units: Vec<u16> = value.encode_utf16().collect();
+        b.extend_from_slice(&1u32.to_le_bytes());
+        b.extend_from_slice(&((units.len() * 2) as u16).to_le_bytes());
+        b.push(0x01);
+        b.push(0x00);
+        for u in &units {
+            b.extend_from_slice(&u.to_le_bytes());
+        }
+    }
+
+    fn build_two_instances(v1: &str, v2: &str) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&[0x0f, 0x01, 0x01, 0x00]);
+        // instance 1 (inline definition)
+        b.push(0x0c);
+        b.push(0x00);
+        b.extend_from_slice(&1u32.to_le_bytes());
+        let def_off_pos = b.len();
+        b.extend_from_slice(&0u32.to_le_bytes());
+        let def_offset = b.len() as u32;
+        b[def_off_pos..def_off_pos + 4].copy_from_slice(&def_offset.to_le_bytes());
+        b.extend_from_slice(&0u32.to_le_bytes());
+        b.extend_from_slice(&[0u8; 16]);
+        let data_size_pos = b.len();
+        b.extend_from_slice(&0u32.to_le_bytes());
+        let body_start = b.len();
+        b.extend_from_slice(&[0x0f, 0x01, 0x01, 0x00]);
+        b.push(0x01);
+        b.extend_from_slice(&0u16.to_le_bytes());
+        b.extend_from_slice(&0u32.to_le_bytes());
+        push_inline_name(&mut b, "Event");
+        b.push(0x02);
+        b.push(0x0d);
+        b.extend_from_slice(&0u16.to_le_bytes());
+        b.push(0x01);
+        b.push(0x04);
+        b.push(0x00);
+        let body_len = (b.len() - body_start) as u32;
+        b[data_size_pos..data_size_pos + 4].copy_from_slice(&body_len.to_le_bytes());
+        push_value_array(&mut b, v1);
+        // instance 2 (back-reference to instance 1's definition)
+        b.push(0x0c);
+        b.push(0x00);
+        b.extend_from_slice(&1u32.to_le_bytes());
+        b.extend_from_slice(&def_offset.to_le_bytes()); // def_offset != current pos → non-inline
+        push_value_array(&mut b, v2);
+        b.push(0x00);
+        b
     }
 }
