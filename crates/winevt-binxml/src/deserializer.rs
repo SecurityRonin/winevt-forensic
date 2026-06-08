@@ -61,9 +61,9 @@ pub enum DeserializeError {
 
 /// Internal decode limits (production values via [`deserialize_fragment`]).
 #[derive(Debug, Clone, Copy)]
-struct Limits {
-    max_depth: usize,
-    max_tokens: usize,
+pub(crate) struct Limits {
+    pub(crate) max_depth: usize,
+    pub(crate) max_tokens: usize,
 }
 
 /// Decode a (top-level, template-free or template-instance) BinXml fragment
@@ -94,7 +94,7 @@ pub fn deserialize_fragment(
 /// it both enables substitution resolution and signals the `dependency_id` that
 /// open-element headers carry in that context. `end` is a hard stop position in
 /// the chunk (the def body's declared end, or `chunk.len()` at top level).
-fn run(
+pub(crate) fn run(
     cur: &mut Cursor<'_>,
     chunk: &[u8],
     names: &mut NameCache,
@@ -158,10 +158,17 @@ fn run(
                 attach(&mut stack, &mut roots, Node::Text(text));
             }
             TOK_TEMPLATE_INSTANCE => {
-                return Err(DeserializeError::Unsupported("template instance"));
+                let nodes =
+                    crate::template::read_template_instance(cur, chunk, names, limits)?;
+                for node in nodes {
+                    attach(&mut stack, &mut roots, node);
+                }
             }
-            TOK_NORMAL_SUBSTITUTION | TOK_OPTIONAL_SUBSTITUTION => {
-                return Err(DeserializeError::Unsupported("substitution"));
+            TOK_NORMAL_SUBSTITUTION => {
+                resolve_substitution(cur, substitutions, false, &mut stack, &mut roots)?;
+            }
+            TOK_OPTIONAL_SUBSTITUTION => {
+                resolve_substitution(cur, substitutions, true, &mut stack, &mut roots)?;
             }
             _ => {
                 return Err(DeserializeError::UnknownToken {
@@ -220,6 +227,22 @@ fn attach(stack: &mut [Element], roots: &mut Vec<Node>, node: Node) {
         Some(parent) => parent.children.push(node),
         None => roots.push(node),
     }
+}
+
+/// Resolve a `0x0d`/`0x0e` substitution against the template instance's value
+/// array. A substitution outside a template body (no values in scope) is an
+/// error; an ignored optional placeholder or a `Null`/out-of-range value
+/// produces no node.
+fn resolve_substitution(
+    cur: &mut Cursor<'_>,
+    substitutions: Option<&[BinXmlValue]>,
+    optional: bool,
+    stack: &mut [Element],
+    roots: &mut Vec<Node>,
+) -> Result<(), DeserializeError> {
+    // RED stub — implemented in the GREEN commit.
+    let _ = (cur, substitutions, optional, stack, roots);
+    Err(DeserializeError::Unsupported("substitution"))
 }
 
 #[cfg(test)]
