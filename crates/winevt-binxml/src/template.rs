@@ -13,10 +13,10 @@
 #![allow(clippy::doc_markdown)] // "BinXml" appears throughout these docs
 
 use crate::cursor::Cursor;
-use crate::deserializer::{run, DeserializeError, Limits};
+use crate::deserializer::{deserialize_fragment, run, DeserializeError, Limits, SubstitutionValue};
 use crate::ir::Node;
 use crate::name::NameCache;
-use crate::value::read_value;
+use crate::value::{read_value, VT_BINXML};
 
 /// Allocation cap on the substitution-value count of one instance.
 const MAX_SUBSTITUTIONS: usize = 4096;
@@ -63,9 +63,18 @@ pub(crate) fn read_template_instance(
     }
     let mut values = Vec::with_capacity(count);
     for (size, value_type) in &descriptors {
-        // Scalar values only for now; array/embedded-BinXml types surface as
-        // ValueError::Unsupported, which propagates here.
-        values.push(read_value(cur, *value_type, Some(*size))?);
+        if *value_type == VT_BINXML {
+            // Embedded BinXml: the `size` value bytes are themselves a fragment
+            // (commonly the entire EventData). Decode it against the chunk, then
+            // step the main cursor past the value.
+            let mut frag = Cursor::at(chunk, cur.position());
+            let nodes = deserialize_fragment(&mut frag, chunk, names)?;
+            cur.skip(*size)?;
+            values.push(SubstitutionValue::Nodes(nodes));
+        } else {
+            // Scalar value (array types still surface as ValueError::Unsupported).
+            values.push(SubstitutionValue::Scalar(read_value(cur, *value_type, Some(*size))?));
+        }
     }
 
     // Parse the definition body with the values in scope so placeholders resolve
@@ -356,5 +365,152 @@ mod tests {
         push_value_array(&mut b, v2);
         b.push(0x00);
         b
+    }
+
+    /// Append a direct-mode BinXml fragment `<name>value</name>` (used as an
+    /// embedded-BinXml substitution value; inline name offsets are absolute).
+    fn push_embedded_fragment(b: &mut Vec<u8>, name: &str, value: &str) {
+        b.extend_from_slice(&[0x0f, 0x01, 0x01, 0x00]);
+        b.push(0x01); // open, no attrs, no dep_id (direct mode)
+        b.extend_from_slice(&0u32.to_le_bytes());
+        push_inline_name(b, name);
+        b.push(0x02);
+        b.push(0x05);
+        b.push(0x01);
+        let units: Vec<u16> = value.encode_utf16().collect();
+        b.extend_from_slice(&(units.len() as u16).to_le_bytes());
+        for u in &units {
+            b.extend_from_slice(&u.to_le_bytes());
+        }
+        b.push(0x04);
+        b.push(0x00);
+    }
+
+    /// Record whose def body is `<Event>{subst0}</Event>` with `subst0` an
+    /// embedded BinXml `<Data>hello</Data>` (value type 0x21).
+    fn build_embedded_record() -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&[0x0f, 0x01, 0x01, 0x00]);
+        b.push(0x0c);
+        b.push(0x00);
+        b.extend_from_slice(&1u32.to_le_bytes());
+        let def_off_pos = b.len();
+        b.extend_from_slice(&0u32.to_le_bytes());
+        let def_offset = b.len() as u32;
+        b[def_off_pos..def_off_pos + 4].copy_from_slice(&def_offset.to_le_bytes());
+        b.extend_from_slice(&0u32.to_le_bytes());
+        b.extend_from_slice(&[0u8; 16]);
+        let ds_pos = b.len();
+        b.extend_from_slice(&0u32.to_le_bytes());
+        let body_start = b.len();
+        b.extend_from_slice(&[0x0f, 0x01, 0x01, 0x00]);
+        b.push(0x01);
+        b.extend_from_slice(&0u16.to_le_bytes());
+        b.extend_from_slice(&0u32.to_le_bytes());
+        push_inline_name(&mut b, "Event");
+        b.push(0x02);
+        b.push(0x0d);
+        b.extend_from_slice(&0u16.to_le_bytes());
+        b.push(0x21); // declared type: embedded BinXml
+        b.push(0x04);
+        b.push(0x00);
+        let body_len = (b.len() - body_start) as u32;
+        b[ds_pos..ds_pos + 4].copy_from_slice(&body_len.to_le_bytes());
+        b.extend_from_slice(&1u32.to_le_bytes()); // count
+        let size_pos = b.len();
+        b.extend_from_slice(&0u16.to_le_bytes()); // size (patched)
+        b.push(0x21); // value type: embedded BinXml
+        b.push(0x00);
+        let val_start = b.len();
+        push_embedded_fragment(&mut b, "Data", "hello");
+        let val_len = (b.len() - val_start) as u16;
+        b[size_pos..size_pos + 2].copy_from_slice(&val_len.to_le_bytes());
+        b.push(0x00);
+        b
+    }
+
+    #[test]
+    fn embedded_binxml_substitution_splices_subtree() {
+        let nodes = decode_all(&build_embedded_record());
+        let mut data = Element {
+            name: "Data".to_string(),
+            ..Default::default()
+        };
+        data.children.push(Node::Text("hello".to_string()));
+        assert_eq!(nodes, event_with(vec![Node::Element(data)]));
+    }
+
+    /// Record whose def body is `<Event attr="{subst0}"/>`; the single instance
+    /// value has `value_type`/`value_bytes`.
+    fn build_attr_record(value_type: u8, value_bytes: &[u8]) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&[0x0f, 0x01, 0x01, 0x00]);
+        b.push(0x0c);
+        b.push(0x00);
+        b.extend_from_slice(&1u32.to_le_bytes());
+        let def_off_pos = b.len();
+        b.extend_from_slice(&0u32.to_le_bytes());
+        let def_offset = b.len() as u32;
+        b[def_off_pos..def_off_pos + 4].copy_from_slice(&def_offset.to_le_bytes());
+        b.extend_from_slice(&0u32.to_le_bytes());
+        b.extend_from_slice(&[0u8; 16]);
+        let ds_pos = b.len();
+        b.extend_from_slice(&0u32.to_le_bytes());
+        let body_start = b.len();
+        b.extend_from_slice(&[0x0f, 0x01, 0x01, 0x00]);
+        b.push(0x41); // open WITH attributes
+        b.extend_from_slice(&0u16.to_le_bytes()); // dep_id
+        b.extend_from_slice(&0u32.to_le_bytes()); // data_size
+        push_inline_name(&mut b, "Event");
+        b.extend_from_slice(&0u32.to_le_bytes()); // attr_list_size
+        b.push(0x06); // attribute
+        push_inline_name(&mut b, "attr");
+        b.push(0x0d); // value is a substitution
+        b.extend_from_slice(&0u16.to_le_bytes()); // index 0
+        b.push(value_type);
+        b.push(0x03); // close empty element
+        b.push(0x00);
+        let body_len = (b.len() - body_start) as u32;
+        b[ds_pos..ds_pos + 4].copy_from_slice(&body_len.to_le_bytes());
+        b.extend_from_slice(&1u32.to_le_bytes()); // count
+        let size_pos = b.len();
+        b.extend_from_slice(&0u16.to_le_bytes());
+        b.push(value_type);
+        b.push(0x00);
+        let val_start = b.len();
+        b.extend_from_slice(value_bytes);
+        let val_len = (b.len() - val_start) as u16;
+        b[size_pos..size_pos + 2].copy_from_slice(&val_len.to_le_bytes());
+        b.push(0x00);
+        b
+    }
+
+    #[test]
+    fn substituted_scalar_attribute_resolves() {
+        let units: Vec<u8> = "DC01".encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let nodes = decode_all(&build_attr_record(0x01, &units));
+        assert_eq!(
+            nodes,
+            vec![Node::Element(Element {
+                name: "Event".to_string(),
+                attributes: vec![("attr".to_string(), "DC01".to_string())],
+                children: vec![],
+            })]
+        );
+    }
+
+    #[test]
+    fn null_attribute_value_is_empty() {
+        // A Null (or otherwise non-scalar) substitution used as an attribute
+        // renders to the empty string.
+        let nodes = decode_all(&build_attr_record(0x00, &[]));
+        assert_eq!(
+            nodes,
+            vec![Node::Element(Element {
+                name: "Event".to_string(),
+                attributes: vec![("attr".to_string(), String::new())],
+                children: vec![],
+            })]
+        );
     }
 }

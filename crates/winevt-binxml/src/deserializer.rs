@@ -59,6 +59,13 @@ pub enum DeserializeError {
     Unsupported(&'static str),
 }
 
+/// A resolved template substitution value: a rendered scalar, or an embedded
+/// BinXml subtree (value type `0x21`) to splice into the tree.
+pub(crate) enum SubstitutionValue {
+    Scalar(BinXmlValue),
+    Nodes(Vec<Node>),
+}
+
 /// Internal decode limits (production values via [`deserialize_fragment`]).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Limits {
@@ -98,7 +105,7 @@ pub(crate) fn run(
     cur: &mut Cursor<'_>,
     chunk: &[u8],
     names: &mut NameCache,
-    substitutions: Option<&[BinXmlValue]>,
+    substitutions: Option<&[SubstitutionValue]>,
     end: usize,
     limits: Limits,
 ) -> Result<Vec<Node>, DeserializeError> {
@@ -142,7 +149,7 @@ pub(crate) fn run(
                     ..Default::default()
                 };
                 if has_more {
-                    read_attributes(cur, chunk, names, &mut el)?;
+                    read_attributes(cur, chunk, names, substitutions, &mut el)?;
                 }
                 stack.push(el);
             }
@@ -192,6 +199,7 @@ fn read_attributes(
     cur: &mut Cursor<'_>,
     chunk: &[u8],
     names: &mut NameCache,
+    substitutions: Option<&[SubstitutionValue]>,
     el: &mut Element,
 ) -> Result<(), DeserializeError> {
     while !cur.is_empty() {
@@ -199,19 +207,36 @@ fn read_attributes(
         let tok = cur.read_u8()?;
         if is_valid_token_byte(tok) && token_base(tok) == TOK_ATTRIBUTE {
             let name = read_attribute_name(cur, chunk, names)?;
-            let vtok = cur.read_u8()?;
-            if is_valid_token_byte(vtok) && token_base(vtok) == TOK_VALUE {
-                let value = read_value_token(cur)?;
-                el.attributes.push((name, value));
-            } else {
-                return Err(DeserializeError::Unsupported("non-inline attribute value"));
-            }
+            let value = read_attribute_value(cur, substitutions)?;
+            el.attributes.push((name, value));
         } else {
             cur.seek(save)?; // not an attribute — rewind for the main loop
             break;
         }
     }
     Ok(())
+}
+
+/// An attribute's value: an inline `Value` token, or — in a template definition
+/// body — a substitution that resolves to a string (`Null`/ignored → empty).
+fn read_attribute_value(
+    cur: &mut Cursor<'_>,
+    substitutions: Option<&[SubstitutionValue]>,
+) -> Result<String, DeserializeError> {
+    let vtok = cur.read_u8()?;
+    if !is_valid_token_byte(vtok) {
+        return Err(DeserializeError::Unsupported("attribute value"));
+    }
+    match token_base(vtok) {
+        TOK_VALUE => read_value_token(cur),
+        TOK_NORMAL_SUBSTITUTION => {
+            Ok(substitution_to_attr_string(lookup_substitution(cur, substitutions, false)?))
+        }
+        TOK_OPTIONAL_SUBSTITUTION => {
+            Ok(substitution_to_attr_string(lookup_substitution(cur, substitutions, true)?))
+        }
+        _ => Err(DeserializeError::Unsupported("attribute value")),
+    }
 }
 
 /// Read a value token's body: `value_type u8` then the inline (self-describing)
@@ -229,29 +254,55 @@ fn attach(stack: &mut [Element], roots: &mut Vec<Node>, node: Node) {
     }
 }
 
-/// Resolve a `0x0d`/`0x0e` substitution against the template instance's value
-/// array. A substitution outside a template body (no values in scope) is an
-/// error; an ignored optional placeholder or a `Null`/out-of-range value
-/// produces no node.
-fn resolve_substitution(
+/// Read a substitution descriptor and look up its value. Returns `None` when the
+/// placeholder is ignored (optional + declared Null) or the index is out of
+/// range. Errors if no values are in scope (a substitution outside a template
+/// body).
+fn lookup_substitution<'a>(
     cur: &mut Cursor<'_>,
-    substitutions: Option<&[BinXmlValue]>,
+    substitutions: Option<&'a [SubstitutionValue]>,
     optional: bool,
-    stack: &mut [Element],
-    roots: &mut Vec<Node>,
-) -> Result<(), DeserializeError> {
+) -> Result<Option<&'a SubstitutionValue>, DeserializeError> {
     let desc = read_substitution_descriptor(cur, optional)?;
     let subs = substitutions
         .ok_or(DeserializeError::Unsupported("substitution outside template"))?;
     if desc.ignore {
-        return Ok(()); // optional + Null placeholder — omit
+        return Ok(None);
     }
-    match subs.get(desc.index as usize) {
-        // Null value or out-of-range index produce no node.
-        Some(BinXmlValue::Null) | None => {}
-        Some(value) => attach(stack, roots, Node::Text(value.render())),
+    Ok(subs.get(desc.index as usize))
+}
+
+/// Resolve a `0x0d`/`0x0e` substitution in element content: a scalar becomes a
+/// text node, an embedded-BinXml value splices its subtree, and a `Null`/ignored
+/// /out-of-range placeholder produces nothing.
+fn resolve_substitution(
+    cur: &mut Cursor<'_>,
+    substitutions: Option<&[SubstitutionValue]>,
+    optional: bool,
+    stack: &mut [Element],
+    roots: &mut Vec<Node>,
+) -> Result<(), DeserializeError> {
+    match lookup_substitution(cur, substitutions, optional)? {
+        None | Some(SubstitutionValue::Scalar(BinXmlValue::Null)) => {}
+        Some(SubstitutionValue::Scalar(value)) => {
+            attach(stack, roots, Node::Text(value.render()));
+        }
+        Some(SubstitutionValue::Nodes(nodes)) => {
+            for node in nodes {
+                attach(stack, roots, node.clone());
+            }
+        }
     }
     Ok(())
+}
+
+/// Resolve a substitution used as an attribute value to a string (a subtree or
+/// `Null`/ignored placeholder yields the empty string).
+fn substitution_to_attr_string(value: Option<&SubstitutionValue>) -> String {
+    match value {
+        Some(SubstitutionValue::Scalar(value)) if *value != BinXmlValue::Null => value.render(),
+        _ => String::new(),
+    }
 }
 
 #[cfg(test)]
@@ -438,15 +489,17 @@ mod tests {
     }
 
     #[test]
-    fn non_inline_attribute_value_is_unsupported() {
-        // An attribute whose value is a substitution (not an inline Value) is
-        // outside this template-free layer.
+    fn substituted_attribute_value_outside_template_is_unsupported() {
+        // An attribute value that is a substitution requires template values in
+        // scope; at top level (none) it is unsupported.
         let mut b = Vec::new();
         frag_header(&mut b);
         push_open(&mut b, "Event", true);
         b.push(TOK_ATTRIBUTE);
         push_inline_name(&mut b, "Attr");
         b.push(TOK_NORMAL_SUBSTITUTION);
+        b.extend_from_slice(&0u16.to_le_bytes()); // substitution index
+        b.push(0x01); // value_type String
         assert!(matches!(decode(&b), Err(DeserializeError::Unsupported(_))));
     }
 

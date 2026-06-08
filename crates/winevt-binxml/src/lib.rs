@@ -14,6 +14,7 @@ pub mod extract;
 pub mod ir;
 pub mod json;
 pub mod name;
+pub mod reader;
 pub mod template;
 pub mod tokens;
 pub mod value;
