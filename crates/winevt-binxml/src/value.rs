@@ -12,6 +12,8 @@
 //! `SizeT` renders as hex; `Sid` is `8 + sub_count*4` bytes; FILETIME/SYSTEMTIME
 //! render as UTC ISO-8601.
 
+#![allow(clippy::doc_markdown)] // "BinXml" et al. appear throughout these docs
+
 use crate::cursor::{Cursor, CursorError};
 use thiserror::Error;
 
@@ -99,8 +101,30 @@ impl BinXmlValue {
     /// the decoded XML/JSON). `Null` renders as the empty string.
     #[must_use]
     pub fn render(&self) -> String {
-        // RED stub — implemented in the GREEN commit.
-        String::new()
+        match self {
+            Self::Null => String::new(),
+            Self::String(s)
+            | Self::AnsiString(s)
+            | Self::Guid(s)
+            | Self::SizeT(s)
+            | Self::FileTime(s)
+            | Self::SysTime(s)
+            | Self::Sid(s) => s.clone(),
+            Self::Int8(v) => v.to_string(),
+            Self::UInt8(v) => v.to_string(),
+            Self::Int16(v) => v.to_string(),
+            Self::UInt16(v) => v.to_string(),
+            Self::Int32(v) => v.to_string(),
+            Self::UInt32(v) => v.to_string(),
+            Self::Int64(v) => v.to_string(),
+            Self::UInt64(v) => v.to_string(),
+            Self::Real32(v) => v.to_string(),
+            Self::Real64(v) => v.to_string(),
+            Self::Bool(b) => b.to_string(),
+            Self::Binary(b) => to_hex(b),
+            Self::HexInt32(v) => format!("0x{v:08x}"),
+            Self::HexInt64(v) => format!("0x{v:016x}"),
+        }
     }
 }
 
@@ -112,9 +136,143 @@ pub fn read_value(
     type_id: u8,
     size: Option<usize>,
 ) -> Result<BinXmlValue, ValueError> {
-    // RED stub — implemented in the GREEN commit.
-    let _ = (cur, size);
-    Err(ValueError::UnknownType { type_id })
+    // Array variants expand the containing element — the deserializer's job.
+    if type_id & VT_ARRAY_FLAG != 0 {
+        return Err(ValueError::Unsupported { type_id });
+    }
+    match type_id {
+        VT_NULL => Ok(BinXmlValue::Null),
+        VT_STRING => {
+            let s = match size {
+                Some(bytes) => cur.read_utf16le_chars(bytes / 2)?,
+                None => cur.read_utf16le_len_prefixed()?,
+            };
+            Ok(BinXmlValue::String(s))
+        }
+        VT_ANSI_STRING => {
+            let n = match size {
+                Some(n) => n,
+                None => usize::from(cur.read_u16_le()?),
+            };
+            Ok(BinXmlValue::AnsiString(ansi_to_string(cur.take(n)?)))
+        }
+        VT_INT8 => Ok(BinXmlValue::Int8(cur.read_i8()?)),
+        VT_UINT8 => Ok(BinXmlValue::UInt8(cur.read_u8()?)),
+        VT_INT16 => Ok(BinXmlValue::Int16(cur.read_i16_le()?)),
+        VT_UINT16 => Ok(BinXmlValue::UInt16(cur.read_u16_le()?)),
+        VT_INT32 => Ok(BinXmlValue::Int32(cur.read_i32_le()?)),
+        VT_UINT32 => Ok(BinXmlValue::UInt32(cur.read_u32_le()?)),
+        VT_INT64 => Ok(BinXmlValue::Int64(cur.read_i64_le()?)),
+        VT_UINT64 => Ok(BinXmlValue::UInt64(cur.read_u64_le()?)),
+        VT_REAL32 => Ok(BinXmlValue::Real32(cur.read_f32_le()?)),
+        VT_REAL64 => Ok(BinXmlValue::Real64(cur.read_f64_le()?)),
+        VT_BOOL => Ok(BinXmlValue::Bool(cur.read_u32_le()? != 0)),
+        VT_BINARY => {
+            let n = match size {
+                Some(n) => n,
+                None => usize::from(cur.read_u16_le()?),
+            };
+            Ok(BinXmlValue::Binary(cur.take(n)?.to_vec()))
+        }
+        VT_GUID => Ok(BinXmlValue::Guid(read_guid(cur)?)),
+        VT_SIZET => match size {
+            Some(4) => Ok(BinXmlValue::SizeT(format!("0x{:08x}", cur.read_u32_le()?))),
+            _ => Ok(BinXmlValue::SizeT(format!("0x{:016x}", cur.read_u64_le()?))),
+        },
+        VT_FILETIME => Ok(BinXmlValue::FileTime(render_filetime(cur.read_u64_le()?)?)),
+        VT_SYSTIME => Ok(BinXmlValue::SysTime(read_systime(cur)?)),
+        VT_SID => Ok(BinXmlValue::Sid(read_sid(cur)?)),
+        VT_HEX32 => Ok(BinXmlValue::HexInt32(cur.read_u32_le()?)),
+        VT_HEX64 => Ok(BinXmlValue::HexInt64(cur.read_u64_le()?)),
+        // Embedded BinXml recurses in element context — handled by the deserializer.
+        VT_BINXML => Err(ValueError::Unsupported { type_id }),
+        _ => Err(ValueError::UnknownType { type_id }),
+    }
+}
+
+/// Lower-case hex of a byte slice, no separator.
+fn to_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(bytes.len().saturating_mul(2));
+    for b in bytes {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
+}
+
+/// Decode an ANSI (latin-1) string, dropping NUL bytes.
+fn ansi_to_string(raw: &[u8]) -> String {
+    raw.iter().filter(|&&b| b != 0).map(|&b| b as char).collect()
+}
+
+/// Read a 16-byte GUID and render it canonically (`xxxxxxxx-xxxx-…`, lower-case).
+fn read_guid(cur: &mut Cursor<'_>) -> Result<String, ValueError> {
+    let d1 = cur.read_u32_le()?;
+    let d2 = cur.read_u16_le()?;
+    let d3 = cur.read_u16_le()?;
+    let d4 = cur.take(8)?;
+    let (clock, node) = d4.split_at(2);
+    Ok(format!(
+        "{d1:08x}-{d2:04x}-{d3:04x}-{}-{}",
+        to_hex(clock),
+        to_hex(node)
+    ))
+}
+
+/// Read a SID (`revision u8, sub_count u8, authority 48-bit BE, sub×u32 LE`) and
+/// render `S-…`. Rejects an absurd sub-authority count before allocating.
+fn read_sid(cur: &mut Cursor<'_>) -> Result<String, ValueError> {
+    use std::fmt::Write;
+    let revision = cur.read_u8()?;
+    let sub_count = cur.read_u8()?;
+    if sub_count > MAX_SID_SUBAUTHORITIES {
+        return Err(ValueError::InvalidSid { count: sub_count });
+    }
+    let authority = cur
+        .take(6)?
+        .iter()
+        .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
+    let mut s = format!("S-{revision}-{authority}");
+    for _ in 0..sub_count {
+        let sub = cur.read_u32_le()?;
+        let _ = write!(s, "-{sub}");
+    }
+    Ok(s)
+}
+
+/// Convert a Windows FILETIME (100ns since 1601-01-01 UTC) to UTC ISO-8601.
+fn render_filetime(filetime: u64) -> Result<String, ValueError> {
+    /// Seconds between 1601-01-01 and the Unix epoch.
+    const EPOCH_DIFF_SECS: i64 = 11_644_473_600;
+    let secs_1601 = i64::try_from(filetime / 10_000_000).unwrap_or(i64::MAX);
+    let nanos = u32::try_from((filetime % 10_000_000) * 100).unwrap_or(0);
+    let unix_secs = secs_1601.saturating_sub(EPOCH_DIFF_SECS);
+    let dt = chrono::DateTime::from_timestamp(unix_secs, nanos)
+        .ok_or(ValueError::InvalidTimestamp)?;
+    Ok(dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string())
+}
+
+/// Read a 16-byte SYSTEMTIME and render as UTC ISO-8601.
+fn read_systime(cur: &mut Cursor<'_>) -> Result<String, ValueError> {
+    let year = cur.read_u16_le()?;
+    let month = cur.read_u16_le()?;
+    let _day_of_week = cur.read_u16_le()?;
+    let day = cur.read_u16_le()?;
+    let hour = cur.read_u16_le()?;
+    let minute = cur.read_u16_le()?;
+    let second = cur.read_u16_le()?;
+    let milli = cur.read_u16_le()?;
+    let date = chrono::NaiveDate::from_ymd_opt(i32::from(year), u32::from(month), u32::from(day))
+        .ok_or(ValueError::InvalidTimestamp)?;
+    let dt = date
+        .and_hms_milli_opt(
+            u32::from(hour),
+            u32::from(minute),
+            u32::from(second),
+            u32::from(milli),
+        )
+        .ok_or(ValueError::InvalidTimestamp)?;
+    Ok(dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string())
 }
 
 #[cfg(test)]
@@ -266,5 +424,34 @@ mod tests {
             read_value(&mut cur(&[0x01]), VT_INT32, Some(4)),
             Err(ValueError::Cursor(_))
         ));
+    }
+
+    #[test]
+    fn ansi_string_sized_and_len_prefixed_drops_nul() {
+        let v = read_value(&mut cur(&[b'O', b'K', 0x00]), VT_ANSI_STRING, Some(3)).unwrap();
+        assert_eq!(v, BinXmlValue::AnsiString("OK".to_string()));
+        // unsized: u16 byte-count prefix
+        let v = read_value(&mut cur(&[0x02, 0x00, b'H', b'i']), VT_ANSI_STRING, None).unwrap();
+        assert_eq!(v.render(), "Hi");
+    }
+
+    #[test]
+    fn binary_unsized_uses_u16_prefix() {
+        let v = read_value(&mut cur(&[0x02, 0x00, 0xAB, 0xCD]), VT_BINARY, None).unwrap();
+        assert_eq!(v.render(), "abcd");
+    }
+
+    #[test]
+    fn render_covers_every_scalar_arm() {
+        assert_eq!(BinXmlValue::Int8(-2).render(), "-2");
+        assert_eq!(BinXmlValue::UInt8(2).render(), "2");
+        assert_eq!(BinXmlValue::Int16(-3).render(), "-3");
+        assert_eq!(BinXmlValue::UInt16(3).render(), "3");
+        assert_eq!(BinXmlValue::UInt32(33).render(), "33");
+        assert_eq!(BinXmlValue::Int64(-4).render(), "-4");
+        assert_eq!(BinXmlValue::UInt64(4).render(), "4");
+        assert_eq!(BinXmlValue::Real32(1.5).render(), "1.5");
+        assert_eq!(BinXmlValue::Real64(2.5).render(), "2.5");
+        assert_eq!(BinXmlValue::AnsiString("a".to_string()).render(), "a");
     }
 }
