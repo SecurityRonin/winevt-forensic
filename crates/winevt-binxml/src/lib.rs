@@ -10,6 +10,7 @@
 
 pub mod cursor;
 pub mod name;
+pub mod tokens;
 pub mod value;
 
 /// Structural error returned by [`validate_binxml`].
