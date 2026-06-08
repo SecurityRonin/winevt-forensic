@@ -10,6 +10,7 @@
 
 pub mod cursor;
 pub mod deserializer;
+pub mod extract;
 pub mod ir;
 pub mod name;
 pub mod template;
