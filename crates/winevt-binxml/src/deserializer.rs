@@ -16,10 +16,11 @@ use crate::cursor::{Cursor, CursorError};
 use crate::ir::{Element, Node};
 use crate::name::NameCache;
 use crate::tokens::{
-    read_attribute_name, read_fragment_header, read_open_start_element, token_base,
-    token_has_more, TokenError, TOK_ATTRIBUTE, TOK_CLOSE_EMPTY_ELEMENT, TOK_CLOSE_START_ELEMENT,
-    TOK_END_ELEMENT, TOK_END_OF_STREAM, TOK_FRAGMENT_HEADER, TOK_NORMAL_SUBSTITUTION,
-    TOK_OPEN_START_ELEMENT, TOK_OPTIONAL_SUBSTITUTION, TOK_TEMPLATE_INSTANCE, TOK_VALUE,
+    is_valid_token_byte, read_attribute_name, read_fragment_header, read_open_start_element,
+    token_base, token_has_more, TokenError, TOK_ATTRIBUTE, TOK_CLOSE_EMPTY_ELEMENT,
+    TOK_CLOSE_START_ELEMENT, TOK_END_ELEMENT, TOK_END_OF_STREAM, TOK_FRAGMENT_HEADER,
+    TOK_NORMAL_SUBSTITUTION, TOK_OPEN_START_ELEMENT, TOK_OPTIONAL_SUBSTITUTION,
+    TOK_TEMPLATE_INSTANCE, TOK_VALUE,
 };
 use crate::value::{read_value, ValueError};
 use thiserror::Error;
@@ -95,9 +96,123 @@ fn run(
     has_dep_id: bool,
     limits: Limits,
 ) -> Result<Vec<Node>, DeserializeError> {
-    // RED stub — implemented in the GREEN commit.
-    let _ = (cur, chunk, names, has_dep_id, limits);
-    Err(DeserializeError::Unsupported("not implemented"))
+    let mut stack: Vec<Element> = Vec::new();
+    let mut roots: Vec<Node> = Vec::new();
+    let mut steps = 0usize;
+
+    while !cur.is_empty() {
+        steps += 1;
+        if steps > limits.max_tokens {
+            return Err(DeserializeError::IterationLimit {
+                limit: limits.max_tokens,
+            });
+        }
+        let token_offset = cur.position();
+        let token = cur.read_u8()?;
+        // Reject high-bit garbage early: 0x80's low nibble is 0x00, which would
+        // otherwise be misread as EndOfStream (and 0x81 as OpenStartElement…).
+        if !is_valid_token_byte(token) {
+            return Err(DeserializeError::UnknownToken {
+                token,
+                offset: token_offset,
+            });
+        }
+        let has_more = token_has_more(token);
+        match token_base(token) {
+            TOK_END_OF_STREAM => break,
+            TOK_FRAGMENT_HEADER => {
+                read_fragment_header(cur)?;
+            }
+            TOK_OPEN_START_ELEMENT => {
+                if stack.len() >= limits.max_depth {
+                    return Err(DeserializeError::DepthLimit {
+                        limit: limits.max_depth,
+                    });
+                }
+                let oe = read_open_start_element(cur, chunk, names, has_dep_id, has_more)?;
+                let mut el = Element {
+                    name: oe.name,
+                    ..Default::default()
+                };
+                if has_more {
+                    read_attributes(cur, chunk, names, &mut el)?;
+                }
+                stack.push(el);
+            }
+            TOK_CLOSE_START_ELEMENT => {
+                // The element is now open for children — nothing to materialize.
+            }
+            TOK_CLOSE_EMPTY_ELEMENT | TOK_END_ELEMENT => {
+                let el = stack.pop().ok_or(DeserializeError::UnbalancedClose)?;
+                attach(&mut stack, &mut roots, Node::Element(el));
+            }
+            TOK_VALUE => {
+                let text = read_value_token(cur)?;
+                attach(&mut stack, &mut roots, Node::Text(text));
+            }
+            TOK_TEMPLATE_INSTANCE => {
+                return Err(DeserializeError::Unsupported("template instance"));
+            }
+            TOK_NORMAL_SUBSTITUTION | TOK_OPTIONAL_SUBSTITUTION => {
+                return Err(DeserializeError::Unsupported("substitution"));
+            }
+            _ => {
+                return Err(DeserializeError::UnknownToken {
+                    token,
+                    offset: token_offset,
+                });
+            }
+        }
+    }
+
+    // Flush any unclosed elements, innermost first, preserving nesting.
+    while let Some(el) = stack.pop() {
+        attach(&mut stack, &mut roots, Node::Element(el));
+    }
+    Ok(roots)
+}
+
+/// Read the attribute list following an open-start-element: a run of attribute
+/// tokens (`name` + inline `Value`) until a non-attribute token is seen.
+fn read_attributes(
+    cur: &mut Cursor<'_>,
+    chunk: &[u8],
+    names: &mut NameCache,
+    el: &mut Element,
+) -> Result<(), DeserializeError> {
+    while !cur.is_empty() {
+        let save = cur.position();
+        let tok = cur.read_u8()?;
+        if is_valid_token_byte(tok) && token_base(tok) == TOK_ATTRIBUTE {
+            let name = read_attribute_name(cur, chunk, names)?;
+            let vtok = cur.read_u8()?;
+            if is_valid_token_byte(vtok) && token_base(vtok) == TOK_VALUE {
+                let value = read_value_token(cur)?;
+                el.attributes.push((name, value));
+            } else {
+                return Err(DeserializeError::Unsupported("non-inline attribute value"));
+            }
+        } else {
+            cur.seek(save)?; // not an attribute — rewind for the main loop
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// Read a value token's body: `value_type u8` then the inline (self-describing)
+/// value, rendered to text.
+fn read_value_token(cur: &mut Cursor<'_>) -> Result<String, DeserializeError> {
+    let value_type = cur.read_u8()?;
+    Ok(read_value(cur, value_type, None)?.render())
+}
+
+/// Attach a node to the current open element, or to the roots if none is open.
+fn attach(stack: &mut [Element], roots: &mut Vec<Node>, node: Node) {
+    match stack.last_mut() {
+        Some(parent) => parent.children.push(node),
+        None => roots.push(node),
+    }
 }
 
 #[cfg(test)]
@@ -264,6 +379,32 @@ mod tests {
             decode(&b),
             Err(DeserializeError::UnknownToken { .. })
         ));
+    }
+
+    #[test]
+    fn valid_but_unexpected_token_is_unknown() {
+        // 0x07 (CDATA) is a structurally valid token byte but is not handled at
+        // this position — must error, not be silently skipped.
+        let mut b = Vec::new();
+        frag_header(&mut b);
+        b.push(0x07);
+        assert!(matches!(
+            decode(&b),
+            Err(DeserializeError::UnknownToken { token: 0x07, .. })
+        ));
+    }
+
+    #[test]
+    fn non_inline_attribute_value_is_unsupported() {
+        // An attribute whose value is a substitution (not an inline Value) is
+        // outside this template-free layer.
+        let mut b = Vec::new();
+        frag_header(&mut b);
+        push_open(&mut b, "Event", true);
+        b.push(TOK_ATTRIBUTE);
+        push_inline_name(&mut b, "Attr");
+        b.push(TOK_NORMAL_SUBSTITUTION);
+        assert!(matches!(decode(&b), Err(DeserializeError::Unsupported(_))));
     }
 
     #[test]
