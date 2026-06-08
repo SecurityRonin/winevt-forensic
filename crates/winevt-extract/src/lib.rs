@@ -186,9 +186,86 @@ fn sysmon_pid(event_data: &serde_json::Value, key: &str) -> u64 {
 /// map when neither block is present.
 #[must_use]
 pub fn flatten_event_data(event_record: &serde_json::Value) -> BTreeMap<String, String> {
-    // RED stub — implemented in the GREEN commit.
-    let _ = event_record;
-    BTreeMap::new()
+    let mut out = BTreeMap::new();
+    for block in ["EventData", "UserData"] {
+        if let Some(node) = event_record.get("Event").and_then(|e| e.get(block)) {
+            collect_fields(node, &mut out);
+        }
+    }
+    out
+}
+
+/// Recursively collect leaf `name → value` pairs from an `EventData`/`UserData`
+/// node, normalizing the two EVTX serialization shapes. Panic-free.
+fn collect_fields(node: &serde_json::Value, out: &mut BTreeMap<String, String>) {
+    let serde_json::Value::Object(map) = node else {
+        return;
+    };
+    for (key, value) in map {
+        // Skip JSON-meta attribute keys at object level (@Name, @Guid, xmlns…).
+        if key.starts_with('@') || key == "#text" {
+            continue;
+        }
+        if key == "Data" {
+            collect_data_field(value, out);
+            continue;
+        }
+        match value {
+            // Nested named element (UserData provider blocks).
+            serde_json::Value::Object(_) => collect_fields(value, out),
+            serde_json::Value::Array(arr) => {
+                for (i, item) in arr.iter().enumerate() {
+                    if item.is_object() {
+                        collect_fields(item, out);
+                    } else if let Some(s) = scalar_to_string(item) {
+                        out.insert(format!("{key}{i}"), s);
+                    }
+                }
+            }
+            scalar => {
+                if let Some(s) = scalar_to_string(scalar) {
+                    out.insert(key.clone(), s);
+                }
+            }
+        }
+    }
+}
+
+/// Handle the named-attribute `Data` array shape and its single-element variant.
+fn collect_data_field(value: &serde_json::Value, out: &mut BTreeMap<String, String>) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for (i, item) in items.iter().enumerate() {
+                insert_data_item(i, item, out);
+            }
+        }
+        other => insert_data_item(0, other, out),
+    }
+}
+
+/// Insert one `<Data>` element: `{"@Name": k, "#text": v}`, a nested object, or
+/// an unnamed scalar kept under a positional `Data{index}` key.
+fn insert_data_item(index: usize, item: &serde_json::Value, out: &mut BTreeMap<String, String>) {
+    if let serde_json::Value::Object(obj) = item {
+        if let Some(name) = obj.get("@Name").and_then(serde_json::Value::as_str) {
+            let val = obj.get("#text").and_then(scalar_to_string).unwrap_or_default();
+            out.insert(name.to_string(), val);
+        } else {
+            collect_fields(item, out);
+        }
+    } else if let Some(s) = scalar_to_string(item) {
+        out.insert(format!("Data{index}"), s);
+    }
+}
+
+/// Stringify a JSON scalar; returns `None` for null or composite values.
+fn scalar_to_string(v: &serde_json::Value) -> Option<String> {
+    match v {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
 }
 
 /// Parse an EVTX file and return all events sorted by timestamp.
@@ -1010,6 +1087,70 @@ mod tests {
     fn flatten_empty_when_no_payload() {
         let rec = serde_json::json!({ "Event": { "System": { "EventID": 4624 }}});
         assert!(flatten_event_data(&rec).is_empty());
+    }
+
+    #[test]
+    fn flatten_tolerates_malformed_non_object_payload() {
+        // Robustness: a corrupt record may render EventData as a non-object.
+        let rec = serde_json::json!({ "Event": { "EventData": [] }});
+        assert!(flatten_event_data(&rec).is_empty());
+        let rec2 = serde_json::json!({ "Event": { "EventData": "garbage" }});
+        assert!(flatten_event_data(&rec2).is_empty());
+    }
+
+    #[test]
+    fn flatten_single_data_object_not_array() {
+        // Some providers render a lone <Data> as an object, not a 1-element array.
+        let rec = serde_json::json!({
+            "Event": { "EventData": { "Data": {"@Name": "ServiceName", "#text": "evilsvc"} }}
+        });
+        let m = flatten_event_data(&rec);
+        assert_eq!(m.get("ServiceName").map(String::as_str), Some("evilsvc"));
+    }
+
+    #[test]
+    fn flatten_data_array_item_object_without_name_recurses() {
+        let rec = serde_json::json!({
+            "Event": { "EventData": { "Data": [ {"Inner": "value"} ] }}
+        });
+        let m = flatten_event_data(&rec);
+        assert_eq!(m.get("Inner").map(String::as_str), Some("value"));
+    }
+
+    #[test]
+    fn flatten_named_attribute_missing_text_is_empty_string() {
+        // <Data Name="X"/> with no text — field present, value empty (lossless).
+        let rec = serde_json::json!({
+            "Event": { "EventData": { "Data": [ {"@Name": "TargetSid"} ] }}
+        });
+        let m = flatten_event_data(&rec);
+        assert_eq!(m.get("TargetSid").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn flatten_array_valued_field_and_top_level_attribute() {
+        let rec = serde_json::json!({
+            "Event": { "EventData": {
+                "@xmlns": "http://schemas.microsoft.com/win/2004/08/events/event",
+                "ScalarList": ["x", "y"],
+                "ObjList": [ {"SubField": "subval"} ]
+            }}
+        });
+        let m = flatten_event_data(&rec);
+        assert!(!m.keys().any(|k| k.starts_with('@')), "top-level @attr must be skipped");
+        assert_eq!(m.get("ScalarList0").map(String::as_str), Some("x"));
+        assert_eq!(m.get("ScalarList1").map(String::as_str), Some("y"));
+        assert_eq!(m.get("SubField").map(String::as_str), Some("subval"));
+    }
+
+    #[test]
+    fn flatten_skips_null_and_composite_field_values() {
+        let rec = serde_json::json!({
+            "Event": { "EventData": { "Nulled": null, "Keep": "yes" }}
+        });
+        let m = flatten_event_data(&rec);
+        assert!(!m.contains_key("Nulled"));
+        assert_eq!(m.get("Keep").map(String::as_str), Some("yes"));
     }
 
     #[test]
