@@ -16,9 +16,62 @@ use crate::ir::{Element, Node};
 /// name (e.g. `{"Event": {...}}`).
 #[must_use]
 pub fn record_to_json(nodes: &[Node]) -> Value {
-    // RED stub — implemented in the GREEN commit.
-    let _ = nodes;
-    Value::Null
+    Value::Object(nodes_to_map(nodes))
+}
+
+/// Group a node list's child elements by name into a JSON object: a name seen
+/// once maps to its value, a name seen more than once maps to an array (in
+/// document order). Non-element nodes are skipped.
+fn nodes_to_map(nodes: &[Node]) -> Map<String, Value> {
+    let mut groups: Vec<(String, Vec<Value>)> = Vec::new();
+    for node in nodes {
+        if let Node::Element(el) = node {
+            let value = element_to_value(el);
+            if let Some(group) = groups.iter_mut().find(|(name, _)| *name == el.name) {
+                group.1.push(value);
+            } else {
+                groups.push((el.name.clone(), vec![value]));
+            }
+        }
+    }
+    let mut map = Map::new();
+    for (name, values) in groups {
+        let value = match values.len() {
+            1 => values.into_iter().next().unwrap_or(Value::Null),
+            _ => Value::Array(values),
+        };
+        map.insert(name, value);
+    }
+    map
+}
+
+/// Render one element: a leaf (only text, no attributes) becomes a bare string;
+/// otherwise an object with `@attr` keys, grouped child elements, and `#text`.
+fn element_to_value(el: &Element) -> Value {
+    let text = element_text(el);
+    let has_child_elements = el.children.iter().any(|c| matches!(c, Node::Element(_)));
+    if el.attributes.is_empty() && !has_child_elements {
+        return Value::String(text);
+    }
+    let mut map = nodes_to_map(&el.children);
+    for (key, val) in &el.attributes {
+        map.insert(format!("@{key}"), Value::String(val.clone()));
+    }
+    if !text.is_empty() {
+        map.insert("#text".to_string(), Value::String(text));
+    }
+    Value::Object(map)
+}
+
+/// Concatenated direct text children of `el`.
+fn element_text(el: &Element) -> String {
+    let mut s = String::new();
+    for child in &el.children {
+        if let Node::Text(t) = child {
+            s.push_str(t);
+        }
+    }
+    s
 }
 
 #[cfg(test)]
