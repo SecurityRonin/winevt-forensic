@@ -1,8 +1,14 @@
-//! Minimal `BinXml` token scanner for Windows Event Log payloads.
+//! `BinXml` decoding for Windows Event Log (EVTX) record payloads.
 //!
-//! This is a best-effort scanner, NOT a full `BinXml` parser. It extracts
-//! commonly needed fields by scanning byte patterns in the `BinXml` System element.
-//! Returns `None` for any field that cannot be reliably determined.
+//! [`validate_binxml`] / [`scan_binxml`] are the legacy best-effort scanners.
+//! The [`cursor`] module is the foundation of a full, panic-free, bounds-checked
+//! BinXml decoder (ported with attribution from the omerbenamram `evtx` crate,
+//! Apache-2.0/MIT; format cross-checked against libevtx). See
+//! `docs/plans/binxml-decoder-architecture.md`.
+
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
+pub mod cursor;
 
 /// Structural error returned by [`validate_binxml`].
 #[derive(Debug, thiserror::Error, PartialEq)]
