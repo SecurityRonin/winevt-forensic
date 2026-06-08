@@ -9,6 +9,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod cursor;
+pub mod value;
 
 /// Structural error returned by [`validate_binxml`].
 #[derive(Debug, thiserror::Error, PartialEq)]
