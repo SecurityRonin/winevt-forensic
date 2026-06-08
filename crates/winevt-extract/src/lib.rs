@@ -8,7 +8,7 @@
 //! `winevt_carver::carve_from_file` + `winevt_writer::records_to_evtx`,
 //! then pass the reconstructed path here.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -165,6 +165,31 @@ fn sysmon_pid(event_data: &serde_json::Value, key: &str) -> u64 {
 }
 
 // ── Public functions ──────────────────────────────────────────────────────────
+
+/// Flatten a decoded EVTX record's `EventData` and `UserData` payload into a
+/// flat `field name → value` map.
+///
+/// `event_record` is one record's JSON as produced by the `evtx` crate's
+/// `records_json_value()` (the `{"Event": {...}}` object). The two
+/// provider-manifest serialization shapes are normalized into the same flat
+/// map:
+///
+/// 1. **Named-attribute array** (Security / audit events, `<Data Name="…">`):
+///    `{"Data": [{"@Name": "TargetUserName", "#text": "jdoe"}, …]}`
+/// 2. **Flat named-element object** (Sysmon, PowerShell, WMI, bare `<Image>`):
+///    `{"Image": "C:\\…", "CommandLine": "…"}`
+///
+/// Extraction is **lossless**: every leaf value is preserved (no truncation,
+/// no field cap), scalars are stringified, and unnamed `<Data>` elements are
+/// retained under positional keys so nothing is silently dropped. `UserData`
+/// (provider-specific, often nested) is flattened recursively. Returns an empty
+/// map when neither block is present.
+#[must_use]
+pub fn flatten_event_data(event_record: &serde_json::Value) -> BTreeMap<String, String> {
+    // RED stub — implemented in the GREEN commit.
+    let _ = event_record;
+    BTreeMap::new()
+}
 
 /// Parse an EVTX file and return all events sorted by timestamp.
 ///
@@ -907,6 +932,103 @@ mod tests {
         for s in &result {
             assert!(!s.logon_id.is_empty(), "logon_id should not be empty");
         }
+    }
+
+    // ── flatten_event_data ────────────────────────────────────────────────────
+
+    #[test]
+    fn flatten_named_attribute_array_shape() {
+        // Shape 1: Security/audit `<Data Name="…">value</Data>`.
+        let rec = serde_json::json!({
+            "Event": { "EventData": { "Data": [
+                {"@Name": "TargetUserName", "#text": "jdoe"},
+                {"@Name": "LogonType", "#text": "10"},
+                {"@Name": "IpAddress", "#text": "10.0.0.5"}
+            ]}}
+        });
+        let m = flatten_event_data(&rec);
+        assert_eq!(m.get("TargetUserName").map(String::as_str), Some("jdoe"));
+        assert_eq!(m.get("LogonType").map(String::as_str), Some("10"));
+        assert_eq!(m.get("IpAddress").map(String::as_str), Some("10.0.0.5"));
+        // JSON-meta keys must never leak as field names.
+        assert!(!m.contains_key("@Name"));
+        assert!(!m.contains_key("#text"));
+    }
+
+    #[test]
+    fn flatten_flat_named_element_shape() {
+        // Shape 2: Sysmon / PowerShell bare named elements.
+        let rec = serde_json::json!({
+            "Event": { "EventData": {
+                "Image": "C:\\Windows\\Temp\\evil.exe",
+                "CommandLine": "evil.exe -enc AAAA",
+                "ParentImage": "C:\\Windows\\System32\\services.exe"
+            }}
+        });
+        let m = flatten_event_data(&rec);
+        assert_eq!(m.get("Image").map(String::as_str), Some("C:\\Windows\\Temp\\evil.exe"));
+        assert_eq!(m.get("CommandLine").map(String::as_str), Some("evil.exe -enc AAAA"));
+        assert_eq!(m.get("ParentImage").map(String::as_str), Some("C:\\Windows\\System32\\services.exe"));
+    }
+
+    #[test]
+    fn flatten_stringifies_non_string_scalars() {
+        let rec = serde_json::json!({
+            "Event": { "EventData": { "ProcessId": 4242, "Elevated": true }}
+        });
+        let m = flatten_event_data(&rec);
+        assert_eq!(m.get("ProcessId").map(String::as_str), Some("4242"));
+        assert_eq!(m.get("Elevated").map(String::as_str), Some("true"));
+    }
+
+    #[test]
+    fn flatten_preserves_unnamed_data_elements() {
+        // Unnamed <Data> scalars (no @Name) must not be dropped.
+        let rec = serde_json::json!({
+            "Event": { "EventData": { "Data": ["alpha", "beta"] }}
+        });
+        let m = flatten_event_data(&rec);
+        assert_eq!(m.get("Data0").map(String::as_str), Some("alpha"));
+        assert_eq!(m.get("Data1").map(String::as_str), Some("beta"));
+    }
+
+    #[test]
+    fn flatten_recurses_userdata() {
+        // UserData is provider-specific and frequently nested.
+        let rec = serde_json::json!({
+            "Event": { "UserData": { "RuleAndFileData": {
+                "PolicyName": "Script Rules",
+                "FilePath": "%OSDRIVE%\\evil.ps1"
+            }}}
+        });
+        let m = flatten_event_data(&rec);
+        assert_eq!(m.get("PolicyName").map(String::as_str), Some("Script Rules"));
+        assert_eq!(m.get("FilePath").map(String::as_str), Some("%OSDRIVE%\\evil.ps1"));
+    }
+
+    #[test]
+    fn flatten_empty_when_no_payload() {
+        let rec = serde_json::json!({ "Event": { "System": { "EventID": 4624 }}});
+        assert!(flatten_event_data(&rec).is_empty());
+    }
+
+    #[test]
+    fn flatten_real_security_record_is_lossless() {
+        // Doer-Checker: a real audit record must yield its account/subject fields.
+        let path = require_foxitdata!("pre-Security.evtx");
+        let mut parser =
+            evtx::EvtxParser::from_path(&path).expect("open pre-Security.evtx");
+        let mut found = false;
+        for r in parser.records_json_value() {
+            let Ok(rec) = r else { continue };
+            let m = flatten_event_data(&rec.data);
+            // Any Security record with EventData should expose named account fields.
+            if m.keys().any(|k| k == "SubjectUserName" || k == "TargetUserName") {
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "expected a real Security record to flatten account fields");
     }
 }
 
