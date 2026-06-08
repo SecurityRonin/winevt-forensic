@@ -2,7 +2,7 @@
 //!
 //! [`validate_binxml`] / [`scan_binxml`] are the legacy best-effort scanners.
 //! The [`cursor`] module is the foundation of a full, panic-free, bounds-checked
-//! BinXml decoder (ported with attribution from the omerbenamram `evtx` crate,
+//! `BinXml` decoder (ported with attribution from the omerbenamram `evtx` crate,
 //! Apache-2.0/MIT; format cross-checked against libevtx). See
 //! `docs/plans/binxml-decoder-architecture.md`.
 

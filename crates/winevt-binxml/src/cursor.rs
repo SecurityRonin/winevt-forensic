@@ -76,82 +76,115 @@ impl<'a> Cursor<'a> {
     /// Move the cursor to an absolute offset. `target` may equal `len()`
     /// (end position) but not exceed it.
     pub fn seek(&mut self, target: usize) -> Result<(), CursorError> {
-        let _ = target;
-        Err(self.oob(0))
+        if target > self.data.len() {
+            return Err(CursorError::InvalidSeek {
+                target,
+                len: self.data.len(),
+            });
+        }
+        self.pos = target;
+        Ok(())
     }
 
     /// Advance the cursor by `n` bytes, bounds-checked.
     pub fn skip(&mut self, n: usize) -> Result<(), CursorError> {
-        let _ = n;
-        Err(self.oob(0))
+        let end = self.pos.checked_add(n).ok_or_else(|| self.oob(n))?;
+        if end > self.data.len() {
+            return Err(self.oob(n));
+        }
+        self.pos = end;
+        Ok(())
     }
 
     /// Borrow the next `n` bytes and advance past them.
     pub fn take(&mut self, n: usize) -> Result<&'a [u8], CursorError> {
-        let _ = n;
-        Err(self.oob(n))
+        let end = self.pos.checked_add(n).ok_or_else(|| self.oob(n))?;
+        let slice = self.data.get(self.pos..end).ok_or_else(|| self.oob(n))?;
+        self.pos = end;
+        Ok(slice)
+    }
+
+    /// Read exactly `N` bytes into a fixed array. Infallible length by
+    /// construction (`take(N)` yields exactly `N` bytes).
+    fn read_array<const N: usize>(&mut self) -> Result<[u8; N], CursorError> {
+        let slice = self.take(N)?;
+        let mut arr = [0u8; N];
+        arr.copy_from_slice(slice);
+        Ok(arr)
     }
 
     /// Read a `u8`.
     pub fn read_u8(&mut self) -> Result<u8, CursorError> {
-        Err(self.oob(1))
+        Ok(u8::from_le_bytes(self.read_array::<1>()?))
     }
 
     /// Read an `i8`.
     pub fn read_i8(&mut self) -> Result<i8, CursorError> {
-        Err(self.oob(1))
+        Ok(i8::from_le_bytes(self.read_array::<1>()?))
     }
 
     /// Read a little-endian `u16`.
     pub fn read_u16_le(&mut self) -> Result<u16, CursorError> {
-        Err(self.oob(2))
+        Ok(u16::from_le_bytes(self.read_array::<2>()?))
     }
 
     /// Read a little-endian `i16`.
     pub fn read_i16_le(&mut self) -> Result<i16, CursorError> {
-        Err(self.oob(2))
+        Ok(i16::from_le_bytes(self.read_array::<2>()?))
     }
 
     /// Read a little-endian `u32`.
     pub fn read_u32_le(&mut self) -> Result<u32, CursorError> {
-        Err(self.oob(4))
+        Ok(u32::from_le_bytes(self.read_array::<4>()?))
     }
 
     /// Read a little-endian `i32`.
     pub fn read_i32_le(&mut self) -> Result<i32, CursorError> {
-        Err(self.oob(4))
+        Ok(i32::from_le_bytes(self.read_array::<4>()?))
     }
 
     /// Read a little-endian `u64`.
     pub fn read_u64_le(&mut self) -> Result<u64, CursorError> {
-        Err(self.oob(8))
+        Ok(u64::from_le_bytes(self.read_array::<8>()?))
     }
 
     /// Read a little-endian `i64`.
     pub fn read_i64_le(&mut self) -> Result<i64, CursorError> {
-        Err(self.oob(8))
+        Ok(i64::from_le_bytes(self.read_array::<8>()?))
     }
 
     /// Read a little-endian `f32`.
     pub fn read_f32_le(&mut self) -> Result<f32, CursorError> {
-        Err(self.oob(4))
+        Ok(f32::from_le_bytes(self.read_array::<4>()?))
     }
 
     /// Read a little-endian `f64`.
     pub fn read_f64_le(&mut self) -> Result<f64, CursorError> {
-        Err(self.oob(8))
+        Ok(f64::from_le_bytes(self.read_array::<8>()?))
     }
 
     /// Read `units` UTF-16LE code units (`units * 2` bytes) and decode lossily
     /// (replacement char for unpaired surrogates — robust against hostile data).
     pub fn read_utf16le_chars(&mut self, units: usize) -> Result<String, CursorError> {
-        let _ = units;
-        Err(self.oob(0))
+        let nbytes = units.checked_mul(2).ok_or(CursorError::LengthOverflow {
+            offset: self.pos,
+            need: units,
+        })?;
+        let bytes = self.take(nbytes)?;
+        let code_units = bytes.chunks_exact(2).map(|pair| {
+            let mut b = [0u8; 2];
+            b.copy_from_slice(pair);
+            u16::from_le_bytes(b)
+        });
+        Ok(char::decode_utf16(code_units)
+            .map(|r| r.unwrap_or('\u{FFFD}'))
+            .collect())
     }
 
     /// Read a `u16` code-unit count, then that many UTF-16LE code units.
     pub fn read_utf16le_len_prefixed(&mut self) -> Result<String, CursorError> {
-        Err(self.oob(2))
+        let units = self.read_u16_le()? as usize;
+        self.read_utf16le_chars(units)
     }
 
     /// Build an `OutOfBounds` error at the current position.
