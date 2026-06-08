@@ -96,9 +96,11 @@ pub struct OpenElement {
 
 /// Read a fragment header: `major u8, minor u8, flags u8`.
 pub fn read_fragment_header(cur: &mut Cursor<'_>) -> Result<FragmentHeader, TokenError> {
-    // RED stub — implemented in the GREEN commit.
-    let _ = cur;
-    Err(TokenError::Cursor(CursorError::InvalidSeek { target: 0, len: 0 }))
+    Ok(FragmentHeader {
+        major: cur.read_u8()?,
+        minor: cur.read_u8()?,
+        flags: cur.read_u8()?,
+    })
 }
 
 /// Read a substitution descriptor: `index u16, value_type u8`.
@@ -106,9 +108,15 @@ pub fn read_substitution_descriptor(
     cur: &mut Cursor<'_>,
     optional: bool,
 ) -> Result<SubstitutionDescriptor, TokenError> {
-    // RED stub — implemented in the GREEN commit.
-    let _ = (cur, optional);
-    Err(TokenError::Cursor(CursorError::InvalidSeek { target: 0, len: 0 }))
+    let index = cur.read_u16_le()?;
+    let value_type = cur.read_u8()?;
+    let ignore = optional && value_type == VT_NULL;
+    Ok(SubstitutionDescriptor {
+        index,
+        value_type,
+        optional,
+        ignore,
+    })
 }
 
 /// Read an open-start-element header: `[dep_id u16], data_size u32, name,
@@ -120,9 +128,15 @@ pub fn read_open_start_element(
     has_dep_id: bool,
     has_attributes: bool,
 ) -> Result<OpenElement, TokenError> {
-    // RED stub — implemented in the GREEN commit.
-    let _ = (cur, chunk, names, has_dep_id, has_attributes);
-    Err(TokenError::Cursor(CursorError::InvalidSeek { target: 0, len: 0 }))
+    if has_dep_id {
+        let _dependency_identifier = cur.read_u16_le()?;
+    }
+    let data_size = cur.read_u32_le()?;
+    let name = names.read_name_ref(cur, chunk)?;
+    if has_attributes {
+        let _attribute_list_data_size = cur.read_u32_le()?;
+    }
+    Ok(OpenElement { name, data_size })
 }
 
 /// Read an attribute token's name reference.
@@ -131,9 +145,7 @@ pub fn read_attribute_name(
     chunk: &[u8],
     names: &mut NameCache,
 ) -> Result<String, TokenError> {
-    // RED stub — implemented in the GREEN commit.
-    let _ = (cur, chunk, names);
-    Err(TokenError::Cursor(CursorError::InvalidSeek { target: 0, len: 0 }))
+    Ok(names.read_name_ref(cur, chunk)?)
 }
 
 #[cfg(test)]
