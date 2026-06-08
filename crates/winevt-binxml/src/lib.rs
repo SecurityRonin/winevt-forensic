@@ -12,6 +12,7 @@ pub mod cursor;
 pub mod deserializer;
 pub mod extract;
 pub mod ir;
+pub mod json;
 pub mod name;
 pub mod template;
 pub mod tokens;
