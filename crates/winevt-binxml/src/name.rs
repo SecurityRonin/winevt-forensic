@@ -11,6 +11,8 @@
 //! hash-bucket chain, which makes a hostile linked-list cycle structurally
 //! impossible (the reference walks those chains; we do not).
 
+#![allow(clippy::doc_markdown)] // "BinXml" appears throughout these docs
+
 use std::collections::HashMap;
 
 use crate::cursor::{Cursor, CursorError};
@@ -56,13 +58,35 @@ impl NameCache {
         cur: &mut Cursor<'_>,
         chunk: &[u8],
     ) -> Result<String, NameError> {
-        // RED stub — implemented in the GREEN commit.
-        let _ = (cur, chunk);
-        Err(NameError::Cursor(CursorError::InvalidSeek {
-            target: 0,
-            len: 0,
-        }))
+        let name_offset = cur.read_u32_le()? as usize;
+        let pos_after = cur.position();
+        if name_offset == pos_after {
+            // Inline definition: the struct begins here — read from the main
+            // cursor so it advances past the whole inline name.
+            let name = read_name_fields(cur)?;
+            cur.skip(2)?; // NUL terminator
+            self.map.insert(name_offset, name.clone());
+            Ok(name)
+        } else if let Some(cached) = self.map.get(&name_offset) {
+            Ok(cached.clone())
+        } else {
+            // Back-reference: read the self-describing struct at the offset via a
+            // throwaway sub-cursor (the main cursor is not advanced into it).
+            let mut sub = Cursor::at(chunk, name_offset);
+            let name = read_name_fields(&mut sub)?;
+            self.map.insert(name_offset, name.clone());
+            Ok(name)
+        }
     }
+}
+
+/// Read `next_string u32, hash u16, char_count u16, UTF-16LE chars` and return
+/// the decoded name. Does not consume the trailing NUL terminator.
+fn read_name_fields(cur: &mut Cursor<'_>) -> Result<String, NameError> {
+    cur.skip(4)?; // next_string
+    cur.skip(2)?; // hash
+    let count = cur.read_u16_le()?;
+    Ok(cur.read_utf16le_chars(usize::from(count))?)
 }
 
 #[cfg(test)]
