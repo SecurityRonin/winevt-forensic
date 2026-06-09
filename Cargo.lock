@@ -635,7 +635,9 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "forensicnomicon"
-version = "0.1.0"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f66c898c0f3813cb476c7d1f9e78919566e753b8ce5d581ca8d0f364a55b04b5"
 dependencies = [
  "serde",
 ]
@@ -1827,7 +1829,11 @@ dependencies = [
 name = "winevt-binxml"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "evtx",
+ "serde_json",
  "thiserror 2.0.18",
+ "winevt-core",
 ]
 
 [[package]]
@@ -1847,7 +1853,7 @@ dependencies = [
 
 [[package]]
 name = "winevt-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "crc32fast",
  "forensicnomicon",
@@ -1870,9 +1876,10 @@ dependencies = [
 
 [[package]]
 name = "winevt-integrity"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "crc32fast",
+ "forensicnomicon",
  "serde",
  "winevt-core",
 ]
