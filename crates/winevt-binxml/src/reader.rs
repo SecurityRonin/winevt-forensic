@@ -90,79 +90,96 @@ mod tests {
         assert!(decode_file(&[]).is_empty());
     }
 
-    fn fixture(name: &str) -> std::path::PathBuf {
-        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.pop(); // crates/
-        p.pop(); // workspace root
-        p.join("tests/data/fox-it-danderspritz").join(name)
-    }
-
-    macro_rules! require_fixture {
-        ($name:expr) => {{
-            let p = fixture($name);
-            if !p.exists() {
-                eprintln!("SKIP: {} not found", p.display());
-                return;
-            }
-            p
-        }};
-    }
-
-    /// omerbenamram's per-record event id, keyed by record id (the oracle).
-    fn oracle_event_ids(path: &std::path::Path) -> std::collections::HashMap<u64, u64> {
-        let mut parser = evtx::EvtxParser::from_path(path).expect("open fixture");
-        let mut map = std::collections::HashMap::new();
-        for r in parser.records_json_value() {
-            let Ok(rec) = r else { continue };
-            let eid = rec
-                .data
-                .pointer("/Event/System/EventID")
-                .and_then(|v| v.as_u64().or_else(|| v.get("#text").and_then(serde_json::Value::as_u64)))
-                .unwrap_or(0);
-            map.insert(rec.event_record_id, eid);
+    /// A minimal single-record EVTX file: one chunk, one record whose payload is
+    /// the template-free fragment `<Event/>`. (The real-fixture differential
+    /// parity test lives in `tests/real_corpus_parity.rs`.)
+    fn synthetic_evtx() -> Vec<u8> {
+        let cs = usize::try_from(CHUNK_SIZE).unwrap();
+        let mut chunk = vec![0u8; cs];
+        chunk[..8].copy_from_slice(b"ElfChnk\0");
+        let rec_off = usize::try_from(CHUNK_RECORDS_OFFSET).unwrap();
+        let mut p = rec_off;
+        chunk[p..p + 4].copy_from_slice(&[0x2a, 0x2a, 0x00, 0x00]); // record magic
+        p += 4;
+        let size_at = p;
+        p += 4; // size (patched)
+        chunk[p..p + 8].copy_from_slice(&7u64.to_le_bytes()); // record_id
+        p += 8;
+        chunk[p..p + 8].copy_from_slice(&0u64.to_le_bytes()); // timestamp
+        p += 8;
+        // BinXml `<Event/>` (direct fragment); p is now rec_off + 24.
+        chunk[p..p + 4].copy_from_slice(&[0x0f, 0x01, 0x01, 0x00]); // fragment header
+        p += 4;
+        chunk[p] = 0x01; // open start element, no attrs / dep id
+        p += 1;
+        chunk[p..p + 4].copy_from_slice(&0u32.to_le_bytes()); // element data_size
+        p += 4;
+        let name_off = u32::try_from(p + 4).unwrap(); // inline: struct follows the u32
+        chunk[p..p + 4].copy_from_slice(&name_off.to_le_bytes());
+        p += 4;
+        chunk[p..p + 4].copy_from_slice(&0u32.to_le_bytes()); // next_string
+        p += 4;
+        chunk[p..p + 2].copy_from_slice(&0u16.to_le_bytes()); // hash
+        p += 2;
+        let chars: Vec<u16> = "Event".encode_utf16().collect();
+        chunk[p..p + 2].copy_from_slice(&u16::try_from(chars.len()).unwrap().to_le_bytes());
+        p += 2;
+        for c in &chars {
+            chunk[p..p + 2].copy_from_slice(&c.to_le_bytes());
+            p += 2;
         }
-        map
+        chunk[p..p + 2].copy_from_slice(&0u16.to_le_bytes()); // NUL terminator
+        p += 2;
+        chunk[p] = 0x03; // close empty element
+        p += 1;
+        chunk[p] = 0x00; // end of stream
+        p += 1;
+        chunk[p..p + 4].copy_from_slice(&0u32.to_le_bytes()); // size copy
+        p += 4;
+        let rec_size = u32::try_from(p - rec_off).unwrap();
+        chunk[size_at..size_at + 4].copy_from_slice(&rec_size.to_le_bytes());
+        chunk[48..52].copy_from_slice(&u32::try_from(p).unwrap().to_le_bytes()); // free_space_offset
+        chunk[44..48].copy_from_slice(&u32::try_from(rec_off).unwrap().to_le_bytes());
+        let mut file = vec![0u8; FILE_HEADER_BLOCK];
+        file[..8].copy_from_slice(b"ElfFile\0");
+        file.extend_from_slice(&chunk);
+        file
     }
 
     #[test]
-    fn decodes_real_security_evtx() {
-        let path = require_fixture!("pre-Security.evtx");
-        let data = std::fs::read(&path).expect("read fixture");
-        let records = decode_file(&data);
-        assert!(!records.is_empty(), "should decode at least some records");
-        assert!(
-            records.iter().any(|r| r.record.channel.as_deref() == Some("Security")),
-            "expected at least one Security-channel record"
-        );
+    fn decodes_a_synthetic_record() {
+        let records = decode_file(&synthetic_evtx());
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].record_id, 7);
+        assert_eq!(records[0].record.event_id, 0); // <Event/> has no System
     }
 
     #[test]
-    fn decoded_records_match_omerbenamram_event_ids() {
-        // Doer-Checker: for every record OUR decoder produces, the event id must
-        // match the independent omerbenamram implementation on the real file.
-        let path = require_fixture!("pre-Security.evtx");
-        let data = std::fs::read(&path).expect("read fixture");
-        let theirs = oracle_event_ids(&path);
-        let ours = decode_file(&data);
+    fn bad_record_magic_stops_the_chunk() {
+        let mut data = synthetic_evtx();
+        let rec = FILE_HEADER_BLOCK + usize::try_from(CHUNK_RECORDS_OFFSET).unwrap();
+        data[rec] = 0xFF; // corrupt the record magic
+        assert!(decode_file(&data).is_empty());
+    }
 
-        let mut compared = 0usize;
-        for entry in &ours {
-            if let Some(&their_eid) = theirs.get(&entry.record_id) {
-                compared += 1;
-                assert_eq!(
-                    u64::from(entry.record.event_id),
-                    their_eid,
-                    "event_id mismatch for record {}",
-                    entry.record_id
-                );
-            }
-        }
-        assert!(compared > 0, "expected to compare at least one record");
-        eprintln!(
-            "parity: {}/{} of our decoded records matched the oracle's event id",
-            compared,
-            ours.len()
-        );
+    #[test]
+    fn absurd_record_size_stops_the_chunk() {
+        let mut data = synthetic_evtx();
+        let size_at = FILE_HEADER_BLOCK + usize::try_from(CHUNK_RECORDS_OFFSET).unwrap() + 4;
+        data[size_at..size_at + 4].copy_from_slice(&10u32.to_le_bytes()); // size < header
+        assert!(decode_file(&data).is_empty());
+    }
+
+    #[test]
+    fn record_extending_past_chunk_stops_the_chunk() {
+        // A valid-looking size (>=24, <=CHUNK_SIZE) that nonetheless runs past the
+        // end of the chunk must stop iteration, not read out of bounds.
+        let mut data = synthetic_evtx();
+        let size_at = FILE_HEADER_BLOCK + usize::try_from(CHUNK_RECORDS_OFFSET).unwrap() + 4;
+        data[size_at..size_at + 4].copy_from_slice(&0xFF00u32.to_le_bytes());
+        let fso = FILE_HEADER_BLOCK + 48; // free_space_offset → admit the header read
+        data[fso..fso + 4].copy_from_slice(&u32::try_from(CHUNK_SIZE).unwrap().to_le_bytes());
+        assert!(decode_file(&data).is_empty());
     }
 }
 

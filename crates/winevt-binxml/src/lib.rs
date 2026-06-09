@@ -7,6 +7,7 @@
 //! `docs/plans/binxml-decoder-architecture.md`.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+#![allow(clippy::doc_markdown)] // "BinXml" appears throughout these docs
 
 pub mod cursor;
 pub mod deserializer;
@@ -42,6 +43,9 @@ const CHUNK_BOUNDARY: u32 = 0x1_0000;
 /// BinXML token bytes — values outside [0x00, 0x0F] are invalid.
 const MAX_TOKEN: u8 = 0x0F;
 
+/// Worst-case token-walk steps (one per byte of a maximum payload).
+const MAX_STEPS: usize = 65_536;
+
 /// Validate the structural integrity of a BinXML payload.
 ///
 /// Performs three checks:
@@ -58,7 +62,6 @@ pub fn validate_binxml(bytes: &[u8]) -> Result<(), BinXmlError> {
         return Err(BinXmlError::InvalidFragmentHeader { offset: 0, got: bytes[0] });
     }
     // Walk tokens starting after the 4-byte fragment header (token + major + minor + flags)
-    const MAX_STEPS: usize = 65_536; // one step per byte is the worst-case legitimate payload
     let mut steps = 0usize;
     let mut pos = 4usize;
     while pos < bytes.len() {
@@ -95,12 +98,9 @@ pub fn validate_binxml(bytes: &[u8]) -> Result<(), BinXmlError> {
                 }
                 pos += 1 + 1 + 2 + 2 + 4; // token + flags + dep_id + attr_count + name_offset
             }
-            0x02 | 0x03 | 0x04 => {
-                // CloseStartElement, CloseEmptyElement, EndElement — no data
-                pos += 1;
-            }
             _ => {
-                // Other known tokens — advance by 1; a full parser would handle each
+                // Close/empty/end and other in-range tokens carry no inline data
+                // for this best-effort structural walk — advance by one byte.
                 pos += 1;
             }
         }
@@ -212,8 +212,7 @@ mod tests {
         let result = validate_binxml(&bytes);
         assert!(result.is_err(), "wrong fragment header must return error");
         assert!(
-            matches!(result, Err(BinXmlError::InvalidFragmentHeader { .. })),
-            "got {:?}", result
+            matches!(result, Err(BinXmlError::InvalidFragmentHeader { .. }))
         );
     }
 
@@ -224,8 +223,7 @@ mod tests {
         let result = validate_binxml(&bytes);
         assert!(result.is_err(), "unknown opcode must return error");
         assert!(
-            matches!(result, Err(BinXmlError::UnknownOpcode { opcode: 0x7F, .. })),
-            "got {:?}", result
+            matches!(result, Err(BinXmlError::UnknownOpcode { opcode: 0x7F, .. }))
         );
     }
 
@@ -243,8 +241,7 @@ mod tests {
         let result = validate_binxml(&bytes);
         assert!(result.is_err(), "string table overflow must return error");
         assert!(
-            matches!(result, Err(BinXmlError::StringTableOverflow { .. })),
-            "got {:?}", result
+            matches!(result, Err(BinXmlError::StringTableOverflow { .. }))
         );
     }
 
@@ -264,8 +261,7 @@ mod tests {
         bytes.extend(std::iter::repeat(0x02u8).take(65_537)); // one past the limit
         let result = validate_binxml(&bytes);
         assert!(
-            matches!(result, Err(BinXmlError::IterationLimitExceeded { .. })),
-            "expected IterationLimitExceeded, got {:?}", result
+            matches!(result, Err(BinXmlError::IterationLimitExceeded { .. }))
         );
     }
 
@@ -273,6 +269,34 @@ mod tests {
     fn iteration_limit_not_triggered_on_normal_payload() {
         // A normal short payload should not hit the limit.
         let bytes = vec![0x0F, 0x01, 0x01, 0x00, 0x00]; // header + EndOfStream
+        assert!(validate_binxml(&bytes).is_ok());
+    }
+
+    #[test]
+    fn valid_open_start_element_walks_to_end() {
+        // header + OpenStartElement (in-range name_offset) then the buffer ends.
+        let mut bytes = vec![0x0F, 0x01, 0x01, 0x00, 0x01]; // header + OpenStartElement
+        bytes.push(0x00); // flags
+        bytes.extend_from_slice(&0u16.to_le_bytes()); // dependency_id
+        bytes.extend_from_slice(&0u16.to_le_bytes()); // attribute_count
+        bytes.extend_from_slice(&100u32.to_le_bytes()); // name_offset (in range)
+        assert!(validate_binxml(&bytes).is_ok());
+    }
+
+    #[test]
+    fn truncated_open_start_element_returns_error() {
+        // OpenStartElement token with too few bytes for the name offset field.
+        let bytes = vec![0x0F, 0x01, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00];
+        assert!(matches!(
+            validate_binxml(&bytes),
+            Err(BinXmlError::Truncated { .. })
+        ));
+    }
+
+    #[test]
+    fn other_known_token_advances_one_byte() {
+        // A token in [0x05, 0x0F] is skipped by one byte (best-effort walk).
+        let bytes = vec![0x0F, 0x01, 0x01, 0x00, 0x05];
         assert!(validate_binxml(&bytes).is_ok());
     }
 }

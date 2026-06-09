@@ -504,6 +504,44 @@ mod tests {
     }
 
     #[test]
+    fn invalid_attribute_value_token_is_error() {
+        // A garbage (high-bit) byte where an attribute value is expected.
+        let mut b = Vec::new();
+        frag_header(&mut b);
+        push_open(&mut b, "Event", true);
+        b.push(TOK_ATTRIBUTE);
+        push_inline_name(&mut b, "attr");
+        b.push(0x80);
+        assert!(matches!(decode(&b), Err(DeserializeError::Unsupported(_))));
+    }
+
+    #[test]
+    fn unexpected_attribute_value_token_is_error() {
+        // A valid token that is neither a Value nor a substitution as the value.
+        let mut b = Vec::new();
+        frag_header(&mut b);
+        push_open(&mut b, "Event", true);
+        b.push(TOK_ATTRIBUTE);
+        push_inline_name(&mut b, "attr");
+        b.push(TOK_CLOSE_START_ELEMENT);
+        assert!(matches!(decode(&b), Err(DeserializeError::Unsupported(_))));
+    }
+
+    #[test]
+    fn optional_substituted_attribute_outside_template_is_unsupported() {
+        // An optional-substitution attribute value with no template values.
+        let mut b = Vec::new();
+        frag_header(&mut b);
+        push_open(&mut b, "Event", true);
+        b.push(TOK_ATTRIBUTE);
+        push_inline_name(&mut b, "attr");
+        b.push(TOK_OPTIONAL_SUBSTITUTION);
+        b.extend_from_slice(&0u16.to_le_bytes()); // substitution index
+        b.push(0x01); // value_type String
+        assert!(matches!(decode(&b), Err(DeserializeError::Unsupported(_))));
+    }
+
+    #[test]
     fn unbalanced_close_is_error() {
         // EndElement with no open element
         let mut b = Vec::new();
