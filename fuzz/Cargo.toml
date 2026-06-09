@@ -48,3 +48,15 @@ name = "fuzz_validate_binxml"
 path = "fuzz_targets/fuzz_validate_binxml.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_decode_file"
+path = "fuzz_targets/fuzz_decode_file.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_deserialize_fragment"
+path = "fuzz_targets/fuzz_deserialize_fragment.rs"
+test = false
+doc = false
