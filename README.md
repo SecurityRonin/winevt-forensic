@@ -1,5 +1,5 @@
 [![Stars](https://img.shields.io/github/stars/SecurityRonin/winevt-forensic?style=flat-square)](https://github.com/SecurityRonin/winevt-forensic/stargazers)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/SecurityRonin/winevt-forensic/actions/workflows/ci.yml/badge.svg)](https://github.com/SecurityRonin/winevt-forensic/actions/workflows/ci.yml)
 [![Rust 1.75+](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue.svg)](#install)
