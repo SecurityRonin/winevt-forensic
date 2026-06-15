@@ -1,3 +1,7 @@
 /target
 /tests/data/
 fuzz/target/
+
+# Local agent / tooling state (never commit)
+/.claude/
+/.playwright-mcp/
