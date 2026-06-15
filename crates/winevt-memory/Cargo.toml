@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Carve Windows Event Log (EVTX) records and chunks from memory images."
 
 [dependencies]
 winevt-core = { workspace = true }
