@@ -10,7 +10,7 @@ description = "MITRE-tagged forensic detectors for Windows Event Log artifacts"
 [dependencies]
 serde = { workspace = true }
 forensicnomicon = { workspace = true }
-winevt-core = { path = "../winevt-core" }
+winevt-core = { workspace = true }
 
 [dev-dependencies]
 # none beyond std
