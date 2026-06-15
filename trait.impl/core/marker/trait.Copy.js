@@ -1,0 +1,9 @@
+(function() {
+    const implementors = Object.fromEntries([["winevt_analysis",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/marker/trait.Copy.html\" title=\"trait core::marker::Copy\">Copy</a> for <a class=\"enum\" href=\"winevt_analysis/enum.EvtxDetectionKind.html\" title=\"enum winevt_analysis::EvtxDetectionKind\">EvtxDetectionKind</a>",0]]],["winevt_carver",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/marker/trait.Copy.html\" title=\"trait core::marker::Copy\">Copy</a> for <a class=\"enum\" href=\"winevt_carver/enum.CarveConfidence.html\" title=\"enum winevt_carver::CarveConfidence\">CarveConfidence</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/marker/trait.Copy.html\" title=\"trait core::marker::Copy\">Copy</a> for <a class=\"enum\" href=\"winevt_carver/enum.Integrity.html\" title=\"enum winevt_carver::Integrity\">Integrity</a>",0]]],["wt",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/marker/trait.Copy.html\" title=\"trait core::marker::Copy\">Copy</a> for <a class=\"enum\" href=\"wt/enum.OutputFormat.html\" title=\"enum wt::OutputFormat\">OutputFormat</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/marker/trait.Copy.html\" title=\"trait core::marker::Copy\">Copy</a> for <a class=\"enum\" href=\"wt/enum.SeverityFilter.html\" title=\"enum wt::SeverityFilter\">SeverityFilter</a>",0]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":59,"fragment_lengths":[313,566,517]}

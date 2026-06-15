@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["TriageError"],"fn":["extract_evtx_from_e01","parse_mbr_ntfs_offset"],"struct":["ExtractedEvtx","TriageReport"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["RECORD_MAGIC"],"enum":["EtwTamperingIndicator","IntegrityAnomaly"],"fn":["detect_etw_tampering","identify_eventlog_sessions","scan_memory_buffer"],"struct":["EvtxChunkHeader","MemoryCarvedRecord","MemoryRecoveredChunk","RecoveredEtwEvent","RecoveredEtwSession"]};

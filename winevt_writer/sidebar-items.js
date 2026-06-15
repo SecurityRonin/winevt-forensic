@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CHUNK_SIZE","FILE_HEADER_SIZE","MAX_RECORDS_AREA","RECORDS_OFFSET"],"fn":["build_chunk","build_file_header","build_record_bytes","records_to_evtx","split_into_chunks"],"struct":["WriteRecord"]};

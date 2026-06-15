@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["detect_ransom_note_creation"]};

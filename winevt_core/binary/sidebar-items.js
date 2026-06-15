@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CHUNK_RECORDS_OFFSET","CHUNK_SIZE","ELFCHNK_MAGIC","ELFFILE_MAGIC","RECORD_MAGIC"],"enum":["IntegrityAnomaly","Severity"],"fn":["compute_checksum"],"struct":["EvtxChunkHeader","EvtxFileHeader","EvtxRecordHeader"]};

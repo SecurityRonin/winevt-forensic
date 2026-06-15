@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["logon_type_name","substatus_description"],"mod":["binary"],"struct":["EvtxEvent","LogonSession","ProcessEvent","ServiceEvent"]};

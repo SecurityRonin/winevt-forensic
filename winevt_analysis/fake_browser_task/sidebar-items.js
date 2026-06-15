@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["detect_fake_browser_task"]};

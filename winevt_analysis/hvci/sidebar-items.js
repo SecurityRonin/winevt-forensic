@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["detect_hvci_registry_tamper"]};

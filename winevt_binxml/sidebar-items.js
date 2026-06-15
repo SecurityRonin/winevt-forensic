@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BinXmlError"],"fn":["scan_binxml","validate_binxml"],"mod":["cursor","deserializer","extract","ir","json","name","reader","template","tokens","value"],"struct":["BinXmlSummary"]};
