@@ -40,7 +40,7 @@ pub fn detect_explorer_lolbin(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                 .iter()
                 .find(|&&lol| lol.eq_ignore_ascii_case(&img_base))?;
             let parent = parent_image(ev);
-            let cmdline = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+            let cmdline = ev.data.get("CommandLine").map_or("", String::as_str);
             Some(EvtxDetection {
                 kind: EvtxDetectionKind::ExplorerLolbinExecution,
                 mitre_technique_id: "T1204.002",
@@ -68,17 +68,14 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 fn image(ev: &EvtxEvent) -> &str {
     ev.data
         .get("Image")
         .or_else(|| ev.data.get("NewProcessName"))
-        .map(String::as_str)
-        .unwrap_or("")
+        .map_or("", String::as_str)
 }
 
 fn parent_image(ev: &EvtxEvent) -> &str {
@@ -86,8 +83,7 @@ fn parent_image(ev: &EvtxEvent) -> &str {
     ev.data
         .get("ParentImage")
         .or_else(|| ev.data.get("ParentProcessName"))
-        .map(String::as_str)
-        .unwrap_or("")
+        .map_or("", String::as_str)
 }
 
 #[cfg(test)]

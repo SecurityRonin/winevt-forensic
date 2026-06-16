@@ -10,7 +10,7 @@ pub struct MemoryCarvedRecord {
     pub offset: usize,
     /// Raw bytes of the candidate record (from magic through trailing size field).
     pub raw: Vec<u8>,
-    /// True when the BinXML payload starts with a valid FragmentHeader token (0x0F).
+    /// True when the `BinXML` payload starts with a valid `FragmentHeader` token (0x0F).
     pub binxml_valid: bool,
 }
 
@@ -19,7 +19,7 @@ pub struct MemoryCarvedRecord {
 /// Uses a three-phase approach:
 /// 1. Byte-scan for `0x2A 0x2A 0x00 0x00` (record magic).
 /// 2. Validate `record_length` field: must be in `[28, 65536]` and fit within the buffer.
-/// 3. Check BinXML token at `payload[0]` (must be `0x0F` FragmentHeader).
+/// 3. Check `BinXML` token at `payload[0]` (must be `0x0F` `FragmentHeader`).
 ///
 /// Records whose size field would extend beyond the buffer are silently skipped.
 pub fn scan_memory_buffer(buf: &[u8]) -> Vec<MemoryCarvedRecord> {
@@ -40,7 +40,7 @@ pub fn scan_memory_buffer(buf: &[u8]) -> Vec<MemoryCarvedRecord> {
             continue;
         }
         let size = u32::from_le_bytes(buf[pos + 4..pos + 8].try_into().unwrap_or([0; 4])) as usize;
-        if size < MIN_RECORD || size > MAX_RECORD {
+        if !(MIN_RECORD..=MAX_RECORD).contains(&size) {
             pos += 1;
             continue;
         }
@@ -308,8 +308,7 @@ mod tests {
         });
         assert!(
             has_high_lost,
-            "expected HighEventsLost indicator, got: {:?}",
-            indicators
+            "expected HighEventsLost indicator, got: {indicators:?}"
         );
     }
 
@@ -351,8 +350,7 @@ mod tests {
         let indicators = detect_etw_tampering(&sessions);
         assert!(
             indicators.is_empty(),
-            "expected empty indicators for low events_lost (all sessions present), got: {:?}",
-            indicators
+            "expected empty indicators for low events_lost (all sessions present), got: {indicators:?}"
         );
     }
 
@@ -377,8 +375,7 @@ mod tests {
         });
         assert!(
             has_suspicious,
-            "expected SuspiciousLogMode indicator for log_mode=0, got: {:?}",
-            indicators
+            "expected SuspiciousLogMode indicator for log_mode=0, got: {indicators:?}"
         );
     }
 
@@ -420,8 +417,7 @@ mod tests {
         let indicators = detect_etw_tampering(&sessions);
         assert!(
             indicators.is_empty(),
-            "expected empty indicators for normal session (all required present), got: {:?}",
-            indicators
+            "expected empty indicators for normal session (all required present), got: {indicators:?}"
         );
     }
 
@@ -550,8 +546,7 @@ mod tests {
             .any(|i| matches!(i, EtwTamperingIndicator::ZeroBuffers { .. }));
         assert!(
             !has_missing && !has_stopped && !has_zero,
-            "expected no missing/stopped/zero indicators, got: {:?}",
-            indicators
+            "expected no missing/stopped/zero indicators, got: {indicators:?}"
         );
     }
 
@@ -568,8 +563,7 @@ mod tests {
         });
         assert!(
             has_missing,
-            "expected MissingEventLogSession for EventLog-Security, got: {:?}",
-            indicators
+            "expected MissingEventLogSession for EventLog-Security, got: {indicators:?}"
         );
     }
 
@@ -587,8 +581,7 @@ mod tests {
         });
         assert!(
             has_stopped,
-            "expected SessionStopped for EventLog-Security, got: {:?}",
-            indicators
+            "expected SessionStopped for EventLog-Security, got: {indicators:?}"
         );
     }
 
@@ -606,8 +599,7 @@ mod tests {
         });
         assert!(
             has_zero,
-            "expected ZeroBuffers for EventLog-Security (running, 0 buffers), got: {:?}",
-            indicators
+            "expected ZeroBuffers for EventLog-Security (running, 0 buffers), got: {indicators:?}"
         );
     }
 

@@ -371,7 +371,7 @@ pub fn repair_evtx(input: &Path, output: &Path) -> Result<RepairReport, CarveErr
     let mut header_repaired = false;
 
     // File header: CRC32 of 0x00–0x77 stored at 0x7C
-    if data.len() >= 0x80 && &data[0..8] == ELFFILE_MAGIC {
+    if data.len() >= 0x80 && data[0..8] == ELFFILE_MAGIC {
         let expected = crc32fast::hash(&data[0..0x78]);
         let stored = u32::from_le_bytes(data[0x7C..0x80].try_into().unwrap_or([0; 4]));
         if stored != expected {
@@ -386,7 +386,7 @@ pub fn repair_evtx(input: &Path, output: &Path) -> Result<RepairReport, CarveErr
     let mut offset = file_header_size;
 
     while offset + chunk_size <= data.len() {
-        if &data[offset..offset + 8] == ELFCHNK_MAGIC {
+        if data[offset..offset + 8] == ELFCHNK_MAGIC {
             chunks_checked += 1;
             let mut repaired = false;
 
@@ -955,8 +955,7 @@ mod tests {
         let indicators = result.expect("verify_integrity should return Ok for valid EVTX");
         assert!(
             indicators.is_empty(),
-            "expected empty indicators for valid EVTX, got: {:?}",
-            indicators
+            "expected empty indicators for valid EVTX, got: {indicators:?}"
         );
     }
 
@@ -977,8 +976,7 @@ mod tests {
             .any(|ind| matches!(ind, IntegrityAnomaly::ChunkChecksumMismatch { .. }));
         assert!(
             has_mismatch,
-            "expected ChunkChecksumMismatch for tampered EVTX, got: {:?}",
-            indicators
+            "expected ChunkChecksumMismatch for tampered EVTX, got: {indicators:?}"
         );
     }
 
@@ -1004,8 +1002,7 @@ mod tests {
                     }
                 )
             }),
-            "expected SurgicalRecordDeletion in verify_integrity output, got: {:?}",
-            indicators
+            "expected SurgicalRecordDeletion in verify_integrity output, got: {indicators:?}"
         );
     }
 
@@ -1021,8 +1018,7 @@ mod tests {
                     IntegrityAnomaly::ExportTimestampCorruption { record_id: 7, .. }
                 )
             }),
-            "expected ExportTimestampCorruption(record_id=7) in verify_integrity output, got: {:?}",
-            indicators
+            "expected ExportTimestampCorruption(record_id=7) in verify_integrity output, got: {indicators:?}"
         );
     }
 
@@ -1043,7 +1039,7 @@ mod tests {
         // Either CarveError::Io or CarveError::EwfError is acceptable for a missing file
         let err = result.unwrap_err();
         let is_io_or_ewf = matches!(err, CarveError::Io(_) | CarveError::EwfError(_));
-        assert!(is_io_or_ewf, "expected Io or EwfError, got: {:?}", err);
+        assert!(is_io_or_ewf, "expected Io or EwfError, got: {err:?}");
     }
 
     // ---- Feature 14: Offset base parameter ----
@@ -1096,8 +1092,7 @@ mod tests {
         sorted.sort();
         assert_eq!(
             offsets, sorted,
-            "chunk offsets should be in order: {:?}",
-            offsets
+            "chunk offsets should be in order: {offsets:?}"
         );
     }
 
@@ -1246,13 +1241,11 @@ mod tests {
         // Record 1 (valid BinXml) should be present, record 2 (garbage) filtered out
         assert!(
             ids.contains(&1),
-            "record 1 with valid BinXml should be kept, got ids: {:?}",
-            ids
+            "record 1 with valid BinXml should be kept, got ids: {ids:?}"
         );
         assert!(
             !ids.contains(&2),
-            "record 2 with garbage payload should be filtered, got ids: {:?}",
-            ids
+            "record 2 with garbage payload should be filtered, got ids: {ids:?}"
         );
     }
 
@@ -1367,8 +1360,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             matches!(err, CarveError::Io(_)),
-            "expected CarveError::Io, got: {:?}",
-            err
+            "expected CarveError::Io, got: {err:?}"
         );
     }
 
@@ -1380,8 +1372,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             matches!(err, CarveError::Io(_)),
-            "expected CarveError::Io, got: {:?}",
-            err
+            "expected CarveError::Io, got: {err:?}"
         );
     }
 
@@ -1475,11 +1466,11 @@ mod tests {
         let result = carve_from_bytes(&data);
         let chunk = &result.chunks[0];
         let ids: Vec<u64> = chunk.records.iter().map(|r| r.header.record_id).collect();
-        assert!(ids.contains(&1), "expected record_id=1, got {:?}", ids);
-        assert!(ids.contains(&2), "expected record_id=2, got {:?}", ids);
+        assert!(ids.contains(&1), "expected record_id=1, got {ids:?}");
+        assert!(ids.contains(&2), "expected record_id=2, got {ids:?}");
         let ts: Vec<u64> = chunk.records.iter().map(|r| r.header.timestamp).collect();
-        assert!(ts.contains(&100), "expected timestamp=100, got {:?}", ts);
-        assert!(ts.contains(&200), "expected timestamp=200, got {:?}", ts);
+        assert!(ts.contains(&100), "expected timestamp=100, got {ts:?}");
+        assert!(ts.contains(&200), "expected timestamp=200, got {ts:?}");
     }
 
     #[test]

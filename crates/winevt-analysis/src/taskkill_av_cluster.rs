@@ -38,7 +38,7 @@ pub fn detect_taskkill_av_cluster(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
             .take_while(|(ts, _, _)| *ts <= window_end)
             .collect();
         if window.len() >= RANSOMWARE_KILL_CLUSTER_THRESHOLD {
-            let processes: Vec<String> = window.iter().map(|(_, p, _)| p.to_string()).collect();
+            let processes: Vec<String> = window.iter().map(|(_, p, _)| (*p).to_string()).collect();
             let last_ev = window.last().unwrap().2;
             detections.push(EvtxDetection {
                 kind: EvtxDetectionKind::TaskkillAvCluster,
@@ -69,21 +69,18 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 fn cmdline(ev: &EvtxEvent) -> &str {
-    ev.data.get("CommandLine").map(String::as_str).unwrap_or("")
+    ev.data.get("CommandLine").map_or("", String::as_str)
 }
 
 fn image(ev: &EvtxEvent) -> &str {
     ev.data
         .get("Image")
         .or_else(|| ev.data.get("NewProcessName"))
-        .map(String::as_str)
-        .unwrap_or("")
+        .map_or("", String::as_str)
 }
 
 fn killed_canonical_process<'a>(ev: &EvtxEvent) -> Option<&'a str> {
@@ -169,7 +166,7 @@ mod tests {
 
     #[test]
     fn non_canonical_process_not_counted() {
-        let mut events: Vec<_> = (0..5)
+        let events: Vec<_> = (0..5)
             .map(|i| kill_event("notepadxx.exe", BASE_TS + i * SEC))
             .collect();
         // notepadxx.exe is not in the canonical list

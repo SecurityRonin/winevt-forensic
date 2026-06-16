@@ -1,4 +1,4 @@
-//! End-to-end integration tests against the real fox-it DanderSpritz before/after EVTX pair.
+//! End-to-end integration tests against the real fox-it `DanderSpritz` before/after EVTX pair.
 //!
 //! These tests require the fox-it sample files to be present at:
 //!   tests/data/fox-it-danderspritz/pre-Security.evtx
@@ -53,7 +53,7 @@ macro_rules! require_foxitdata {
 
 // ── carve_from_file tests ──────────────────────────────────────────────────
 
-/// pre-Security.evtx (unmodified) must not produce any SurgicalRecordDeletion.
+/// pre-Security.evtx (unmodified) must not produce any `SurgicalRecordDeletion`.
 #[test]
 fn pre_security_evtx_no_surgical_deletion() {
     let path = require_foxitdata!("pre-Security.evtx");
@@ -69,8 +69,8 @@ fn pre_security_evtx_no_surgical_deletion() {
     );
 }
 
-/// post-Security.evtx (after DanderSpritz eventlogedit) must produce exactly
-/// one SurgicalRecordDeletion for absorbing_record_id = 104.
+/// post-Security.evtx (after `DanderSpritz` eventlogedit) must produce exactly
+/// one `SurgicalRecordDeletion` for `absorbing_record_id` = 104.
 ///
 /// The ghost record's magic is at chunk offset 0x1230 (4656), inside the body
 /// of record 104 whose size was inflated from the original to absorb the deleted record.
@@ -124,7 +124,7 @@ fn post_security_evtx_carves_more_records_than_pre() {
 
 // ── verify_integrity tests ─────────────────────────────────────────────────
 
-/// verify_integrity on pre-Security.evtx must not return SurgicalRecordDeletion.
+/// `verify_integrity` on pre-Security.evtx must not return `SurgicalRecordDeletion`.
 #[test]
 fn verify_integrity_pre_security_no_surgical_deletion() {
     let path = require_foxitdata!("pre-Security.evtx");
@@ -134,12 +134,11 @@ fn verify_integrity_pre_security_no_surgical_deletion() {
         .any(|ind| matches!(ind, IntegrityAnomaly::SurgicalRecordDeletion { .. }));
     assert!(
         !has_surgical,
-        "pre-Security.evtx should have no SurgicalRecordDeletion via verify_integrity, got: {:?}",
-        indicators
+        "pre-Security.evtx should have no SurgicalRecordDeletion via verify_integrity, got: {indicators:?}"
     );
 }
 
-/// verify_integrity on post-Security.evtx must detect the surgical deletion.
+/// `verify_integrity` on post-Security.evtx must detect the surgical deletion.
 #[test]
 fn verify_integrity_post_security_detects_surgical_deletion() {
     let path = require_foxitdata!("post-Security.evtx");
@@ -154,7 +153,6 @@ fn verify_integrity_post_security_detects_surgical_deletion() {
                 }
             )
         }),
-        "expected SurgicalRecordDeletion(absorbing_record_id=104) from verify_integrity, got: {:?}",
-        indicators
+        "expected SurgicalRecordDeletion(absorbing_record_id=104) from verify_integrity, got: {indicators:?}"
     );
 }

@@ -7,16 +7,16 @@
 //! Tests skip gracefully when corpus is absent (CI without large data).
 //!
 //! TDD targets (RED → GREEN):
-//!   RED  — cmdline_detects_lolbin_in_sysmon_file
-//!          process_cmdlines only reads EID 4688; Sysmon EID 1 LOLBin files
-//!          return [] → expects non-empty → FAILS until process_cmdlines is
-//!          extended to also parse Sysmon EID 1 (same as build_process_tree)
-//!   RED  — cmdline_sysmon_corpus_nonempty
+//!   RED  — `cmdline_detects_lolbin_in_sysmon_file`
+//!          `process_cmdlines` only reads EID 4688; Sysmon EID 1 `LOLBin` files
+//!          return [] → expects non-empty → FAILS until `process_cmdlines` is
+//!          extended to also parse Sysmon EID 1 (same as `build_process_tree`)
+//!   RED  — `cmdline_sysmon_corpus_nonempty`
 //!          Another Sysmon-only EID 1 file returns [] → FAILS
-//!   GREEN — scheduled_task_known_positive_nonempty  (already correct)
-//!   GREEN — powershell_obfuscation_known_positive   (already correct)
-//!   GREEN — corpus_robustness_attack_samples        (stability/no-panic)
-//!   GREEN — extract_ioc_c2_corpus                  (C2 files have IPs)
+//!   GREEN — `scheduled_task_known_positive_nonempty`  (already correct)
+//!   GREEN — `powershell_obfuscation_known_positive`   (already correct)
+//!   GREEN — `corpus_robustness_attack_samples`        (stability/no-panic)
+//!   GREEN — `extract_ioc_c2_corpus`                  (C2 files have IPs)
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -60,9 +60,9 @@ macro_rules! require_corpus {
 // ── RED tests: Sysmon EID 1 cmdline extraction ────────────────────────────────
 
 /// `wt extract --cmdline` against a Sysmon EID 1 file whose name explicitly
-/// names pcalua.exe (a known LOLBin) must return at least one entry.
+/// names pcalua.exe (a known `LOLBin`) must return at least one entry.
 ///
-/// Currently FAILS because process_cmdlines() only reads EID 4688
+/// Currently FAILS because `process_cmdlines()` only reads EID 4688
 /// (Security log) and ignores Sysmon EID 1 events.
 #[test]
 fn cmdline_detects_lolbin_in_sysmon_file() {
@@ -96,7 +96,7 @@ fn cmdline_detects_lolbin_in_sysmon_file() {
 }
 
 /// `wt extract --cmdline` against a multi-LOLBin Sysmon file (rundll32 via
-/// shdocvw OpenURL) must return non-empty results.
+/// shdocvw `OpenURL`) must return non-empty results.
 #[test]
 fn cmdline_sysmon_corpus_nonempty() {
     let evtx = require_corpus!(attack_samples(
@@ -384,7 +384,7 @@ fn frequency_execution_corpus_sorted() {
 
 // ── wt extract --cmdline across all LOLBin execution samples ─────────────────
 
-/// All Sysmon LOLBin files in Execution/ must yield non-empty cmdline results.
+/// All Sysmon `LOLBin` files in Execution/ must yield non-empty cmdline results.
 /// This is the broader batch form of the targeted RED tests above.
 #[test]
 fn cmdline_batch_lolbin_sysmon_files_all_nonempty() {
@@ -400,13 +400,10 @@ fn cmdline_batch_lolbin_sysmon_files_all_nonempty() {
     let lolbin_files: Vec<PathBuf> = walkdir_evtx(&exec_dir)
         .into_iter()
         .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .map(|n| {
-                    (n.contains("lolbin") || n.contains("lolbas"))
-                        && (n.contains("sysmon") || n.contains("exec_sysmon"))
-                })
-                .unwrap_or(false)
+            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                (n.contains("lolbin") || n.contains("lolbas"))
+                    && (n.contains("sysmon") || n.contains("exec_sysmon"))
+            })
         })
         .collect();
 
@@ -427,7 +424,7 @@ fn cmdline_batch_lolbin_sysmon_files_all_nonempty() {
         }
         let json: serde_json::Value =
             serde_json::from_slice(&output.stdout).unwrap_or(serde_json::Value::Array(vec![]));
-        if json.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+        if json.as_array().map_or(true, std::vec::Vec::is_empty) {
             empties.push(path.display().to_string());
         }
     }
@@ -462,10 +459,10 @@ macro_rules! require_dfir_museum {
 
 /// EID 5861 (permanent WMI subscription binding) stores its fields in
 /// `UserData → Operation_ESStoConsumerBinding`, NOT in `EventData`.
-/// The `wmi_events()` function only checks EventData → returns null fields.
+/// The `wmi_events()` function only checks `EventData` → returns null fields.
 ///
 /// This test expects `consumer_name` to be populated on EID 5861 events.
-/// Currently FAILS because `wmi_events()` never checks UserData.
+/// Currently FAILS because `wmi_events()` never checks `UserData`.
 #[test]
 fn dfir_museum_wmi_subscription_events_have_consumer_name() {
     let wmi = require_dfir_museum!(
@@ -508,8 +505,8 @@ fn dfir_museum_wmi_subscription_events_have_consumer_name() {
 }
 
 /// EID 5861 permanent subscription binding must surface the filter name
-/// from the `ESS` field inside UserData → Operation_ESStoConsumerBinding.
-/// Currently FAILS (same root cause as consumer_name test above).
+/// from the `ESS` field inside `UserData` → `Operation_ESStoConsumerBinding`.
+/// Currently FAILS (same root cause as `consumer_name` test above).
 #[test]
 fn dfir_museum_wmi_subscription_events_have_filter_name() {
     let wmi = require_dfir_museum!(
@@ -573,7 +570,7 @@ fn dfir_museum_aptvm_robustness_no_panic() {
     );
 }
 
-/// APTSimulatorVM Sysmon EID 1 log must yield LOLBin cmdline entries.
+/// `APTSimulatorVM` Sysmon EID 1 log must yield `LOLBin` cmdline entries.
 #[test]
 fn dfir_museum_aptvm_sysmon_cmdline_lolbins_nonempty() {
     let sysmon =
@@ -609,7 +606,7 @@ fn dfir_museum_aptvm_sysmon_cmdline_lolbins_nonempty() {
     );
 }
 
-/// BelkasoftCTF InsiderThreat PowerShell log has EID 4104 script blocks.
+/// `BelkasoftCTF` `InsiderThreat` `PowerShell` log has EID 4104 script blocks.
 #[test]
 fn dfir_museum_belkasoft_powershell_blocks_nonempty() {
     let ps = require_dfir_museum!(
@@ -702,8 +699,8 @@ macro_rules! require_mitre {
 
 // ── RED: Sysmon EID 19/20/21 WMI filter/consumer events ──────────────────────
 
-/// `wt extract --wmi` on a Sysmon log containing EID 19 (WmiEventFilter) and
-/// EID 20 (WmiEventConsumer) must return at least one event.
+/// `wt extract --wmi` on a Sysmon log containing EID 19 (`WmiEventFilter`) and
+/// EID 20 (`WmiEventConsumer`) must return at least one event.
 ///
 /// Currently FAILS: `wmi_events()` only handles WMI-Activity EIDs 5857-5861
 /// and ignores the Sysmon WMI persistence EIDs 19/20/21.
@@ -770,7 +767,7 @@ fn mitre_robustness_all_files_no_panic() {
     );
 }
 
-/// T1059.001 PowerShell execution samples contain EID 4104 script blocks.
+/// T1059.001 `PowerShell` execution samples contain EID 4104 script blocks.
 #[test]
 fn mitre_execution_ps_blocks_nonempty() {
     let evtx = require_mitre!(
@@ -1019,7 +1016,7 @@ fn cybedefenders_security_login_sessions_nonempty() {
     );
 }
 
-/// PowerShell operational log must yield at least one script block.
+/// `PowerShell` operational log must yield at least one script block.
 #[test]
 fn cybedefenders_powershell_blocks_nonempty() {
     let evtx = require_cybedefenders!("Microsoft-Windows-PowerShell%4Operational.evtx");
@@ -1031,7 +1028,7 @@ fn cybedefenders_powershell_blocks_nonempty() {
     let arr: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be valid JSON");
     assert!(
-        arr.as_array().map(|a| !a.is_empty()).unwrap_or(false),
+        arr.as_array().is_some_and(|a| !a.is_empty()),
         "PowerShell operational log must contain script blocks"
     );
 }
@@ -1049,7 +1046,7 @@ fn cybedefenders_wmi_activity_events_nonempty() {
     let arr: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be valid JSON");
     assert!(
-        arr.as_array().map(|a| !a.is_empty()).unwrap_or(false),
+        arr.as_array().is_some_and(|a| !a.is_empty()),
         "WMI-Activity log must yield events via wt extract --wmi"
     );
 }
@@ -1066,7 +1063,7 @@ fn cybedefenders_security_cmdlines_nonempty() {
     let arr: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be valid JSON");
     assert!(
-        arr.as_array().map(|a| !a.is_empty()).unwrap_or(false),
+        arr.as_array().is_some_and(|a| !a.is_empty()),
         "Security.evtx must yield EID 4688 process command lines"
     );
 }

@@ -28,9 +28,9 @@ pub fn detect_webclient_service_start(events: &[EvtxEvent]) -> Vec<EvtxDetection
                 kind: EvtxDetectionKind::WebClientServiceStart,
                 mitre_technique_id: "T1102",
                 tactic: "Command and Control",
-                description: format!(
+                description:
                     "WebClient (Mini-Redirector) service started — enables WebDAV UNC path delivery"
-                ),
+                        .to_string(),
                 evidence: vec![format!("service={svc}"), format!("state={state}")],
                 timestamp_ns: ev.timestamp_ns,
                 event_id: ev.event_id,

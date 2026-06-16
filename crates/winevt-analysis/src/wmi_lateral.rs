@@ -24,7 +24,7 @@ pub fn detect_wmi_lateral_movement(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
         .filter_map(|ev| {
             // Signal 1: WMI permanent event consumer (EID 5861)
             if ev.event_id == EID_WMI_FILTER_TRIGGERED && ev.channel == WMI_ACTIVITY_CHANNEL {
-                let user = ev.data.get("User").map(String::as_str).unwrap_or("unknown");
+                let user = ev.data.get("User").map_or("unknown", String::as_str);
                 return Some(EvtxDetection {
                     kind: EvtxDetectionKind::WmiLateralMovement,
                     mitre_technique_id: "T1047",
@@ -40,7 +40,7 @@ pub fn detect_wmi_lateral_movement(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
             }
             // Signal 2: Impacket wmiexec output-redirect in process CommandLine
             if is_process_event(ev) {
-                let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+                let cl = ev.data.get("CommandLine").map_or("", String::as_str);
                 if let Some(&indicator) = WMI_IMPACKET_INDICATORS
                     .iter()
                     .find(|&&ind| cl.contains(ind))

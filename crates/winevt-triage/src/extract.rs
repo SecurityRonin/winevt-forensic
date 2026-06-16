@@ -101,7 +101,7 @@ where
     Err(TriageError::DirNotFound(name.to_string()))
 }
 
-/// Iterate the Logs directory; collect (record_number, name) for *.evtx,
+/// Iterate the Logs directory; collect (`record_number`, name) for *.evtx,
 /// then open each by record number and stream to `out_dir`.
 fn extract_evtx_files<T>(
     ntfs: &ntfs::Ntfs,

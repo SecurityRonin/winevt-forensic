@@ -18,20 +18,19 @@ pub fn detect_smb_admin_share(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
         .iter()
         .filter(|ev| ev.event_id == EID_SMB_SHARE_ACCESS && ev.channel == "Security")
         .filter_map(|ev| {
-            let share_field = ev.data.get("ShareName").map(String::as_str).unwrap_or("");
+            let share_field = ev.data.get("ShareName").map_or("", String::as_str);
             let share = share_name_component(share_field);
             let matched = ADMIN_SHARE_NAMES
                 .iter()
                 .find(|&&name| name.eq_ignore_ascii_case(share))?;
-            let ip = ev.data.get("IpAddress").map(String::as_str).unwrap_or("-");
+            let ip = ev.data.get("IpAddress").map_or("-", String::as_str);
             if is_local_ip(ip) {
                 return None;
             }
             let user = ev
                 .data
                 .get("SubjectUserName")
-                .map(String::as_str)
-                .unwrap_or("unknown");
+                .map_or("unknown", String::as_str);
             Some(EvtxDetection {
                 kind: EvtxDetectionKind::SmbAdminShareAccess,
                 mitre_technique_id: "T1021.002",

@@ -25,11 +25,7 @@ pub fn detect_scheduled_task_creation(events: &[EvtxEvent]) -> Vec<EvtxDetection
                     && ev.channel.contains("TaskScheduler"))
         })
         .map(|ev| {
-            let task_name = ev
-                .data
-                .get("TaskName")
-                .map(String::as_str)
-                .unwrap_or("<unknown>");
+            let task_name = ev.data.get("TaskName").map_or("<unknown>", String::as_str);
             EvtxDetection {
                 kind: EvtxDetectionKind::ScheduledTaskCreation,
                 mitre_technique_id: "T1053.005",

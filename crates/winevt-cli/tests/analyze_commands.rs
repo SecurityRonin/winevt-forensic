@@ -813,7 +813,7 @@ fn timeline_accepts_two_file_arguments() {
         .filter_map(|e| e.get("timestamp").and_then(|t| t.as_str()))
         .collect();
     let mut sorted = timestamps.clone();
-    sorted.sort();
+    sorted.sort_unstable();
     assert_eq!(timestamps, sorted, "timeline must be sorted across files");
 }
 

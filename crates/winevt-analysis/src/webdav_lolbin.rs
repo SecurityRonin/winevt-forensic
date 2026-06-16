@@ -64,9 +64,7 @@ pub fn detect_webdav_lolbin(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 #[cfg(test)]

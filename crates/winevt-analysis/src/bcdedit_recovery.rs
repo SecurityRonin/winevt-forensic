@@ -27,12 +27,11 @@ pub fn detect_bcdedit_recovery(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                 .data
                 .get("Image")
                 .or_else(|| ev.data.get("NewProcessName"))
-                .map(String::as_str)
-                .unwrap_or("");
+                .map_or("", String::as_str);
             if basename(image).to_lowercase() != "bcdedit.exe" {
                 return None;
             }
-            let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+            let cl = ev.data.get("CommandLine").map_or("", String::as_str);
             let cl_lower = cl.to_lowercase();
             let matched = BCDEDIT_RECOVERY_DISABLE_PATTERNS
                 .iter()
@@ -63,9 +62,7 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 #[cfg(test)]

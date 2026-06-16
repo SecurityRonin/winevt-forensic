@@ -247,7 +247,7 @@ fn wt_verify_accepts_carve_flag() {
         .expect("run wt verify --carve");
     let _ = std::fs::remove_file(&path);
     assert!(
-        output.status.code().map_or(false, |c| c == 0 || c == 1),
+        output.status.code().is_some_and(|c| c == 0 || c == 1),
         "--carve must be accepted on verify; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -491,7 +491,7 @@ fn wt_search_regex_flag_accepted() {
         .expect("run wt search --regex");
     let _ = std::fs::remove_file(&path);
     assert!(
-        status.code().map_or(false, |c| c == 0 || c == 1),
+        status.code().is_some_and(|c| c == 0 || c == 1),
         "search --regex must exit 0 or 1"
     );
 }

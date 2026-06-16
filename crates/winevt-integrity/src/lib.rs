@@ -616,8 +616,7 @@ mod tests {
         let indicators = verify_chunk_header_checksum(&buf, 0);
         assert!(
             indicators.is_empty(),
-            "expected no indicators, got {:?}",
-            indicators
+            "expected no indicators, got {indicators:?}"
         );
     }
 
@@ -697,8 +696,7 @@ mod tests {
         let indicators = verify_file_header_checksum(&buf);
         assert!(
             indicators.is_empty(),
-            "expected no indicators for valid file header, got: {:?}",
-            indicators
+            "expected no indicators for valid file header, got: {indicators:?}"
         );
     }
 
@@ -715,8 +713,7 @@ mod tests {
                 IntegrityAnomaly::FileHeaderChecksumMismatch { stored, .. }
                     if *stored == 0xDEADBEEF
             ),
-            "expected FileHeaderChecksumMismatch, got: {:?}",
-            indicators
+            "expected FileHeaderChecksumMismatch, got: {indicators:?}"
         );
     }
 
@@ -741,8 +738,7 @@ mod tests {
         assert_eq!(indicators.len(), 1);
         assert!(
             matches!(&indicators[0], IntegrityAnomaly::FileNotCleanlyShutdown),
-            "expected FileNotCleanlyShutdown, got: {:?}",
-            indicators
+            "expected FileNotCleanlyShutdown, got: {indicators:?}"
         );
     }
 
@@ -752,8 +748,7 @@ mod tests {
         assert_eq!(indicators.len(), 1);
         assert!(
             matches!(&indicators[0], IntegrityAnomaly::FileFull),
-            "expected FileFull, got: {:?}",
-            indicators
+            "expected FileFull, got: {indicators:?}"
         );
     }
 
@@ -790,8 +785,7 @@ mod tests {
                     actual_count: 5
                 }
             ),
-            "expected ChunkCountMismatch, got: {:?}",
-            indicators
+            "expected ChunkCountMismatch, got: {indicators:?}"
         );
     }
 
@@ -834,8 +828,7 @@ mod tests {
         let indicators = verify_records_area_checksum(&chunk, 0);
         assert!(
             indicators.is_empty(),
-            "expected empty for valid records area, got: {:?}",
-            indicators
+            "expected empty for valid records area, got: {indicators:?}"
         );
     }
 
@@ -859,8 +852,7 @@ mod tests {
                     ..
                 }
             ),
-            "expected RecordChecksumMismatch, got: {:?}",
-            indicators
+            "expected RecordChecksumMismatch, got: {indicators:?}"
         );
     }
 
@@ -899,8 +891,7 @@ mod tests {
                     chunk_offset: 0x10000,
                 }
             ),
-            "got: {:?}",
-            indicators
+            "got: {indicators:?}"
         );
     }
 
@@ -1001,7 +992,7 @@ mod tests {
         chunk[trail..trail + 4].copy_from_slice(&inflated.to_le_bytes());
 
         let indicators = detect_danderspritz_deletion(&chunk, 0);
-        assert_eq!(indicators.len(), 1, "got: {:?}", indicators);
+        assert_eq!(indicators.len(), 1, "got: {indicators:?}");
         assert!(matches!(
             &indicators[0],
             IntegrityAnomaly::SurgicalRecordDeletion {
@@ -1071,14 +1062,13 @@ mod tests {
         let g2 = [0xBBu8; 16];
         let guids = vec![g1, g1, g2];
         let v = check_log_file_guid_consistency(&guids);
-        assert_eq!(v.len(), 1, "one mismatch expected; got {:?}", v);
+        assert_eq!(v.len(), 1, "one mismatch expected; got {v:?}");
         assert!(
             matches!(
                 &v[0],
                 IntegrityAnomaly::LogFileGuidMismatch { chunk_index: 2, .. }
             ),
-            "mismatch should be at chunk_index 2; got {:?}",
-            v
+            "mismatch should be at chunk_index 2; got {v:?}"
         );
     }
 
@@ -1089,12 +1079,7 @@ mod tests {
         let g3 = [0x03u8; 16];
         let guids = vec![g1, g2, g3];
         let v = check_log_file_guid_consistency(&guids);
-        assert_eq!(
-            v.len(),
-            2,
-            "chunks 1 and 2 differ from chunk 0; got {:?}",
-            v
-        );
+        assert_eq!(v.len(), 2, "chunks 1 and 2 differ from chunk 0; got {v:?}");
     }
 
     // ── §3: detect_phantom_records ────────────────────────────────────────────
@@ -1121,7 +1106,7 @@ mod tests {
         // record_ids 1, 2, 10 — gap of 8 between 2 and 10, timestamps contiguous
         let records: &[(u64, i64)] = &[(1, 1_000_000), (2, 2_000_000), (10, 3_000_000)];
         let alerts = detect_phantom_records(records);
-        assert_eq!(alerts.len(), 1, "one gap expected; got {:?}", alerts);
+        assert_eq!(alerts.len(), 1, "one gap expected; got {alerts:?}");
         assert!(
             alerts[0].suspicious,
             "timestamp doesn't explain the gap → suspicious"

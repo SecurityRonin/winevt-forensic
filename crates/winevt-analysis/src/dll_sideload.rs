@@ -48,9 +48,7 @@ pub fn detect_dll_sideload(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 fn is_safe_system_path(path: &str) -> bool {

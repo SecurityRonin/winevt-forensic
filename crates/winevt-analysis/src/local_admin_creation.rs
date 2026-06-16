@@ -29,13 +29,11 @@ pub fn detect_local_admin_creation(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                 let user = ev
                     .data
                     .get("TargetUserName")
-                    .map(String::as_str)
-                    .unwrap_or("unknown");
+                    .map_or("unknown", String::as_str);
                 let domain = ev
                     .data
                     .get("TargetDomainName")
-                    .map(String::as_str)
-                    .unwrap_or("unknown");
+                    .map_or("unknown", String::as_str);
                 return Some(EvtxDetection {
                     kind: EvtxDetectionKind::LocalAdminCreation,
                     mitre_technique_id: "T1136.001",
@@ -57,21 +55,18 @@ pub fn detect_local_admin_creation(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                 let group_sid = ev
                     .data
                     .get("GroupSid")
-                    .map(String::as_str)
-                    .unwrap_or("");
+                    .map_or("", String::as_str);
                 if group_sid != LOCAL_ADMINS_GROUP_SID {
                     return None;
                 }
                 let user = ev
                     .data
                     .get("TargetUserName")
-                    .map(String::as_str)
-                    .unwrap_or("unknown");
+                    .map_or("unknown", String::as_str);
                 let group = ev
                     .data
                     .get("GroupName")
-                    .map(String::as_str)
-                    .unwrap_or("Administrators");
+                    .map_or("Administrators", String::as_str);
                 return Some(EvtxDetection {
                     kind: EvtxDetectionKind::LocalAdminCreation,
                     mitre_technique_id: "T1136.001",

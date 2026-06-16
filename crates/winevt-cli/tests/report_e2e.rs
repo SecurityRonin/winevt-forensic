@@ -6,7 +6,7 @@
 //!   *.E01 / *.Ex01  →  NTFS filesystem extraction; `--carved` adds full-image carve
 //!   *.evtx          →  direct pass-through to Hayabusa
 //!   directory       →  all *.evtx in the tree
-//!   any other blob  →  raw carve for ElfChnk magic
+//!   any other blob  →  raw carve for `ElfChnk` magic
 //!
 //! Tests that require the MaxPowersCDrive.E01 image or the fox-it corpus skip
 //! gracefully when the files are absent.
@@ -202,7 +202,7 @@ fn report_raw_blob_carves_evtx() {
 
 // ── E01 filesystem extraction ─────────────────────────────────────────────────
 
-/// `wt report <image.E01>` must exit 0, output JSON with evtx_files including
+/// `wt report <image.E01>` must exit 0, output JSON with `evtx_files` including
 /// Security.evtx and System.evtx.
 #[test]
 fn report_e01_filesystem_finds_security_and_system() {

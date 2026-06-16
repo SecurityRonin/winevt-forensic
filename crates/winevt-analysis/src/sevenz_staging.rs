@@ -20,16 +20,16 @@ pub fn detect_sevenz_staging(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
         .iter()
         .filter(|ev| is_process_event(ev))
         .filter_map(|ev| {
-            let image = ev.data.get("Image").map(String::as_str).unwrap_or("");
+            let image = ev.data.get("Image").map_or("", String::as_str);
             let base = basename(image).to_lowercase();
             if !ARCHIVER_PROCESS_NAMES.iter().any(|a| a.to_lowercase() == base) {
                 return None;
             }
-            let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+            let cl = ev.data.get("CommandLine").map_or("", String::as_str);
             if !cl.contains(ARCHIVER_HEADER_ENCRYPT_FLAG) {
                 return None;
             }
-            let parent = ev.data.get("ParentImage").map(String::as_str).unwrap_or("");
+            let parent = ev.data.get("ParentImage").map_or("", String::as_str);
             let parent_base = basename(parent).to_lowercase();
             if !STAGING_PARENT_IMAGES.iter().any(|p| p.to_lowercase() == parent_base) {
                 return None;
@@ -55,9 +55,7 @@ pub fn detect_sevenz_staging(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 fn is_process_event(ev: &winevt_core::EvtxEvent) -> bool {

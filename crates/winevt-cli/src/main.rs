@@ -78,7 +78,7 @@ mod report;
 ///
 ///   file.evtx    → parse directly
 ///   image.E01    → NTFS extraction, then parse each *.evtx found
-///   rawblob.dd   → carve for ElfChnk magic, parse recovered records
+///   rawblob.dd   → carve for `ElfChnk` magic, parse recovered records
 ///   directory/   → walk recursively and parse all *.evtx files found
 ///
 /// Add `--carve` to additionally scan unallocated space / free-space chunks.
@@ -137,8 +137,8 @@ enum Cmd {
     },
     /// Analyse logon activity from EID 4624 / 4634 / 4647 / 4648 events.
     ///
-    /// Default: JSON array of reconstructed sessions (logon_id, username, domain,
-    /// logon_type, ip_address, logon_time, logoff_time, duration_secs).
+    /// Default: JSON array of reconstructed sessions (`logon_id`, username, domain,
+    /// `logon_type`, `ip_address`, `logon_time`, `logoff_time`, `duration_secs`).
     ///
     /// `--graph`: JSON object `{nodes, edges}` — source→target logon graph.
     /// `--mermaid`: Mermaid `graph LR` diagram (implies --graph output).
@@ -149,7 +149,7 @@ enum Cmd {
         /// Emit one JSON object per line (NDJSON, sessions mode only).
         #[arg(long)]
         stream: bool,
-        /// Filter sessions by logon type (e.g. 3 = Network, 10 = RemoteInteractive).
+        /// Filter sessions by logon type (e.g. 3 = Network, 10 = `RemoteInteractive`).
         #[arg(long, value_name = "TYPE")]
         logon_type: Option<u32>,
         /// Output the logon source→target graph instead of the session list.
@@ -164,14 +164,14 @@ enum Cmd {
     /// Default (no flags): JSON object with `total_events` and `by_event_id` array,
     /// sorted ascending (LFO — least-frequent-first) for threat hunting.
     /// `--by process`  : JSON array of rare process images (those seen < `--threshold` times).
-    /// `--anomaly`     : JSON array of event IDs with |z_score| >= `--min-z` (default 2.0).
+    /// `--anomaly`     : JSON array of event IDs with |`z_score`| >= `--min-z` (default 2.0).
     ///
     /// To reorder or cap output, pipe: `wt frequency … | jq '.by_event_id | sort_by(.count) | reverse'`
     Frequency {
         /// Path(s) to EVTX files or directories (recursive).
         #[arg(num_args = 1..)]
         paths: Vec<PathBuf>,
-        /// Emit one JSON object per line (NDJSON) — one EventFrequency per line.
+        /// Emit one JSON object per line (NDJSON) — one `EventFrequency` per line.
         #[arg(long)]
         stream: bool,
         /// Surface process images from EID 4688 sorted LFO (rare first).
@@ -233,7 +233,7 @@ enum Cmd {
         #[arg(long)]
         mermaid: bool,
     },
-    /// Extract unique field values, IOCs, PowerShell blocks, WMI events,
+    /// Extract unique field values, IOCs, `PowerShell` blocks, WMI events,
     /// scheduled tasks, process command lines, lateral movement indicators,
     /// RDP sessions, SMB share access, or Defender detections from events.
     ///
@@ -243,7 +243,7 @@ enum Cmd {
     ///   `wt extract --powershell <PATH…>`        — reassemble EID 4104 script blocks
     ///   `wt extract --wmi <PATH…>`               — WMI provider/subscription events (EID 5857-5861)
     ///   `wt extract --scheduled-task <PATH…>`    — scheduled task XML (EID 4698/4702)
-    ///   `wt extract --cmdline <PATH…>`           — process command lines with LOLBin tagging (EID 4688)
+    ///   `wt extract --cmdline <PATH…>`           — process command lines with `LOLBin` tagging (EID 4688)
     ///   `wt extract --lateral <PATH…>`           — lateral movement indicators (EID 4648/4769/4776)
     ///   `wt extract --rdp <PATH…>`               — RDP session events (EID 4778/4779)
     ///   `wt extract --smb <PATH…>`               — SMB share access events (EID 5140/5145)
@@ -259,7 +259,7 @@ enum Cmd {
         /// Extract indicators of compromise instead of a named field.
         #[arg(long, conflicts_with_all = &["powershell", "wmi", "scheduled_task", "cmdline", "lateral", "rdp", "smb", "defender"])]
         ioc: bool,
-        /// Reassemble PowerShell EID 4104 script blocks instead of a named field.
+        /// Reassemble `PowerShell` EID 4104 script blocks instead of a named field.
         #[arg(long, conflicts_with_all = &["ioc", "wmi", "scheduled_task", "cmdline", "lateral", "rdp", "smb", "defender"])]
         powershell: bool,
         /// With `--powershell`: suppress base64 `-EncodedCommand` decoding.
@@ -271,7 +271,7 @@ enum Cmd {
         /// Extract scheduled task XML from EID 4698 (created) and EID 4702 (updated).
         #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "cmdline", "lateral", "rdp", "smb", "defender"])]
         scheduled_task: bool,
-        /// Extract EID 4688 process command lines with LOLBin (wscript, mshta, …) tagging.
+        /// Extract EID 4688 process command lines with `LOLBin` (wscript, mshta, …) tagging.
         #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "scheduled_task", "lateral", "rdp", "smb", "defender"])]
         cmdline: bool,
         /// Extract lateral movement indicators (EID 4648/4769/4776).
@@ -366,13 +366,12 @@ fn resolve_evtx_sources(path: &std::path::Path, _carve: bool) -> Vec<PathBuf> {
     if path.is_dir() {
         let mut files: Vec<PathBuf> = walkdir::WalkDir::new(path)
             .into_iter()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| e.file_type().is_file())
-            .map(|e| e.into_path())
+            .map(walkdir::DirEntry::into_path)
             .filter(|p| {
                 p.extension()
-                    .map(|x| x.eq_ignore_ascii_case("evtx"))
-                    .unwrap_or(false)
+                    .is_some_and(|x| x.eq_ignore_ascii_case("evtx"))
             })
             .collect();
         files.sort();
@@ -472,7 +471,7 @@ fn is_ewf_path(path: &std::path::Path) -> bool {
 #[allow(clippy::too_many_lines)]
 fn main() {
     let cli = Cli::parse();
-    let _carve = cli.carve;
+    let carve = cli.carve;
     let code = match cli.command {
         Cmd::Verify {
             paths,
@@ -485,7 +484,7 @@ fn main() {
                     std::process::exit(EXIT_NOT_FOUND);
                 }
             }
-            let sources = resolve_sources_multi(&paths, _carve);
+            let sources = resolve_sources_multi(&paths, carve);
             if sources.is_empty() {
                 println!("[]");
                 std::process::exit(EXIT_CLEAN);
@@ -539,7 +538,7 @@ fn main() {
                     std::process::exit(EXIT_NOT_FOUND);
                 }
             }
-            let sources = resolve_sources_multi(&paths, _carve);
+            let sources = resolve_sources_multi(&paths, carve);
             if sources.is_empty() {
                 println!("[]");
                 std::process::exit(EXIT_CLEAN);
@@ -589,8 +588,9 @@ fn main() {
                     std::process::exit(EXIT_NOT_FOUND);
                 }
             }
-            let sources = resolve_sources_multi(&paths, _carve);
-            let source_refs: Vec<&std::path::Path> = sources.iter().map(|p| p.as_path()).collect();
+            let sources = resolve_sources_multi(&paths, carve);
+            let source_refs: Vec<&std::path::Path> =
+                sources.iter().map(std::path::PathBuf::as_path).collect();
             if mermaid || graph {
                 match winevt_extract::logon_graph_multi(&source_refs) {
                     Ok(g) => {
@@ -661,7 +661,7 @@ fn main() {
                     std::process::exit(EXIT_NOT_FOUND);
                 }
             }
-            let sources = resolve_sources_multi(&paths, _carve);
+            let sources = resolve_sources_multi(&paths, carve);
             if sources.is_empty() {
                 std::process::exit(EXIT_CLEAN);
             }
@@ -784,7 +784,7 @@ fn main() {
                     std::process::exit(EXIT_NOT_FOUND);
                 }
             }
-            let sources = resolve_sources_multi(&paths, _carve);
+            let sources = resolve_sources_multi(&paths, carve);
             let mut all_entries: Vec<serde_json::Value> = Vec::new();
             for src in &sources {
                 if let Ok(entries) = winevt_extract::search(src, &query, regex) {
@@ -855,7 +855,7 @@ fn main() {
                     std::process::exit(EXIT_NOT_FOUND);
                 }
             }
-            let sources = resolve_sources_multi(&paths, _carve);
+            let sources = resolve_sources_multi(&paths, carve);
             let mut all_nodes: Vec<serde_json::Value> = Vec::new();
             for src in &sources {
                 if let Ok(nodes) = winevt_extract::process_tree(src) {
@@ -870,8 +870,14 @@ fn main() {
                 println!("graph LR");
                 for n in &all_nodes {
                     let image = n.get("image").and_then(|v| v.as_str()).unwrap_or("unknown");
-                    let parent_pid = n.get("parent_pid").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let pid = n.get("pid").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let parent_pid = n
+                        .get("parent_pid")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
+                    let pid = n
+                        .get("pid")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0);
                     let label = sanitize_mermaid(image);
                     let parent_label = format!("PID_{parent_pid}");
                     let node_label = format!("PID_{pid}");
@@ -944,7 +950,7 @@ fn main() {
                     std::process::exit(EXIT_NOT_FOUND);
                 }
             }
-            let sources = resolve_sources_multi(&paths, _carve);
+            let sources = resolve_sources_multi(&paths, carve);
             if sources.is_empty() {
                 println!("[]");
                 std::process::exit(EXIT_CLEAN);
@@ -1154,7 +1160,7 @@ fn main() {
                     std::process::exit(EXIT_NOT_FOUND);
                 }
             }
-            let sources = resolve_sources_multi(&paths, _carve);
+            let sources = resolve_sources_multi(&paths, carve);
             let mut all_events: Vec<serde_json::Value> = Vec::new();
             for src in &sources {
                 if let Ok(events) = winevt_extract::extract_all(src) {
@@ -1187,16 +1193,16 @@ fn main() {
                     std::process::exit(EXIT_NOT_FOUND);
                 }
             }
-            let sources = resolve_sources_multi(&paths, _carve);
+            let sources = resolve_sources_multi(&paths, carve);
             if sources.is_empty() {
                 std::process::exit(EXIT_CLEAN);
             }
             let mut results: Vec<serde_json::Value> = Vec::new();
             for path in &sources {
-                let file_name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| path.display().to_string());
+                let file_name = path.file_name().map_or_else(
+                    || path.display().to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                );
 
                 // Carve for stats (hash, chunk/record counts).
                 let (hash, chunks_json, records_json) = match winevt_carver::carve_from_file(path) {

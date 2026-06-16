@@ -245,12 +245,11 @@ fn report_directory_returns_all_evtx_files() {
     // Count .evtx files in directory manually
     let expected = std::fs::read_dir(&dir)
         .unwrap()
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .filter(|e| {
             e.path()
                 .extension()
-                .map(|x| x.eq_ignore_ascii_case("evtx"))
-                .unwrap_or(false)
+                .is_some_and(|x| x.eq_ignore_ascii_case("evtx"))
         })
         .count();
 

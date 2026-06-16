@@ -15,8 +15,7 @@ fn analyse_empty_buffer_returns_truncated_file() {
         .any(|a| matches!(a, IntegrityAnomaly::TruncatedFile { .. }));
     assert!(
         has_truncated,
-        "empty buffer must produce TruncatedFile; got {:?}",
-        anomalies
+        "empty buffer must produce TruncatedFile; got {anomalies:?}"
     );
 }
 
@@ -33,8 +32,7 @@ fn analyse_sub_128_buffer_returns_truncated_file() {
         .any(|a| matches!(a, IntegrityAnomaly::TruncatedFile { .. }));
     assert!(
         has_truncated,
-        "buffer < 128 bytes must produce TruncatedFile; got {:?}",
-        anomalies
+        "buffer < 128 bytes must produce TruncatedFile; got {anomalies:?}"
     );
 }
 
@@ -76,8 +74,7 @@ fn analyse_detects_empty_log_when_chunk_count_zero() {
         .any(|a| matches!(a, IntegrityAnomaly::EmptyLog));
     assert!(
         has_empty_log,
-        "zero chunk_count must produce EmptyLog; got {:?}",
-        anomalies
+        "zero chunk_count must produce EmptyLog; got {anomalies:?}"
     );
 }
 
@@ -119,8 +116,7 @@ fn suspicious_phantom_alerts_convert_to_phantom_record_injection() {
         anomalies
             .iter()
             .any(|a| matches!(a, IntegrityAnomaly::PhantomRecordInjection { .. })),
-        "suspicious alerts must produce PhantomRecordInjection; got {:?}",
-        anomalies
+        "suspicious alerts must produce PhantomRecordInjection; got {anomalies:?}"
     );
 }
 

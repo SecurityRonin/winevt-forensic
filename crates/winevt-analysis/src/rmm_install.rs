@@ -50,9 +50,7 @@ pub fn detect_rmm_install(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 fn is_safe_path(path: &str) -> bool {

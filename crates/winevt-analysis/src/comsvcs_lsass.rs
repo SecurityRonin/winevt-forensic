@@ -25,7 +25,7 @@ pub fn detect_comsvcs_lsass(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
         .filter_map(|ev| {
             // Signal 1: process create with comsvcs.dll + MiniDump in CommandLine
             if is_process_event(ev) {
-                let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+                let cl = ev.data.get("CommandLine").map_or("", String::as_str);
                 let cl_lower = cl.to_lowercase();
                 let has_comsvcs = COMSVCS_MINIDUMP_PATTERNS
                     .iter()
@@ -40,8 +40,7 @@ pub fn detect_comsvcs_lsass(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                         .data
                         .get("Image")
                         .or_else(|| ev.data.get("NewProcessName"))
-                        .map(String::as_str)
-                        .unwrap_or("");
+                        .map_or("", String::as_str);
                     return Some(EvtxDetection {
                         kind: EvtxDetectionKind::ComsvcslsassDump,
                         mitre_technique_id: "T1003.001",
@@ -64,19 +63,16 @@ pub fn detect_comsvcs_lsass(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                 let target = ev
                     .data
                     .get("TargetImage")
-                    .map(String::as_str)
-                    .unwrap_or("");
+                    .map_or("", String::as_str);
                 if basename(target).to_lowercase() == LSASS_IMAGE_NAME {
                     let source = ev
                         .data
                         .get("SourceImage")
-                        .map(String::as_str)
-                        .unwrap_or("unknown");
+                        .map_or("unknown", String::as_str);
                     let access = ev
                         .data
                         .get("GrantedAccess")
-                        .map(String::as_str)
-                        .unwrap_or("unknown");
+                        .map_or("unknown", String::as_str);
                     return Some(EvtxDetection {
                         kind: EvtxDetectionKind::ComsvcslsassDump,
                         mitre_technique_id: "T1003.001",
@@ -106,9 +102,7 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 #[cfg(test)]

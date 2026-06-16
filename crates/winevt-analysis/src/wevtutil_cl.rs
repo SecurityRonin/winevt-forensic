@@ -28,10 +28,9 @@ pub fn detect_wevtutil_cl(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                     .data
                     .get("Image")
                     .or_else(|| ev.data.get("NewProcessName"))
-                    .map(String::as_str)
-                    .unwrap_or("");
+                    .map_or("", String::as_str);
                 if basename(image).to_lowercase() == "wevtutil.exe" {
-                    let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+                    let cl = ev.data.get("CommandLine").map_or("", String::as_str);
                     let cl_lower = cl.to_lowercase();
                     if let Some(&pat) = WEVTUTIL_CLEAR_SUBSTRINGS
                         .iter()
@@ -54,11 +53,7 @@ pub fn detect_wevtutil_cl(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
             }
             // Signal 2: PowerShell script block containing log-clear patterns
             if ev.event_id == EID_PS_SCRIPT_BLOCK && ev.channel == POWERSHELL_OPERATIONAL_CHANNEL {
-                let script = ev
-                    .data
-                    .get("ScriptBlockText")
-                    .map(String::as_str)
-                    .unwrap_or("");
+                let script = ev.data.get("ScriptBlockText").map_or("", String::as_str);
                 if let Some(&pat) = PS_CLEAR_EVENTLOG_PATTERNS
                     .iter()
                     .find(|&&p| script.contains(p))
@@ -94,9 +89,7 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 #[cfg(test)]

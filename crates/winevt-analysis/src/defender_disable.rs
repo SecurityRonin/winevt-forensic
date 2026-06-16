@@ -23,11 +23,7 @@ pub fn detect_defender_disable(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
         .filter_map(|ev| {
             // Signal 1: PowerShell EID 4104 with Defender tamper patterns
             if ev.event_id == EID_PS_SCRIPT_BLOCK && ev.channel == POWERSHELL_OPERATIONAL_CHANNEL {
-                let script = ev
-                    .data
-                    .get("ScriptBlockText")
-                    .map(String::as_str)
-                    .unwrap_or("");
+                let script = ev.data.get("ScriptBlockText").map_or("", String::as_str);
                 if let Some(&pat) = DEFENDER_TAMPER_PATTERNS
                     .iter()
                     .find(|&&p| script.contains(p))

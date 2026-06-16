@@ -48,16 +48,11 @@ pub fn detect_zemana_driver_load(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 fn is_zemana_signed(ev: &winevt_core::EvtxEvent) -> bool {
     ev.data
         .get("SignatureStatus")
-        .map(|s| s.eq_ignore_ascii_case("Valid"))
-        .unwrap_or(false)
-        && ev
-            .data
-            .get("Hashes")
-            .map(|h| {
-                h.to_uppercase()
-                    .contains(&ZEMANA_SIGNER_THUMBPRINT.to_uppercase())
-            })
-            .unwrap_or(false)
+        .is_some_and(|s| s.eq_ignore_ascii_case("Valid"))
+        && ev.data.get("Hashes").is_some_and(|h| {
+            h.to_uppercase()
+                .contains(&ZEMANA_SIGNER_THUMBPRINT.to_uppercase())
+        })
 }
 
 fn is_standard_zemana_path(path: &str) -> bool {

@@ -37,7 +37,7 @@ pub fn detect_service_stop_avset(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
             .take_while(|(ts, _, _)| *ts <= window_end)
             .collect();
         if window.len() >= RANSOMWARE_SERVICE_STOP_CLUSTER_THRESHOLD {
-            let services: Vec<String> = window.iter().map(|(_, s, _)| s.to_string()).collect();
+            let services: Vec<String> = window.iter().map(|(_, s, _)| (*s).to_string()).collect();
             let last_ev = window.last().unwrap().2;
             detections.push(EvtxDetection {
                 kind: EvtxDetectionKind::ServiceStopAvSet,
@@ -68,9 +68,7 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 fn stopped_canonical_service<'a>(ev: &EvtxEvent) -> Option<&'a str> {
@@ -78,13 +76,12 @@ fn stopped_canonical_service<'a>(ev: &EvtxEvent) -> Option<&'a str> {
         .data
         .get("Image")
         .or_else(|| ev.data.get("NewProcessName"))
-        .map(String::as_str)
-        .unwrap_or("");
+        .map_or("", String::as_str);
     let base = basename(img).to_lowercase();
     if base != "net.exe" && base != "net1.exe" && base != "sc.exe" {
         return None;
     }
-    let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+    let cl = ev.data.get("CommandLine").map_or("", String::as_str);
     let cl_lower = cl.to_lowercase();
     if !cl_lower.contains("stop") {
         return None;

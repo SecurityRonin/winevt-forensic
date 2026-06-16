@@ -228,7 +228,7 @@ pub(crate) mod test_helpers {
             thread_id: None,
             data: data
                 .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
                 .collect::<HashMap<_, _>>(),
         }
     }

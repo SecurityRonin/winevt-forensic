@@ -67,7 +67,7 @@ pub fn run(
     }
 
     let kind = detect_kind(path);
-    let work_dir = resolve_work_dir(output_dir)?;
+    let work_dir = resolve_work_dir(output_dir);
     std::fs::create_dir_all(&work_dir).map_err(|e| e.to_string())?;
 
     let evtx_dir = work_dir.join("evtx");
@@ -154,10 +154,10 @@ fn extract_from_e01(
 }
 
 fn passthrough_evtx(evtx: &Path, evtx_dir: &Path) -> Result<Vec<EvtxEntry>, String> {
-    let name = evtx
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "unknown.evtx".into());
+    let name = evtx.file_name().map_or_else(
+        || "unknown.evtx".into(),
+        |n| n.to_string_lossy().into_owned(),
+    );
     let dest = evtx_dir.join(&name);
     std::fs::copy(evtx, &dest).map_err(|e| e.to_string())?;
     let size = dest.metadata().map(|m| m.len()).unwrap_or(0);
@@ -192,14 +192,14 @@ fn collect_evtx_from_dir(dir: &Path, evtx_dir: &Path) -> Result<Vec<EvtxEntry>, 
 
 fn carve_blob(blob: &Path, evtx_dir: &Path) -> Result<Vec<EvtxEntry>, String> {
     let result = winevt_carver::carve_from_file(blob).map_err(|e| e.to_string())?;
-    carved_chunks_to_evtx(result, evtx_dir, EvtxSource::Carved)
+    carved_chunks_to_evtx(&result, evtx_dir, &EvtxSource::Carved)
 }
 
 /// Write each chunk from a `CarveResult` as a reconstructed EVTX file.
 fn carved_chunks_to_evtx(
-    result: CarveResult,
+    result: &CarveResult,
     evtx_dir: &Path,
-    source: EvtxSource,
+    source: &EvtxSource,
 ) -> Result<Vec<EvtxEntry>, String> {
     use winevt_writer::{records_to_evtx, WriteRecord};
 
@@ -252,9 +252,7 @@ fn try_run_hayabusa(
     work_dir: &Path,
     min_level: Option<&str>,
 ) -> Option<HayabusaResult> {
-    let bin = bin_override
-        .map(PathBuf::from)
-        .or_else(|| which_hayabusa())?;
+    let bin = bin_override.map(PathBuf::from).or_else(which_hayabusa)?;
 
     let out_file = work_dir.join("hayabusa_timeline.jsonl");
     let level = min_level.unwrap_or("informational");
@@ -299,12 +297,14 @@ fn which_hayabusa() -> Option<PathBuf> {
 // ── Markdown renderer ─────────────────────────────────────────────────────────
 
 pub fn to_markdown(out: &TriageOutput) -> String {
+    use std::fmt::Write as _;
+
     let mut md = String::new();
     md.push_str("# Triage Report\n\n");
 
     md.push_str("## Input\n\n");
-    md.push_str(&format!("- **Path**: `{}`\n", out.input.path.display()));
-    md.push_str(&format!("- **Kind**: `{:?}`\n\n", out.input.kind));
+    let _ = writeln!(md, "- **Path**: `{}`", out.input.path.display());
+    let _ = writeln!(md, "- **Kind**: `{:?}`\n", out.input.kind);
 
     md.push_str("## EVTX Files\n\n");
     if out.evtx_files.is_empty() {
@@ -318,19 +318,20 @@ pub fn to_markdown(out: &TriageOutput) -> String {
             } else {
                 f.integrity_indicators.join(", ")
             };
-            md.push_str(&format!(
-                "| `{}` | {:?} | {} | {} |\n",
+            let _ = writeln!(
+                md,
+                "| `{}` | {:?} | {} | {} |",
                 f.name, f.source, f.size, indicators
-            ));
+            );
         }
         md.push('\n');
     }
 
     if let Some(h) = &out.hayabusa {
         md.push_str("## Hayabusa\n\n");
-        md.push_str(&format!("- **Binary**: `{}`\n", h.binary.display()));
-        md.push_str(&format!("- **Output**: `{}`\n", h.output_file.display()));
-        md.push_str(&format!("- **Exit code**: {}\n\n", h.exit_code));
+        let _ = writeln!(md, "- **Binary**: `{}`", h.binary.display());
+        let _ = writeln!(md, "- **Output**: `{}`", h.output_file.display());
+        let _ = writeln!(md, "- **Exit code**: {}\n", h.exit_code);
     }
 
     md
@@ -338,17 +339,16 @@ pub fn to_markdown(out: &TriageOutput) -> String {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn resolve_work_dir(requested: Option<&Path>) -> Result<PathBuf, String> {
-    match requested {
-        Some(p) => Ok(p.to_path_buf()),
-        None => {
-            // Use a stable temp path so the user can find the files.
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            Ok(std::env::temp_dir().join(format!("wt_report_{ts}")))
-        }
+fn resolve_work_dir(requested: Option<&Path>) -> PathBuf {
+    if let Some(p) = requested {
+        p.to_path_buf()
+    } else {
+        // Use a stable temp path so the user can find the files.
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        std::env::temp_dir().join(format!("wt_report_{ts}"))
     }
 }
 
@@ -364,8 +364,7 @@ fn walkdir(dir: &Path) -> Result<Vec<PathBuf>, String> {
         } else if path
             .extension()
             .and_then(|e| e.to_str())
-            .map(|e| e.eq_ignore_ascii_case("evtx"))
-            .unwrap_or(false)
+            .is_some_and(|e| e.eq_ignore_ascii_case("evtx"))
         {
             result.push(path);
         }

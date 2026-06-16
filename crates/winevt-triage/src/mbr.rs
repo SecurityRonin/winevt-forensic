@@ -1,7 +1,7 @@
 //! MBR partition table parser — pure, no I/O.
 
 /// Partition table starts at offset 0x1BE; 4 entries × 16 bytes each.
-/// Entry layout: status(1) + chs_first(3) + type(1) + chs_last(3) + lba_start(4) + sectors(4).
+/// Entry layout: status(1) + `chs_first`(3) + type(1) + `chs_last`(3) + `lba_start`(4) + sectors(4).
 const TABLE_OFFSET: usize = 0x1BE;
 const ENTRY_SIZE: usize = 16;
 const TYPE_OFFSET: usize = 4;

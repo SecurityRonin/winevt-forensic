@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn valid_binxml_passes_validation() {
         let result = validate_binxml(&minimal_valid_binxml());
-        assert!(result.is_ok(), "valid BinXML must pass; got {:?}", result);
+        assert!(result.is_ok(), "valid BinXML must pass; got {result:?}");
     }
 
     #[test]

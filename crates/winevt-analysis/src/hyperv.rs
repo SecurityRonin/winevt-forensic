@@ -25,11 +25,7 @@ pub fn detect_hyperv_vm_shutdown(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                     || ev.event_id == EID_HYPERV_VM_STOPPED)
         })
         .map(|ev| {
-            let vm_name = ev
-                .data
-                .get("VmName")
-                .map(String::as_str)
-                .unwrap_or("<unknown>");
+            let vm_name = ev.data.get("VmName").map_or("<unknown>", String::as_str);
             EvtxDetection {
                 kind: EvtxDetectionKind::HypervVmShutdown,
                 mitre_technique_id: "T1486",

@@ -23,7 +23,7 @@ pub fn detect_workers_dev_dns(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
             if !query.ends_with(CLOUDFLARE_WORKERS_DOMAIN_SUFFIX) {
                 return None;
             }
-            let image = ev.data.get("Image").map(String::as_str).unwrap_or("");
+            let image = ev.data.get("Image").map_or("", String::as_str);
             if is_browser(image) {
                 return None;
             }
@@ -47,9 +47,7 @@ pub fn detect_workers_dev_dns(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 fn is_browser(image: &str) -> bool {

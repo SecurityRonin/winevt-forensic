@@ -4,7 +4,7 @@ pub use forensicnomicon::evtx::{
     CHUNK_RECORDS_OFFSET, CHUNK_SIZE, ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC,
 };
 
-/// The canonical 5-level severity scale, shared across every SecurityRonin
+/// The canonical 5-level severity scale, shared across every `SecurityRonin`
 /// analyzer via [`forensicnomicon::report`].
 pub use forensicnomicon::report::Severity;
 
@@ -233,7 +233,7 @@ pub enum IntegrityAnomaly {
     OverlappingChunks {
         /// Byte offset of the first (earlier) chunk.
         chunk_a_offset: u64,
-        /// Byte offset of the second (later) chunk whose range overlaps chunk_a.
+        /// Byte offset of the second (later) chunk whose range overlaps `chunk_a`.
         chunk_b_offset: u64,
     },
     /// The file header reports zero chunks. The log was cleared and the file
@@ -270,9 +270,8 @@ impl IntegrityAnomaly {
             | IntegrityAnomaly::InvalidChunkDataLength(_)
             | IntegrityAnomaly::TrailingData { .. }
             | IntegrityAnomaly::TruncatedFile { .. }
-            | IntegrityAnomaly::OverlappingChunks { .. } => Severity::High,
-
-            IntegrityAnomaly::PhantomRecordInjection { .. } => Severity::High,
+            | IntegrityAnomaly::OverlappingChunks { .. }
+            | IntegrityAnomaly::PhantomRecordInjection { .. } => Severity::High,
 
             IntegrityAnomaly::TimestampAnomaly { .. }
             | IntegrityAnomaly::ExportTimestampCorruption { .. }

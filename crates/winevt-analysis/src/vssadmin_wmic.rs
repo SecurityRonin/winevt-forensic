@@ -23,10 +23,9 @@ pub fn detect_vssadmin_wmic(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                 .data
                 .get("Image")
                 .or_else(|| ev.data.get("NewProcessName"))
-                .map(String::as_str)
-                .unwrap_or("");
+                .map_or("", String::as_str);
             let base = basename(image).to_lowercase();
-            let cl = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
+            let cl = ev.data.get("CommandLine").map_or("", String::as_str);
             let cl_lower = cl.to_lowercase();
 
             if base == "vssadmin.exe" {
@@ -77,9 +76,7 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 #[cfg(test)]

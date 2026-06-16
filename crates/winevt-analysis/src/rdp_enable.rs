@@ -21,15 +21,11 @@ pub fn detect_rdp_enable(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
         .iter()
         .filter(|ev| ev.event_id == EID_SYSMON_REGISTRY_MODIFY && ev.channel == SYSMON_CHANNEL)
         .filter_map(|ev| {
-            let target = ev
-                .data
-                .get("TargetObject")
-                .map(String::as_str)
-                .unwrap_or("");
+            let target = ev.data.get("TargetObject").map_or("", String::as_str);
             if !target.contains(RDP_FDENYTSC_KEY_FRAGMENT) {
                 return None;
             }
-            let details = ev.data.get("Details").map(String::as_str).unwrap_or("");
+            let details = ev.data.get("Details").map_or("", String::as_str);
             // Allow "0", "DWORD (0x00000000)", "0x0", "0x00000000"
             let details_lower = details.to_lowercase();
             let is_enable = details == "0"

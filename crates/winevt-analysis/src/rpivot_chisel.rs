@@ -71,7 +71,7 @@ pub fn detect_rpivot_chisel(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
         .collect()
 }
 
-fn cmdline<'a>(ev: &'a winevt_core::EvtxEvent) -> Option<&'a str> {
+fn cmdline(ev: &winevt_core::EvtxEvent) -> Option<&str> {
     ev.data.get("CommandLine").map(String::as_str)
 }
 
