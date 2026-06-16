@@ -4,7 +4,7 @@ use winevt_writer::{records_to_evtx, WriteRecord};
 
 fn wt_bin() -> Command {
     let mut bin = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    bin.push("../../target/debug/wt");
+    bin.push("../../target/debug/ev4n6");
     Command::new(bin)
 }
 
@@ -117,7 +117,10 @@ fn wt_carve_ewf_is_removed() {
         .args(["carve-ewf", "--help"])
         .status()
         .expect("run wt carve-ewf --help");
-    assert!(!status.success(), "wt carve-ewf must no longer exist (EWF auto-detected by carve)");
+    assert!(
+        !status.success(),
+        "wt carve-ewf must no longer exist (EWF auto-detected by carve)"
+    );
 }
 
 // ── stats removed: info absorbs file statistics ───────────────────────────────
@@ -128,7 +131,10 @@ fn wt_stats_is_removed() {
         .args(["stats", "--help"])
         .status()
         .expect("run wt stats --help");
-    assert!(!status.success(), "wt stats must no longer exist (merged into wt info)");
+    assert!(
+        !status.success(),
+        "wt stats must no longer exist (merged into wt info)"
+    );
 }
 
 #[test]
@@ -142,9 +148,18 @@ fn wt_info_includes_stats_fields() {
     assert_eq!(output.status.code(), Some(0));
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("info must output JSON");
-    assert!(json.get("hash").is_some(), "info must include 'hash' (was stats)");
-    assert!(json.get("chunks").is_some(), "info must include 'chunks' (was stats)");
-    assert!(json.get("records").is_some(), "info must include 'records' (was stats)");
+    assert!(
+        json.get("hash").is_some(),
+        "info must include 'hash' (was stats)"
+    );
+    assert!(
+        json.get("chunks").is_some(),
+        "info must include 'chunks' (was stats)"
+    );
+    assert!(
+        json.get("records").is_some(),
+        "info must include 'records' (was stats)"
+    );
 }
 
 // ---- Feature 9: Meaningful exit codes ----
@@ -351,7 +366,10 @@ fn wt_sessions_is_removed() {
         .args(["sessions", "--help"])
         .status()
         .expect("run wt sessions --help");
-    assert!(!status.success(), "wt sessions must no longer exist (use wt login)");
+    assert!(
+        !status.success(),
+        "wt sessions must no longer exist (use wt login)"
+    );
 }
 
 #[test]
@@ -383,7 +401,10 @@ fn wt_login_valid_file_outputs_sessions_array() {
     assert_eq!(output.status.code(), Some(0), "expected exit 0");
     let v: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("login output should be valid JSON");
-    assert!(v.is_array(), "login default output must be JSON array of sessions");
+    assert!(
+        v.is_array(),
+        "login default output must be JSON array of sessions"
+    );
 }
 
 #[test]
@@ -409,7 +430,10 @@ fn wt_powershell_is_removed() {
         .args(["powershell", "--help"])
         .status()
         .expect("run wt powershell --help");
-    assert!(!status.success(), "wt powershell must no longer exist (use wt extract --powershell)");
+    assert!(
+        !status.success(),
+        "wt powershell must no longer exist (use wt extract --powershell)"
+    );
 }
 
 #[test]
@@ -432,7 +456,10 @@ fn wt_extract_powershell_valid_file_outputs_json_array() {
     assert_eq!(output.status.code(), Some(0), "expected exit 0");
     let v: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("extract --powershell must output JSON");
-    assert!(v.is_array(), "extract --powershell output must be JSON array");
+    assert!(
+        v.is_array(),
+        "extract --powershell output must be JSON array"
+    );
 }
 
 // ── wt search (replaces pivot, adds --regex) ──────────────────────────────────

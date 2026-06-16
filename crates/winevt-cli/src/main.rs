@@ -83,7 +83,7 @@ mod report;
 ///
 /// Add `--carve` to additionally scan unallocated space / free-space chunks.
 #[derive(Parser)]
-#[command(name = "wt", about = "EVTX forensic analysis tool", version)]
+#[command(name = "ev4n6", about = "EVTX forensic analysis tool", version)]
 struct Cli {
     /// Also carve unallocated/free-space data for deleted EVTX records.
     /// For EVTX files: scan free space in each chunk.
@@ -391,7 +391,9 @@ fn resolve_evtx_sources(path: &std::path::Path, _carve: bool) -> Vec<PathBuf> {
     match winevt_carver::carve_from_file(path) {
         Ok(result) => {
             use winevt_writer::{records_to_evtx, WriteRecord};
-            let wrecords: Vec<WriteRecord> = result.chunks.iter()
+            let wrecords: Vec<WriteRecord> = result
+                .chunks
+                .iter()
                 .flat_map(|c| c.records.iter())
                 .map(|r| WriteRecord {
                     record_id: r.header.record_id,
@@ -405,7 +407,9 @@ fn resolve_evtx_sources(path: &std::path::Path, _carve: bool) -> Vec<PathBuf> {
             let bytes = records_to_evtx(&wrecords);
             let tmp = std::env::temp_dir().join(format!(
                 "wt_carved_{}.evtx",
-                path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                path.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default()
             ));
             if std::fs::write(&tmp, &bytes).is_ok() {
                 return vec![tmp];
@@ -436,7 +440,13 @@ fn sanitize_mermaid(s: &str) -> String {
     // Keep only the last path component for readability
     let base = s.rsplit(['/', '\\']).next().unwrap_or(s);
     base.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' || c == '.' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -464,7 +474,11 @@ fn main() {
     let cli = Cli::parse();
     let _carve = cli.carve;
     let code = match cli.command {
-        Cmd::Verify { paths, stream, min_severity } => {
+        Cmd::Verify {
+            paths,
+            stream,
+            min_severity,
+        } => {
             for p in &paths {
                 if !p.exists() {
                     eprintln!("error: path not found: {}", p.display());
@@ -485,22 +499,40 @@ fn main() {
                         }
                         all_indicators.extend(indicators);
                     }
-                    Err(e) => { eprintln!("warning: {}: {e}", src.display()); }
+                    Err(e) => {
+                        eprintln!("warning: {}: {e}", src.display());
+                    }
                 }
             }
             if stream {
                 for a in &all_indicators {
-                    if let Ok(line) = serde_json::to_string(a) { println!("{line}"); }
+                    if let Ok(line) = serde_json::to_string(a) {
+                        println!("{line}");
+                    }
                 }
             } else {
                 match serde_json::to_string_pretty(&all_indicators) {
                     Ok(json) => println!("{json}"),
-                    Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(EXIT_ERROR);
+                    }
                 }
             }
-            if all_indicators.is_empty() { EXIT_CLEAN } else { EXIT_DETECTIONS }
+            if all_indicators.is_empty() {
+                EXIT_CLEAN
+            } else {
+                EXIT_DETECTIONS
+            }
         }
-        Cmd::Timeline { paths, stream, filter_eid, limit, after, before } => {
+        Cmd::Timeline {
+            paths,
+            stream,
+            filter_eid,
+            limit,
+            after,
+            before,
+        } => {
             for p in &paths {
                 if !p.exists() {
                     eprintln!("error: path not found: {}", p.display());
@@ -529,17 +561,28 @@ fn main() {
                 .collect();
             if stream {
                 for e in &filtered {
-                    if let Ok(line) = serde_json::to_string(e) { println!("{line}"); }
+                    if let Ok(line) = serde_json::to_string(e) {
+                        println!("{line}");
+                    }
                 }
             } else {
                 match serde_json::to_string_pretty(&filtered) {
                     Ok(json) => println!("{json}"),
-                    Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(EXIT_ERROR);
+                    }
                 }
             }
             EXIT_CLEAN
         }
-        Cmd::Login { paths, stream, logon_type, graph, mermaid } => {
+        Cmd::Login {
+            paths,
+            stream,
+            logon_type,
+            graph,
+            mermaid,
+        } => {
             for p in &paths {
                 if !p.exists() {
                     eprintln!("error: path not found: {}", p.display());
@@ -561,12 +604,18 @@ fn main() {
                         } else {
                             match serde_json::to_string_pretty(&g) {
                                 Ok(json) => println!("{json}"),
-                                Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                                Err(e) => {
+                                    eprintln!("error: {e}");
+                                    std::process::exit(EXIT_ERROR);
+                                }
                             }
                         }
                         EXIT_CLEAN
                     }
-                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        EXIT_ERROR
+                    }
                 }
             } else {
                 match winevt_extract::sessions_multi(&source_refs) {
@@ -577,21 +626,35 @@ fn main() {
                             .collect();
                         if stream {
                             for s in &filtered {
-                                if let Ok(line) = serde_json::to_string(s) { println!("{line}"); }
+                                if let Ok(line) = serde_json::to_string(s) {
+                                    println!("{line}");
+                                }
                             }
                         } else {
                             match serde_json::to_string_pretty(&filtered) {
                                 Ok(json) => println!("{json}"),
-                                Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                                Err(e) => {
+                                    eprintln!("error: {e}");
+                                    std::process::exit(EXIT_ERROR);
+                                }
                             }
                         }
                         EXIT_CLEAN
                     }
-                    Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        EXIT_ERROR
+                    }
                 }
             }
         }
-        Cmd::Frequency { paths, stream, process, anomaly, min_z } => {
+        Cmd::Frequency {
+            paths,
+            stream,
+            process,
+            anomaly,
+            min_z,
+        } => {
             for p in &paths {
                 if !p.exists() {
                     eprintln!("error: path not found: {}", p.display());
@@ -607,13 +670,18 @@ fn main() {
                 for src in &sources {
                     if let Ok(procs) = winevt_extract::rare_processes(src, usize::MAX) {
                         for p in procs {
-                            if let Ok(v) = serde_json::to_value(p) { all_procs.push(v); }
+                            if let Ok(v) = serde_json::to_value(p) {
+                                all_procs.push(v);
+                            }
                         }
                     }
                 }
                 match serde_json::to_string_pretty(&all_procs) {
                     Ok(json) => println!("{json}"),
-                    Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(EXIT_ERROR);
+                    }
                 }
                 EXIT_CLEAN
             } else if anomaly {
@@ -621,16 +689,25 @@ fn main() {
                 for src in &sources {
                     if let Ok(entries) = winevt_extract::anomaly(src, min_z) {
                         for e in entries {
-                            if let Ok(v) = serde_json::to_value(e) { all_anomalies.push(v); }
+                            if let Ok(v) = serde_json::to_value(e) {
+                                all_anomalies.push(v);
+                            }
                         }
                     }
                 }
                 let has_anomalies = !all_anomalies.is_empty();
                 match serde_json::to_string_pretty(&all_anomalies) {
                     Ok(json) => println!("{json}"),
-                    Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(EXIT_ERROR);
+                    }
                 }
-                if has_anomalies { EXIT_DETECTIONS } else { EXIT_CLEAN }
+                if has_anomalies {
+                    EXIT_DETECTIONS
+                } else {
+                    EXIT_CLEAN
+                }
             } else {
                 // Merge frequency counts across all sources, then emit as one report.
                 let mut total_events: usize = 0;
@@ -650,8 +727,10 @@ fn main() {
                 if stream {
                     for (eid, cnt) in &by_event_id {
                         if let Ok(line) = serde_json::to_string(
-                            &serde_json::json!({"event_id": eid, "count": cnt})
-                        ) { println!("{line}"); }
+                            &serde_json::json!({"event_id": eid, "count": cnt}),
+                        ) {
+                            println!("{line}");
+                        }
                     }
                 } else {
                     let out = serde_json::json!({
@@ -662,7 +741,10 @@ fn main() {
                     });
                     match serde_json::to_string_pretty(&out) {
                         Ok(json) => println!("{json}"),
-                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        Err(e) => {
+                            eprintln!("error: {e}");
+                            std::process::exit(EXIT_ERROR);
+                        }
                     }
                 }
                 EXIT_CLEAN
@@ -677,14 +759,25 @@ fn main() {
                 Ok(report) => {
                     match serde_json::to_string_pretty(&report) {
                         Ok(json) => println!("{json}"),
-                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        Err(e) => {
+                            eprintln!("error: {e}");
+                            std::process::exit(EXIT_ERROR);
+                        }
                     }
                     EXIT_CLEAN
                 }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    EXIT_ERROR
+                }
             }
         }
-        Cmd::Search { query, paths, regex, stream } => {
+        Cmd::Search {
+            query,
+            paths,
+            regex,
+            stream,
+        } => {
             for p in &paths {
                 if !p.exists() {
                     eprintln!("error: path not found: {}", p.display());
@@ -696,22 +789,33 @@ fn main() {
             for src in &sources {
                 if let Ok(entries) = winevt_extract::search(src, &query, regex) {
                     for e in entries {
-                        if let Ok(v) = serde_json::to_value(e) { all_entries.push(v); }
+                        if let Ok(v) = serde_json::to_value(e) {
+                            all_entries.push(v);
+                        }
                     }
                 }
             }
             let has_matches = !all_entries.is_empty();
             if stream {
                 for e in &all_entries {
-                    if let Ok(line) = serde_json::to_string(e) { println!("{line}"); }
+                    if let Ok(line) = serde_json::to_string(e) {
+                        println!("{line}");
+                    }
                 }
             } else {
                 match serde_json::to_string_pretty(&all_entries) {
                     Ok(json) => println!("{json}"),
-                    Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(EXIT_ERROR);
+                    }
                 }
             }
-            if has_matches { EXIT_DETECTIONS } else { EXIT_CLEAN }
+            if has_matches {
+                EXIT_DETECTIONS
+            } else {
+                EXIT_CLEAN
+            }
         }
         Cmd::Diff { a, b } => {
             if !a.exists() {
@@ -727,11 +831,21 @@ fn main() {
                     let is_different = !d.added.is_empty() || !d.removed.is_empty();
                     match serde_json::to_string_pretty(&d) {
                         Ok(json) => println!("{json}"),
-                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        Err(e) => {
+                            eprintln!("error: {e}");
+                            std::process::exit(EXIT_ERROR);
+                        }
                     }
-                    if is_different { EXIT_DETECTIONS } else { EXIT_CLEAN }
+                    if is_different {
+                        EXIT_DETECTIONS
+                    } else {
+                        EXIT_CLEAN
+                    }
                 }
-                Err(e) => { eprintln!("error: {e}"); EXIT_ERROR }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    EXIT_ERROR
+                }
             }
         }
         Cmd::ProcessTree { paths, mermaid } => {
@@ -746,7 +860,9 @@ fn main() {
             for src in &sources {
                 if let Ok(nodes) = winevt_extract::process_tree(src) {
                     for n in nodes {
-                        if let Ok(v) = serde_json::to_value(n) { all_nodes.push(v); }
+                        if let Ok(v) = serde_json::to_value(n) {
+                            all_nodes.push(v);
+                        }
                     }
                 }
             }
@@ -764,12 +880,30 @@ fn main() {
             } else {
                 match serde_json::to_string_pretty(&all_nodes) {
                     Ok(json) => println!("{json}"),
-                    Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(EXIT_ERROR);
+                    }
                 }
             }
             EXIT_CLEAN
         }
-        Cmd::Extract { field, paths, ioc, powershell, no_deobfuscate, wmi, scheduled_task, cmdline, lateral, rdp, smb, defender, format, stream } => {
+        Cmd::Extract {
+            field,
+            paths,
+            ioc,
+            powershell,
+            no_deobfuscate,
+            wmi,
+            scheduled_task,
+            cmdline,
+            lateral,
+            rdp,
+            smb,
+            defender,
+            format,
+            stream,
+        } => {
             // Emit a serializable slice as JSON (array or NDJSON).
             fn emit_json<T: serde::Serialize>(items: &[T], ndjson: bool) {
                 if ndjson {
@@ -781,7 +915,10 @@ fn main() {
                 } else {
                     match serde_json::to_string_pretty(items) {
                         Ok(json) => println!("{json}"),
-                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        Err(e) => {
+                            eprintln!("error: {e}");
+                            std::process::exit(EXIT_ERROR);
+                        }
                     }
                 }
             }
@@ -824,22 +961,35 @@ fn main() {
                                 all_reports.push(v);
                             }
                         }
-                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        Err(e) => {
+                            eprintln!("error: {e}");
+                            std::process::exit(EXIT_ERROR);
+                        }
                     }
                 }
                 // Single source: preserve original single-object format for back-compat.
                 if all_reports.len() == 1 {
                     match serde_json::to_string_pretty(&all_reports[0]) {
                         Ok(json) => println!("{json}"),
-                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        Err(e) => {
+                            eprintln!("error: {e}");
+                            std::process::exit(EXIT_ERROR);
+                        }
                     }
                 } else {
                     match serde_json::to_string_pretty(&all_reports) {
                         Ok(json) => println!("{json}"),
-                        Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                        Err(e) => {
+                            eprintln!("error: {e}");
+                            std::process::exit(EXIT_ERROR);
+                        }
                     }
                 }
-                if has_iocs { EXIT_DETECTIONS } else { EXIT_CLEAN }
+                if has_iocs {
+                    EXIT_DETECTIONS
+                } else {
+                    EXIT_CLEAN
+                }
             } else if powershell {
                 let mut all_blocks: Vec<serde_json::Value> = Vec::new();
                 for src in &sources {
@@ -867,7 +1017,9 @@ fn main() {
                 for src in &sources {
                     if let Ok(events) = winevt_extract::wmi_events(src) {
                         for e in events {
-                            if let Ok(v) = serde_json::to_value(e) { all_events.push(v); }
+                            if let Ok(v) = serde_json::to_value(e) {
+                                all_events.push(v);
+                            }
                         }
                     }
                 }
@@ -878,66 +1030,102 @@ fn main() {
                 for src in &sources {
                     if let Ok(tasks) = winevt_extract::scheduled_tasks(src) {
                         for t in tasks {
-                            if let Ok(v) = serde_json::to_value(t) { all_tasks.push(v); }
+                            if let Ok(v) = serde_json::to_value(t) {
+                                all_tasks.push(v);
+                            }
                         }
                     }
                 }
-                if format == OutputFormat::Csv { emit_csv(&all_tasks); } else { emit_json(&all_tasks, stream); }
+                if format == OutputFormat::Csv {
+                    emit_csv(&all_tasks);
+                } else {
+                    emit_json(&all_tasks, stream);
+                }
                 EXIT_CLEAN
             } else if cmdline {
                 let mut all_execs: Vec<serde_json::Value> = Vec::new();
                 for src in &sources {
                     if let Ok(execs) = winevt_extract::process_cmdlines(src) {
                         for e in execs {
-                            if let Ok(v) = serde_json::to_value(e) { all_execs.push(v); }
+                            if let Ok(v) = serde_json::to_value(e) {
+                                all_execs.push(v);
+                            }
                         }
                     }
                 }
-                if format == OutputFormat::Csv { emit_csv(&all_execs); } else { emit_json(&all_execs, stream); }
+                if format == OutputFormat::Csv {
+                    emit_csv(&all_execs);
+                } else {
+                    emit_json(&all_execs, stream);
+                }
                 EXIT_CLEAN
             } else if lateral {
                 let mut all_events: Vec<serde_json::Value> = Vec::new();
                 for src in &sources {
                     if let Ok(events) = winevt_extract::lateral_movement(src) {
                         for e in events {
-                            if let Ok(v) = serde_json::to_value(e) { all_events.push(v); }
+                            if let Ok(v) = serde_json::to_value(e) {
+                                all_events.push(v);
+                            }
                         }
                     }
                 }
-                if format == OutputFormat::Csv { emit_csv(&all_events); } else { emit_json(&all_events, stream); }
+                if format == OutputFormat::Csv {
+                    emit_csv(&all_events);
+                } else {
+                    emit_json(&all_events, stream);
+                }
                 EXIT_CLEAN
             } else if rdp {
                 let mut all_events: Vec<serde_json::Value> = Vec::new();
                 for src in &sources {
                     if let Ok(events) = winevt_extract::rdp_sessions(src) {
                         for e in events {
-                            if let Ok(v) = serde_json::to_value(e) { all_events.push(v); }
+                            if let Ok(v) = serde_json::to_value(e) {
+                                all_events.push(v);
+                            }
                         }
                     }
                 }
-                if format == OutputFormat::Csv { emit_csv(&all_events); } else { emit_json(&all_events, stream); }
+                if format == OutputFormat::Csv {
+                    emit_csv(&all_events);
+                } else {
+                    emit_json(&all_events, stream);
+                }
                 EXIT_CLEAN
             } else if smb {
                 let mut all_events: Vec<serde_json::Value> = Vec::new();
                 for src in &sources {
                     if let Ok(events) = winevt_extract::smb_access(src) {
                         for e in events {
-                            if let Ok(v) = serde_json::to_value(e) { all_events.push(v); }
+                            if let Ok(v) = serde_json::to_value(e) {
+                                all_events.push(v);
+                            }
                         }
                     }
                 }
-                if format == OutputFormat::Csv { emit_csv(&all_events); } else { emit_json(&all_events, stream); }
+                if format == OutputFormat::Csv {
+                    emit_csv(&all_events);
+                } else {
+                    emit_json(&all_events, stream);
+                }
                 EXIT_CLEAN
             } else if defender {
                 let mut all_events: Vec<serde_json::Value> = Vec::new();
                 for src in &sources {
                     if let Ok(events) = winevt_extract::defender_events(src) {
                         for e in events {
-                            if let Ok(v) = serde_json::to_value(e) { all_events.push(v); }
+                            if let Ok(v) = serde_json::to_value(e) {
+                                all_events.push(v);
+                            }
                         }
                     }
                 }
-                if format == OutputFormat::Csv { emit_csv(&all_events); } else { emit_json(&all_events, stream); }
+                if format == OutputFormat::Csv {
+                    emit_csv(&all_events);
+                } else {
+                    emit_json(&all_events, stream);
+                }
                 EXIT_CLEAN
             } else {
                 let field_name = field.as_deref().unwrap_or("");
@@ -945,11 +1133,17 @@ fn main() {
                 for src in &sources {
                     if let Ok(values) = winevt_extract::extract_field(src, field_name) {
                         for v in values {
-                            if let Ok(jv) = serde_json::to_value(v) { all_values.push(jv); }
+                            if let Ok(jv) = serde_json::to_value(v) {
+                                all_values.push(jv);
+                            }
                         }
                     }
                 }
-                if format == OutputFormat::Csv { emit_csv(&all_values); } else { emit_json(&all_values, stream); }
+                if format == OutputFormat::Csv {
+                    emit_csv(&all_values);
+                } else {
+                    emit_json(&all_values, stream);
+                }
                 EXIT_CLEAN
             }
         }
@@ -965,7 +1159,9 @@ fn main() {
             for src in &sources {
                 if let Ok(events) = winevt_extract::extract_all(src) {
                     for ev in events {
-                        if let Ok(v) = serde_json::to_value(ev) { all_events.push(v); }
+                        if let Ok(v) = serde_json::to_value(ev) {
+                            all_events.push(v);
+                        }
                     }
                 }
             }
@@ -976,7 +1172,10 @@ fn main() {
             } else {
                 match serde_json::to_string_pretty(&all_events) {
                     Ok(json) => println!("{json}"),
-                    Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(EXIT_ERROR);
+                    }
                 }
             }
             EXIT_CLEAN
@@ -994,7 +1193,8 @@ fn main() {
             }
             let mut results: Vec<serde_json::Value> = Vec::new();
             for path in &sources {
-                let file_name = path.file_name()
+                let file_name = path
+                    .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| path.display().to_string());
 
@@ -1013,7 +1213,11 @@ fn main() {
                         });
                         (h, c, rec)
                     }
-                    Err(_) => ("N/A".to_string(), serde_json::json!(null), serde_json::json!(null)),
+                    Err(_) => (
+                        "N/A".to_string(),
+                        serde_json::json!(null),
+                        serde_json::json!(null),
+                    ),
                 };
 
                 let freq = winevt_extract::frequency(path);
@@ -1022,14 +1226,26 @@ fn main() {
 
                 let (total_events, top_event_ids, first_ts, last_ts) = match freq {
                     Ok(report) => {
-                        let top: Vec<serde_json::Value> = report.by_event_id.iter()
+                        let top: Vec<serde_json::Value> = report
+                            .by_event_id
+                            .iter()
                             .take(5)
-                            .map(|f| serde_json::json!({ "event_id": f.event_id, "count": f.count }))
+                            .map(
+                                |f| serde_json::json!({ "event_id": f.event_id, "count": f.count }),
+                            )
                             .collect();
                         let (first, last) = match winevt_extract::timeline(path) {
                             Ok(entries) => {
-                                let first = entries.iter().map(|e| e.timestamp.as_str()).min().map(str::to_owned);
-                                let last  = entries.iter().map(|e| e.timestamp.as_str()).max().map(str::to_owned);
+                                let first = entries
+                                    .iter()
+                                    .map(|e| e.timestamp.as_str())
+                                    .min()
+                                    .map(str::to_owned);
+                                let last = entries
+                                    .iter()
+                                    .map(|e| e.timestamp.as_str())
+                                    .max()
+                                    .map(str::to_owned);
                                 (first, last)
                             }
                             Err(_) => (None, None),
@@ -1061,11 +1277,21 @@ fn main() {
             };
             match serde_json::to_string_pretty(&out) {
                 Ok(json) => println!("{json}"),
-                Err(e) => { eprintln!("error: {e}"); std::process::exit(EXIT_ERROR); }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    std::process::exit(EXIT_ERROR);
+                }
             }
             EXIT_CLEAN
         }
-        Cmd::Report { path, carved, output, hayabusa_bin, min_level, format } => {
+        Cmd::Report {
+            path,
+            carved,
+            output,
+            hayabusa_bin,
+            min_level,
+            format,
+        } => {
             match report::run(
                 &path,
                 carved,

@@ -20,7 +20,7 @@ use winevt_writer::{records_to_evtx, WriteRecord};
 
 fn wt_bin() -> std::path::PathBuf {
     let mut bin = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    bin.push("../../target/debug/wt");
+    bin.push("../../target/debug/ev4n6");
     bin
 }
 

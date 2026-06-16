@@ -12,15 +12,15 @@
 Every detection tool assumes the event log is intact. In a real incident it often isn't — cleared, truncated, partially overwritten, or encrypted mid-stream by ransomware. `winevt-forensic` recovers what can be recovered, verifies structural integrity, and then analyzes events with threat-hunting–focused CLI commands.
 
 ```bash
-cargo install wt-cli
+cargo install winevt-cli
 
 # One-click triage: carve + verify + extract + hayabusa, output JSON/HTML
-wt report /evidence/Security.evtx
+ev4n6 report /evidence/Security.evtx
 
 # Analyze a directory, an E01 image, or a single EVTX file
-wt timeline /evidence/
-wt extract --ioc /evidence/Security.evtx
-wt extract --wmi /evidence/Security.evtx
+ev4n6 timeline /evidence/
+ev4n6 extract --ioc /evidence/Security.evtx
+ev4n6 extract --wmi /evidence/Security.evtx
 ```
 
 **[Full documentation →](https://securityronin.github.io/winevt-forensic/)**
@@ -31,7 +31,7 @@ wt extract --wmi /evidence/Security.evtx
 
 **Cargo**
 ```bash
-cargo install wt-cli
+cargo install winevt-cli
 ```
 
 **From source**
@@ -39,7 +39,7 @@ cargo install wt-cli
 git clone https://github.com/SecurityRonin/winevt-forensic.git
 cd winevt-forensic
 cargo build --release
-./target/release/wt --help
+./target/release/ev4n6 --help
 ```
 
 **Library crates**
@@ -55,7 +55,7 @@ winevt-analyze   = "0.1"   # timeline, sessions, frequency, IOC extraction
 
 ## Input Auto-Detection
 
-Every `wt` subcommand accepts any of:
+Every `ev4n6` subcommand accepts any of:
 
 | Input | What happens |
 |-------|-------------|
@@ -70,10 +70,10 @@ Add `--carve` (global flag) to any command to additionally scan unallocated spac
 
 ## Command Reference
 
-### `wt verify` — integrity check before you trust the timeline
+### `ev4n6 verify` — integrity check before you trust the timeline
 
 ```bash
-wt verify /evidence/Security.evtx
+ev4n6 verify /evidence/Security.evtx
 ```
 
 ```json
@@ -87,10 +87,10 @@ Exits 0 if clean, 1 if indicators found.
 
 ---
 
-### `wt info` — file structure summary
+### `ev4n6 info` — file structure summary
 
 ```bash
-wt info /evidence/Security.evtx
+ev4n6 info /evidence/Security.evtx
 ```
 
 ```json
@@ -103,13 +103,13 @@ wt info /evidence/Security.evtx
 
 ---
 
-### `wt timeline` — chronological event stream
+### `ev4n6 timeline` — chronological event stream
 
 ```bash
-wt timeline /evidence/Security.evtx
-wt timeline --filter-eid 4624 --after 2024-01-01T00:00:00Z --before 2024-02-01T00:00:00Z /evidence/
-wt timeline --limit 100 /evidence/Security.evtx
-wt timeline --stream /evidence/Security.evtx   # NDJSON, one event per line
+ev4n6 timeline /evidence/Security.evtx
+ev4n6 timeline --filter-eid 4624 --after 2024-01-01T00:00:00Z --before 2024-02-01T00:00:00Z /evidence/
+ev4n6 timeline --limit 100 /evidence/Security.evtx
+ev4n6 timeline --stream /evidence/Security.evtx   # NDJSON, one event per line
 ```
 
 Flags:
@@ -121,25 +121,25 @@ Flags:
 
 ---
 
-### `wt login` — logon session correlation
+### `ev4n6 login` — logon session correlation
 
 ```bash
-wt login /evidence/Security.evtx
-wt login --logon-type 3 /evidence/Security.evtx   # network logons only
-wt login --mermaid /evidence/Security.evtx         # Mermaid graph diagram
+ev4n6 login /evidence/Security.evtx
+ev4n6 login --logon-type 3 /evidence/Security.evtx   # network logons only
+ev4n6 login --mermaid /evidence/Security.evtx         # Mermaid graph diagram
 ```
 
 Correlates EID 4624 (logon) / 4634 (logoff) pairs into sessions with duration, source IP, username, and domain.
 
 ---
 
-### `wt frequency` — event ID distribution (least-frequent-first)
+### `ev4n6 frequency` — event ID distribution (least-frequent-first)
 
 ```bash
-wt frequency /evidence/Security.evtx
-wt frequency --process /evidence/Security.evtx    # count by process name (EID 4688)
-wt frequency --anomaly /evidence/Security.evtx    # z-score anomaly detection
-wt frequency --anomaly --min-z 3.0 /evidence/     # custom z-score threshold
+ev4n6 frequency /evidence/Security.evtx
+ev4n6 frequency --process /evidence/Security.evtx    # count by process name (EID 4688)
+ev4n6 frequency --anomaly /evidence/Security.evtx    # z-score anomaly detection
+ev4n6 frequency --anomaly --min-z 3.0 /evidence/     # custom z-score threshold
 ```
 
 Default order is **least-frequent-first (LFO)** — rare events surface first, which is where threats hide. To get most-frequent-first, pipe through `jq` or `sort`.
@@ -156,14 +156,14 @@ Default order is **least-frequent-first (LFO)** — rare events surface first, w
 
 ---
 
-### `wt extract` — targeted indicator extraction
+### `ev4n6 extract` — targeted indicator extraction
 
 All modes are mutually exclusive.
 
 #### IOC extraction
 
 ```bash
-wt extract --ioc /evidence/Security.evtx
+ev4n6 extract --ioc /evidence/Security.evtx
 ```
 
 Extracts IP addresses, domain names, and file hashes from event fields. Exits 1 if any IOCs found.
@@ -171,7 +171,7 @@ Extracts IP addresses, domain names, and file hashes from event fields. Exits 1 
 #### PowerShell script blocks
 
 ```bash
-wt extract --powershell /evidence/Microsoft-Windows-PowerShell.evtx
+ev4n6 extract --powershell /evidence/Microsoft-Windows-PowerShell.evtx
 ```
 
 Reassembles fragmented EID 4104 script block events. Applies basic deobfuscation (backtick removal, string concatenation). Add `--no-deobfuscate` to get raw blocks.
@@ -179,7 +179,7 @@ Reassembles fragmented EID 4104 script block events. Applies basic deobfuscation
 #### WMI persistence
 
 ```bash
-wt extract --wmi /evidence/Microsoft-Windows-WMI-Activity.evtx
+ev4n6 extract --wmi /evidence/Microsoft-Windows-WMI-Activity.evtx
 ```
 
 Extracts EID 5857 (provider loaded), 5858 (error), 5860 (temporary subscription), 5861 (permanent subscription). EIDs 5860/5861 are the persistence-relevant events.
@@ -187,7 +187,7 @@ Extracts EID 5857 (provider loaded), 5858 (error), 5860 (temporary subscription)
 #### Scheduled tasks
 
 ```bash
-wt extract --scheduled-task /evidence/Security.evtx
+ev4n6 extract --scheduled-task /evidence/Security.evtx
 ```
 
 Extracts EID 4698 (task created) and 4702 (task updated), including the raw XML `TaskContent` which may embed VBScript or JScript.
@@ -195,7 +195,7 @@ Extracts EID 4698 (task created) and 4702 (task updated), including the raw XML 
 #### Process command lines
 
 ```bash
-wt extract --cmdline /evidence/Security.evtx
+ev4n6 extract --cmdline /evidence/Security.evtx
 ```
 
 Extracts EID 4688 process creation events with full command lines. Flags LOLBin invocations (`wscript.exe`, `cscript.exe`, `mshta.exe`, `regsvr32.exe`, `rundll32.exe`, `certutil.exe`, `msiexec.exe`, `bitsadmin.exe`, `forfiles.exe`, `pcalua.exe`).
@@ -217,59 +217,59 @@ Extracts EID 4688 process creation events with full command lines. Flags LOLBin 
 #### ATT&CK technique tags
 
 ```bash
-wt extract --attack-tags /evidence/Security.evtx
+ev4n6 extract --attack-tags /evidence/Security.evtx
 ```
 
 Maps event IDs to MITRE ATT&CK technique IDs using built-in rules.
 
 ---
 
-### `wt search` — full-text event search
+### `ev4n6 search` — full-text event search
 
 ```bash
-wt search "mimikatz" /evidence/Security.evtx
-wt search --regex "lsass|sekurlsa" /evidence/Security.evtx
-wt search --stream "lateral" /evidence/
+ev4n6 search "mimikatz" /evidence/Security.evtx
+ev4n6 search --regex "lsass|sekurlsa" /evidence/Security.evtx
+ev4n6 search --stream "lateral" /evidence/
 ```
 
 ---
 
-### `wt diff` — compare two EVTX files
+### `ev4n6 diff` — compare two EVTX files
 
 ```bash
-wt diff before.evtx after.evtx
+ev4n6 diff before.evtx after.evtx
 ```
 
 Reports events present in one file but absent from the other. Useful for comparing before/after a suspected log manipulation.
 
 ---
 
-### `wt process-tree` — visualise parent-child process relationships
+### `ev4n6 process-tree` — visualise parent-child process relationships
 
 ```bash
-wt process-tree /evidence/Security.evtx
-wt process-tree --mermaid /evidence/Security.evtx
+ev4n6 process-tree /evidence/Security.evtx
+ev4n6 process-tree --mermaid /evidence/Security.evtx
 ```
 
 ---
 
-### `wt repair` — recover partial EVTX files
+### `ev4n6 repair` — recover partial EVTX files
 
 ```bash
-wt repair /evidence/Security.evtx /output/Security-repaired.evtx
+ev4n6 repair /evidence/Security.evtx /output/Security-repaired.evtx
 ```
 
 Skips chunks that fail CRC32 verification; re-sequences record IDs in surviving chunks; writes a valid EVTX file. Reports `chunks_total`, `chunks_recovered`, `chunks_skipped`, `records_recovered`.
 
 ---
 
-### `wt report` — one-click triage
+### `ev4n6 report` — one-click triage
 
 ```bash
-wt report /evidence/Security.evtx
-wt report --carved /evidence/Security.evtx      # also carve corrupt chunks
-wt report --format html -o report.html /evidence/
-wt report --hayabusa-bin /opt/hayabusa /evidence/
+ev4n6 report /evidence/Security.evtx
+ev4n6 report --carved /evidence/Security.evtx      # also carve corrupt chunks
+ev4n6 report --format html -o report.html /evidence/
+ev4n6 report --hayabusa-bin /opt/hayabusa /evidence/
 ```
 
 Runs: integrity check → carving (if `--carved`) → IOC extraction → ATT&CK tagging → optional Hayabusa scan → structured JSON/HTML output.
@@ -285,7 +285,7 @@ Runs: integrity check → carving (if `--carved`) → IOC extraction → ATT&CK 
 | 2 | Processing error (corrupt input, parse failure) |
 | 3 | Path not found |
 
-Scriptable: `wt verify /evidence/*.evtx; [ $? -eq 0 ] && echo "clean"`
+Scriptable: `ev4n6 verify /evidence/*.evtx; [ $? -eq 0 ] && echo "clean"`
 
 ---
 
@@ -307,7 +307,7 @@ Scriptable: `wt verify /evidence/*.evtx; [ $? -eq 0 ] && echo "clean"`
 
 ## Where This Fits
 
-This is not a detection-rule engine. [Hayabusa](https://github.com/Yamato-Security/hayabusa) does Sigma-based threat hunting and MITRE ATT&CK tagging at scale. `wt` handles the recovery and structural analysis layer that runs before detection tools.
+This is not a detection-rule engine. [Hayabusa](https://github.com/Yamato-Security/hayabusa) does Sigma-based threat hunting and MITRE ATT&CK tagging at scale. `ev4n6` handles the recovery and structural analysis layer that runs before detection tools.
 
 | | [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) | [evtx](https://github.com/omerbenamram/evtx) | [python-evtx](https://github.com/williballenthin/python-evtx) | [hayabusa](https://github.com/Yamato-Security/hayabusa) | [Log Parser Studio](https://github.com/microsoft/LogParserStudio) |
 |--|:-:|:-:|:-:|:-:|:-:|
@@ -349,8 +349,8 @@ This is not a detection-rule engine. [Hayabusa](https://github.com/Yamato-Securi
 | [`winevt-memory`](crates/winevt-memory/) | Types and analysis for EVTX/ETW data recovered from memory dumps. `MemoryRecoveredChunk`, `RecoveredEtwSession`, `detect_etw_tampering()`. |
 | [`winevt-analyze`](crates/winevt-analyze/) | Higher-level analysis — `timeline()`, `sessions()`, `frequency()`, `ioc_extract()`, `wmi_events()`, `scheduled_tasks()`, `process_cmdlines()`, `search()`, `diff()`, `process_tree()`. |
 | [`winevt-binxml`](crates/winevt-binxml/) | BinXML decode and validation utilities. |
-| [`winevt-triage`](crates/winevt-triage/) | E01/EVTX extraction pipeline for `wt report`. |
-| [`wt-cli`](crates/wt-cli/) | `wt` binary — all subcommands, JSON/NDJSON output. |
+| [`winevt-triage`](crates/winevt-triage/) | E01/EVTX extraction pipeline for `ev4n6 report`. |
+| [`winevt-cli`](crates/winevt-cli/) | `ev4n6` binary — all subcommands, JSON/NDJSON output. |
 
 </details>
 
@@ -364,7 +364,7 @@ graph LR
     B --> C[winevt-carver]
     B --> E[winevt-memory]
     A --> F[winevt-analyze]
-    C --> G[wt-cli]
+    C --> G[winevt-cli]
     E --> G
     F --> G
 ```

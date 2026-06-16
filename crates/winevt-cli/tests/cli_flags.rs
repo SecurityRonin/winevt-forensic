@@ -5,7 +5,7 @@ use std::process::Command;
 
 fn wt_bin() -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.push("../../target/debug/wt");
+    p.push("../../target/debug/ev4n6");
     p
 }
 
@@ -17,7 +17,9 @@ fn workspace_root() -> PathBuf {
 }
 
 fn foxitdata(name: &str) -> PathBuf {
-    workspace_root().join("tests/data/fox-it-danderspritz").join(name)
+    workspace_root()
+        .join("tests/data/fox-it-danderspritz")
+        .join(name)
 }
 
 macro_rules! require_foxitdata {
@@ -39,7 +41,11 @@ fn verify_nonexistent_exits_3() {
         .args(["verify", "/nonexistent/Security.evtx"])
         .status()
         .expect("run wt verify nonexistent");
-    assert_eq!(status.code(), Some(3), "nonexistent path must exit 3, not 2");
+    assert_eq!(
+        status.code(),
+        Some(3),
+        "nonexistent path must exit 3, not 2"
+    );
 }
 
 #[test]
@@ -113,8 +119,8 @@ fn frequency_stream_is_ndjson() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.trim_start().starts_with('['));
     for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
-        let v: serde_json::Value = serde_json::from_str(line)
-            .unwrap_or_else(|_| panic!("not JSON: {line}"));
+        let v: serde_json::Value =
+            serde_json::from_str(line).unwrap_or_else(|_| panic!("not JSON: {line}"));
         assert!(v.get("event_id").is_some(), "each line must have event_id");
     }
 }
@@ -159,8 +165,7 @@ fn timeline_filter_eid_returns_only_matching_events() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     let arr = json.as_array().expect("must be JSON array");
     assert!(!arr.is_empty(), "4624 (logon) must appear in Security log");
     for entry in arr {
@@ -176,12 +181,16 @@ fn timeline_filter_eid_returns_only_matching_events() {
 fn timeline_filter_eid_unknown_returns_empty() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["timeline", "--filter-eid", "9999999", evtx.to_str().unwrap()])
+        .args([
+            "timeline",
+            "--filter-eid",
+            "9999999",
+            evtx.to_str().unwrap(),
+        ])
         .output()
         .expect("run wt timeline --filter-eid 9999999");
     assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert_eq!(
         json.as_array().unwrap().len(),
         0,
@@ -199,8 +208,7 @@ fn timeline_limit_caps_output() {
         .output()
         .expect("run wt timeline --limit 5");
     assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert!(
         json.as_array().unwrap().len() <= 5,
         "--limit 5 must return at most 5 events"
@@ -222,8 +230,7 @@ fn login_logon_type_filters_results() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert!(json.is_array());
     for session in json.as_array().unwrap() {
         assert_eq!(
@@ -242,8 +249,7 @@ fn login_logon_type_999_returns_empty() {
         .output()
         .expect("run wt login --logon-type 999");
     assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert_eq!(
         json.as_array().unwrap().len(),
         0,
@@ -274,8 +280,7 @@ fn timeline_after_before_filters_time_range() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert!(json.is_array());
     // All returned events must fall within the requested range.
     for entry in json.as_array().unwrap() {
@@ -304,8 +309,7 @@ fn timeline_before_epoch_returns_empty() {
         .output()
         .expect("run wt timeline --before epoch");
     assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert_eq!(
         json.as_array().unwrap().len(),
         0,
@@ -338,8 +342,7 @@ fn frequency_default_order_is_ascending() {
         .output()
         .expect("run wt frequency (default)");
     assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     let freqs = json["by_event_id"].as_array().expect("by_event_id array");
     if freqs.len() >= 2 {
         let first = freqs[0]["count"].as_u64().unwrap_or(0);
@@ -408,7 +411,10 @@ fn extract_stream_flag_exists() {
         .args(["extract", "--stream", "--help"])
         .output()
         .expect("run wt extract --stream --help");
-    assert!(out.status.success(), "--stream flag not recognised on extract");
+    assert!(
+        out.status.success(),
+        "--stream flag not recognised on extract"
+    );
 }
 
 // ── --stream on verify ────────────────────────────────────────────────────────
@@ -419,7 +425,10 @@ fn verify_stream_flag_exists() {
         .args(["verify", "--stream", "--help"])
         .output()
         .expect("run wt verify --stream --help");
-    assert!(out.status.success(), "--stream flag not recognised on verify");
+    assert!(
+        out.status.success(),
+        "--stream flag not recognised on verify"
+    );
 }
 
 // ── --min-severity on verify ──────────────────────────────────────────────────
@@ -430,5 +439,8 @@ fn verify_min_severity_flag_exists() {
         .args(["verify", "--min-severity", "error", "--help"])
         .output()
         .expect("run wt verify --min-severity error --help");
-    assert!(out.status.success(), "--min-severity flag not recognised on verify");
+    assert!(
+        out.status.success(),
+        "--min-severity flag not recognised on verify"
+    );
 }

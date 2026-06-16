@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde::Serialize;
-use winevt_carver::{CarveResult, verify_integrity};
+use winevt_carver::{verify_integrity, CarveResult};
 
 // ── Output types ──────────────────────────────────────────────────────────────
 
@@ -89,7 +89,10 @@ pub fn run(
     let hayabusa = try_run_hayabusa(hayabusa_bin, &evtx_dir, &work_dir, min_level);
 
     Ok(TriageOutput {
-        input: ReportInput { path: path.to_path_buf(), kind },
+        input: ReportInput {
+            path: path.to_path_buf(),
+            kind,
+        },
         evtx_files,
         hayabusa,
     })
@@ -101,7 +104,12 @@ fn detect_kind(path: &Path) -> InputKind {
     if path.is_dir() {
         return InputKind::Directory;
     }
-    match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
         Some("e01" | "ex01") => InputKind::E01,
         Some("evtx") => InputKind::Evtx,
         _ => InputKind::RawBlob,
@@ -116,8 +124,7 @@ fn extract_from_e01(
     also_carve: bool,
 ) -> Result<Vec<EvtxEntry>, String> {
     // Filesystem extraction via winevt-triage (NTFS traversal).
-    let report = winevt_triage::extract_evtx_from_e01(e01, evtx_dir)
-        .map_err(|e| e.to_string())?;
+    let report = winevt_triage::extract_evtx_from_e01(e01, evtx_dir).map_err(|e| e.to_string())?;
 
     let mut entries: Vec<EvtxEntry> = report
         .evtx_files
@@ -194,7 +201,7 @@ fn carved_chunks_to_evtx(
     evtx_dir: &Path,
     source: EvtxSource,
 ) -> Result<Vec<EvtxEntry>, String> {
-    use winevt_writer::{WriteRecord, records_to_evtx};
+    use winevt_writer::{records_to_evtx, WriteRecord};
 
     let mut entries = Vec::new();
     for (i, chunk) in result.chunks.iter().enumerate() {

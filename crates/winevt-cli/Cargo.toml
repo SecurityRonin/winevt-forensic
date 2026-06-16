@@ -1,13 +1,13 @@
 [package]
-name = "wt-cli"
+name = "winevt-cli"
 version = "0.1.0"
-description = "wt — EVTX forensic analysis CLI"
+description = "ev4n6 — EVTX (Windows Event Log) forensic analysis CLI"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "wt"
+name = "ev4n6"
 path = "src/main.rs"
 
 [dependencies]

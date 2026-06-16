@@ -24,7 +24,7 @@
 use winevt_carver::{carve_from_file, verify_integrity, IntegrityAnomaly};
 
 fn workspace_root() -> std::path::PathBuf {
-    // CARGO_MANIFEST_DIR = crates/wt-cli
+    // CARGO_MANIFEST_DIR = crates/winevt-cli
     let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.pop(); // crates/
     p.pop(); // workspace root

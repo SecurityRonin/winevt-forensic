@@ -11,7 +11,7 @@ members = [
     "crates/winevt-manifest",
     "crates/winevt-analysis",
     "crates/winevt-triage",
-    "crates/wt-cli",
+    "crates/winevt-cli",
 ]
 
 [workspace.package]
@@ -43,7 +43,7 @@ winevt-extract = { version = "0.1.0", path = "crates/winevt-extract" }
 winevt-manifest = { version = "0.1.0", path = "crates/winevt-manifest" }
 forensicnomicon = { version = "0.5", features = ["serde"] }
 winevt-triage = { version = "0.1.0", path = "crates/winevt-triage" }
-wt-cli = { version = "0.1.0", path = "crates/wt-cli" }
+winevt-cli = { version = "0.1.0", path = "crates/winevt-cli" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

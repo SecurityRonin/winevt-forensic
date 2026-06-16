@@ -15,7 +15,7 @@ use std::process::Command;
 
 fn wt_bin() -> std::path::PathBuf {
     let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.push("../../target/debug/wt");
+    p.push("../../target/debug/ev4n6");
     p
 }
 
@@ -27,7 +27,9 @@ fn workspace_root() -> std::path::PathBuf {
 }
 
 fn foxitdata_path(name: &str) -> std::path::PathBuf {
-    workspace_root().join("tests/data/fox-it-danderspritz").join(name)
+    workspace_root()
+        .join("tests/data/fox-it-danderspritz")
+        .join(name)
 }
 
 fn maxpowers_e01() -> std::path::PathBuf {
@@ -65,7 +67,10 @@ fn report_no_args_exits_nonzero() {
         .arg("report")
         .status()
         .expect("run wt report");
-    assert!(!status.success(), "expected non-zero exit for missing path arg");
+    assert!(
+        !status.success(),
+        "expected non-zero exit for missing path arg"
+    );
 }
 
 /// `wt report /nonexistent/path.E01` must exit 2.
@@ -75,7 +80,11 @@ fn report_nonexistent_file_exits_2() {
         .args(["report", "/nonexistent/evidence.E01"])
         .status()
         .expect("run wt report nonexistent");
-    assert_eq!(status.code(), Some(2), "expected exit code 2 for missing file");
+    assert_eq!(
+        status.code(),
+        Some(2),
+        "expected exit code 2 for missing file"
+    );
 }
 
 // ── EVTX pass-through ─────────────────────────────────────────────────────────
@@ -96,13 +105,20 @@ fn report_single_evtx_outputs_json() {
         .output()
         .expect("run wt report evtx");
 
-    assert_eq!(output.status.code(), Some(0), "expected exit 0; stderr: {}",
-        String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "expected exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout must be valid JSON");
     assert!(json.get("input").is_some(), "JSON must have 'input' field");
-    assert!(json.get("evtx_files").is_some(), "JSON must have 'evtx_files' field");
+    assert!(
+        json.get("evtx_files").is_some(),
+        "JSON must have 'evtx_files' field"
+    );
 }
 
 // ── directory input ───────────────────────────────────────────────────────────
@@ -128,13 +144,22 @@ fn report_evtx_directory_outputs_json() {
         .output()
         .expect("run wt report dir");
 
-    assert_eq!(output.status.code(), Some(0), "expected exit 0; stderr: {}",
-        String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "expected exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout must be valid JSON");
-    let files = json["evtx_files"].as_array().expect("evtx_files must be array");
-    assert!(!files.is_empty(), "expected at least one EVTX file from directory");
+    let files = json["evtx_files"]
+        .as_array()
+        .expect("evtx_files must be array");
+    assert!(
+        !files.is_empty(),
+        "expected at least one EVTX file from directory"
+    );
 }
 
 // ── raw blob input ────────────────────────────────────────────────────────────
@@ -159,13 +184,19 @@ fn report_raw_blob_carves_evtx() {
         .output()
         .expect("run wt report blob");
 
-    assert_eq!(output.status.code(), Some(0), "expected exit 0; stderr: {}",
-        String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "expected exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout must be valid JSON");
     assert_eq!(json["input"]["kind"].as_str(), Some("RawBlob"));
-    let files = json["evtx_files"].as_array().expect("evtx_files must be array");
+    let files = json["evtx_files"]
+        .as_array()
+        .expect("evtx_files must be array");
     assert!(!files.is_empty(), "expected carved EVTX chunks from blob");
 }
 
@@ -188,20 +219,25 @@ fn report_e01_filesystem_finds_security_and_system() {
         .output()
         .expect("run wt report E01");
 
-    assert_eq!(output.status.code(), Some(0), "expected exit 0; stderr: {}",
-        String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "expected exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout must be valid JSON");
     assert_eq!(json["input"]["kind"].as_str(), Some("E01"));
 
-    let files = json["evtx_files"].as_array().expect("evtx_files must be array");
-    let names: Vec<_> = files
-        .iter()
-        .filter_map(|f| f["name"].as_str())
-        .collect();
+    let files = json["evtx_files"]
+        .as_array()
+        .expect("evtx_files must be array");
+    let names: Vec<_> = files.iter().filter_map(|f| f["name"].as_str()).collect();
     assert!(
-        names.iter().any(|n| n.eq_ignore_ascii_case("Security.evtx")),
+        names
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case("Security.evtx")),
         "expected Security.evtx; got {names:?}"
     );
     assert!(
@@ -227,16 +263,25 @@ fn report_e01_carved_flag_includes_carved_source() {
         .output()
         .expect("run wt report E01 --carved");
 
-    assert_eq!(output.status.code(), Some(0), "expected exit 0; stderr: {}",
-        String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "expected exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout must be valid JSON");
-    let files = json["evtx_files"].as_array().expect("evtx_files must be array");
+    let files = json["evtx_files"]
+        .as_array()
+        .expect("evtx_files must be array");
 
     // At least one entry should be sourced from carving.
     let has_carved = files.iter().any(|f| f["source"].as_str() == Some("carved"));
-    assert!(has_carved, "expected at least one carved entry with --carved flag; got {files:?}");
+    assert!(
+        has_carved,
+        "expected at least one carved entry with --carved flag; got {files:?}"
+    );
 }
 
 /// Each EVTX in the report should have an `integrity_indicators` array field.
@@ -257,7 +302,9 @@ fn report_e01_evtx_files_have_integrity_indicators() {
 
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout must be valid JSON");
-    let files = json["evtx_files"].as_array().expect("evtx_files must be array");
+    let files = json["evtx_files"]
+        .as_array()
+        .expect("evtx_files must be array");
     for f in files {
         assert!(
             f.get("integrity_indicators").is_some(),

@@ -1852,6 +1852,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "winevt-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "crc32fast",
+ "csv",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "walkdir",
+ "winevt-carver",
+ "winevt-extract",
+ "winevt-triage",
+ "winevt-writer",
+]
+
+[[package]]
 name = "winevt-core"
 version = "0.2.0"
 dependencies = [
@@ -2035,24 +2053,6 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser",
-]
-
-[[package]]
-name = "wt-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "crc32fast",
- "csv",
- "serde",
- "serde_json",
- "tempfile",
- "walkdir",
- "winevt-carver",
- "winevt-extract",
- "winevt-triage",
- "winevt-writer",
 ]
 
 [[package]]

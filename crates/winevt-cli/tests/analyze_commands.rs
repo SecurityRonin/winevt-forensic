@@ -6,7 +6,7 @@ use std::process::Command;
 
 fn wt_bin() -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.push("../../target/debug/wt");
+    p.push("../../target/debug/ev4n6");
     p
 }
 
@@ -18,7 +18,9 @@ fn workspace_root() -> PathBuf {
 }
 
 fn foxitdata(name: &str) -> PathBuf {
-    workspace_root().join("tests/data/fox-it-danderspritz").join(name)
+    workspace_root()
+        .join("tests/data/fox-it-danderspritz")
+        .join(name)
 }
 
 macro_rules! require_foxitdata {
@@ -40,7 +42,10 @@ fn wt_pivot_is_removed() {
         .args(["pivot", "--help"])
         .status()
         .expect("run wt pivot --help");
-    assert!(!status.success(), "wt pivot must no longer exist (use wt search)");
+    assert!(
+        !status.success(),
+        "wt pivot must no longer exist (use wt search)"
+    );
 }
 
 // ── wt search (replaces pivot, adds --regex) ──────────────────────────────────
@@ -68,12 +73,15 @@ fn search_finds_matching_events() {
 fn search_no_match_exits_0() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["search", "ZZZTHISSHOULDNOTMATCHANYTHING_XYZ_9999", evtx.to_str().unwrap()])
+        .args([
+            "search",
+            "ZZZTHISSHOULDNOTMATCHANYTHING_XYZ_9999",
+            evtx.to_str().unwrap(),
+        ])
         .output()
         .expect("run wt search no-match");
     assert_eq!(output.status.code(), Some(0), "no-match search must exit 0");
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert_eq!(json.as_array().unwrap().len(), 0);
 }
 
@@ -85,10 +93,13 @@ fn search_stream_flag() {
         .output()
         .expect("run wt search --stream");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(!stdout.trim_start().starts_with('['), "--stream must not be a JSON array");
+    assert!(
+        !stdout.trim_start().starts_with('['),
+        "--stream must not be a JSON array"
+    );
     for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
-        let _: serde_json::Value = serde_json::from_str(line)
-            .unwrap_or_else(|_| panic!("not JSON: {line}"));
+        let _: serde_json::Value =
+            serde_json::from_str(line).unwrap_or_else(|_| panic!("not JSON: {line}"));
     }
 }
 
@@ -123,12 +134,16 @@ fn search_regex_matches_pattern() {
 fn search_regex_no_match_exits_0() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["search", "--regex", "^ZZZIMPOSSIBLE_PATTERN_9{50}$", evtx.to_str().unwrap()])
+        .args([
+            "search",
+            "--regex",
+            "^ZZZIMPOSSIBLE_PATTERN_9{50}$",
+            evtx.to_str().unwrap(),
+        ])
         .output()
         .expect("run wt search --regex no-match");
     assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert_eq!(json.as_array().unwrap().len(), 0);
 }
 
@@ -147,8 +162,7 @@ fn diff_identical_file_exits_0() {
         "diffing a file with itself must exit 0; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert_eq!(json["added"].as_array().unwrap().len(), 0);
     assert_eq!(json["removed"].as_array().unwrap().len(), 0);
 }
@@ -167,8 +181,7 @@ fn diff_different_files_exits_1() {
         "diffing different files must exit 1; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert!(json.get("added").is_some() && json.get("removed").is_some());
 }
 
@@ -187,8 +200,7 @@ fn process_tree_json_output() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert!(json.is_array(), "process-tree must output JSON array");
 }
 
@@ -215,7 +227,10 @@ fn wt_logon_graph_is_removed() {
         .args(["logon-graph", "--help"])
         .status()
         .expect("run wt logon-graph --help");
-    assert!(!status.success(), "wt logon-graph must no longer exist (use wt login --graph)");
+    assert!(
+        !status.success(),
+        "wt logon-graph must no longer exist (use wt login --graph)"
+    );
 }
 
 #[test]
@@ -231,10 +246,15 @@ fn login_graph_json_output() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-    assert!(json.get("nodes").is_some(), "login --graph must have 'nodes'");
-    assert!(json.get("edges").is_some(), "login --graph must have 'edges'");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(
+        json.get("nodes").is_some(),
+        "login --graph must have 'nodes'"
+    );
+    assert!(
+        json.get("edges").is_some(),
+        "login --graph must have 'edges'"
+    );
 }
 
 #[test]
@@ -246,7 +266,10 @@ fn login_mermaid_flag() {
         .expect("run wt login --mermaid");
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("graph"), "mermaid output must contain 'graph'");
+    assert!(
+        stdout.contains("graph"),
+        "mermaid output must contain 'graph'"
+    );
 }
 
 // ── wt frequency --process (replaces --by process; --threshold dropped) ──────
@@ -258,17 +281,29 @@ fn frequency_by_flag_is_rejected() {
         .args(["frequency", "--by", "process", evtx.to_str().unwrap()])
         .status()
         .expect("run wt frequency --by process");
-    assert!(!status.success(), "--by is no longer supported; use --process");
+    assert!(
+        !status.success(),
+        "--by is no longer supported; use --process"
+    );
 }
 
 #[test]
 fn frequency_threshold_flag_is_rejected() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let status = Command::new(wt_bin())
-        .args(["frequency", "--process", "--threshold", "3", evtx.to_str().unwrap()])
+        .args([
+            "frequency",
+            "--process",
+            "--threshold",
+            "3",
+            evtx.to_str().unwrap(),
+        ])
         .status()
         .expect("run wt frequency --process --threshold 3");
-    assert!(!status.success(), "--threshold is no longer supported; pipe to head/jq instead");
+    assert!(
+        !status.success(),
+        "--threshold is no longer supported; pipe to head/jq instead"
+    );
 }
 
 #[test]
@@ -286,7 +321,10 @@ fn frequency_process_flag_returns_json_array() {
     );
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("frequency --process must output JSON");
-    assert!(json.is_array(), "frequency --process output must be JSON array");
+    assert!(
+        json.is_array(),
+        "frequency --process output must be JSON array"
+    );
 }
 
 // ── wt hunt (removed — detection delegated to hayabusa/chainsaw) ─────────────
@@ -310,10 +348,16 @@ fn anomaly_json_output() {
         .output()
         .expect("run wt frequency --anomaly");
     let code = output.status.code().unwrap_or(-1);
-    assert!(code == 0 || code == 1, "frequency --anomaly must exit 0 or 1, got {code}");
+    assert!(
+        code == 0 || code == 1,
+        "frequency --anomaly must exit 0 or 1, got {code}"
+    );
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("frequency --anomaly must output JSON");
-    assert!(json.is_array(), "frequency --anomaly must output JSON array");
+    assert!(
+        json.is_array(),
+        "frequency --anomaly must output JSON array"
+    );
     if let Some(arr) = json.as_array() {
         if !arr.is_empty() {
             let first = &arr[0];
@@ -328,11 +372,23 @@ fn anomaly_json_output() {
 fn anomaly_high_min_z_returns_fewer_results() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let low = Command::new(wt_bin())
-        .args(["frequency", "--anomaly", "--min-z", "0", evtx.to_str().unwrap()])
+        .args([
+            "frequency",
+            "--anomaly",
+            "--min-z",
+            "0",
+            evtx.to_str().unwrap(),
+        ])
         .output()
         .expect("frequency --anomaly min-z 0");
     let high = Command::new(wt_bin())
-        .args(["frequency", "--anomaly", "--min-z", "999", evtx.to_str().unwrap()])
+        .args([
+            "frequency",
+            "--anomaly",
+            "--min-z",
+            "999",
+            evtx.to_str().unwrap(),
+        ])
         .output()
         .expect("frequency --anomaly min-z 999");
     let low_json: serde_json::Value = serde_json::from_slice(&low.stdout).unwrap();
@@ -358,7 +414,12 @@ fn anomaly_nonexistent_exits_3() {
 fn extract_known_field_returns_json_array() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["extract", "--field", "SubjectUserName", evtx.to_str().unwrap()])
+        .args([
+            "extract",
+            "--field",
+            "SubjectUserName",
+            evtx.to_str().unwrap(),
+        ])
         .output()
         .expect("run wt extract");
     assert_eq!(
@@ -376,12 +437,16 @@ fn extract_known_field_returns_json_array() {
 fn extract_unknown_field_returns_empty_array() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["extract", "--field", "ZZZNOFIELD999XYZ", evtx.to_str().unwrap()])
+        .args([
+            "extract",
+            "--field",
+            "ZZZNOFIELD999XYZ",
+            evtx.to_str().unwrap(),
+        ])
         .output()
         .expect("run wt extract unknown field");
     assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert_eq!(
         json.as_array().unwrap().len(),
         0,
@@ -392,7 +457,12 @@ fn extract_unknown_field_returns_empty_array() {
 #[test]
 fn extract_nonexistent_file_exits_3() {
     let status = Command::new(wt_bin())
-        .args(["extract", "--field", "SubjectUserName", "/nonexistent/Security.evtx"])
+        .args([
+            "extract",
+            "--field",
+            "SubjectUserName",
+            "/nonexistent/Security.evtx",
+        ])
         .status()
         .expect("run wt extract nonexistent");
     assert_eq!(status.code(), Some(3));
@@ -415,19 +485,26 @@ fn extract_powershell_json_output() {
     );
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("extract --powershell must output JSON");
-    assert!(json.is_array(), "extract --powershell output must be JSON array");
+    assert!(
+        json.is_array(),
+        "extract --powershell output must be JSON array"
+    );
 }
 
 #[test]
 fn extract_powershell_no_deobfuscate_accepted() {
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["extract", "--powershell", "--no-deobfuscate", evtx.to_str().unwrap()])
+        .args([
+            "extract",
+            "--powershell",
+            "--no-deobfuscate",
+            evtx.to_str().unwrap(),
+        ])
         .output()
         .expect("run wt extract --powershell --no-deobfuscate");
     assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert!(json.is_array());
 }
 
@@ -486,7 +563,10 @@ fn extract_scheduled_task_json_output() {
     );
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("extract --scheduled-task must output JSON");
-    assert!(json.is_array(), "extract --scheduled-task output must be JSON array");
+    assert!(
+        json.is_array(),
+        "extract --scheduled-task output must be JSON array"
+    );
 }
 
 #[test]
@@ -515,7 +595,10 @@ fn extract_cmdline_json_output() {
     );
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("extract --cmdline must output JSON");
-    assert!(json.is_array(), "extract --cmdline output must be JSON array");
+    assert!(
+        json.is_array(),
+        "extract --cmdline output must be JSON array"
+    );
 }
 
 #[test]
@@ -534,14 +617,16 @@ fn extract_cmdline_entries_have_required_fields() {
         .args(["extract", "--cmdline", evtx.to_str().unwrap()])
         .output()
         .expect("run wt extract --cmdline");
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     if let Some(arr) = json.as_array() {
         if !arr.is_empty() {
             let first = &arr[0];
             assert!(first.get("timestamp").is_some(), "must have timestamp");
             assert!(first.get("image").is_some(), "must have image");
-            assert!(first.get("command_line").is_some(), "must have command_line");
+            assert!(
+                first.get("command_line").is_some(),
+                "must have command_line"
+            );
             assert!(first.get("is_lolbin").is_some(), "must have is_lolbin");
         }
     }
@@ -565,10 +650,19 @@ fn summary_json_has_required_fields() {
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("info must output JSON");
     assert!(json.get("file").is_some(), "must have 'file'");
-    assert!(json.get("total_events").is_some(), "must have 'total_events'");
+    assert!(
+        json.get("total_events").is_some(),
+        "must have 'total_events'"
+    );
     assert!(json.get("time_range").is_some(), "must have 'time_range'");
-    assert!(json.get("top_event_ids").is_some(), "must have 'top_event_ids'");
-    assert!(json.get("integrity_indicators").is_some(), "must have 'integrity_indicators'");
+    assert!(
+        json.get("top_event_ids").is_some(),
+        "must have 'top_event_ids'"
+    );
+    assert!(
+        json.get("integrity_indicators").is_some(),
+        "must have 'integrity_indicators'"
+    );
     assert!(json.get("ioc_count").is_some(), "must have 'ioc_count'");
 }
 
@@ -579,10 +673,15 @@ fn summary_top_event_ids_has_at_most_5() {
         .args(["info", evtx.to_str().unwrap()])
         .output()
         .expect("run wt info");
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-    let top = json["top_event_ids"].as_array().expect("top_event_ids must be array");
-    assert!(top.len() <= 5, "top_event_ids must have at most 5 entries, got {}", top.len());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let top = json["top_event_ids"]
+        .as_array()
+        .expect("top_event_ids must be array");
+    assert!(
+        top.len() <= 5,
+        "top_event_ids must have at most 5 entries, got {}",
+        top.len()
+    );
 }
 
 #[test]
@@ -612,7 +711,11 @@ fn extract_all_outputs_json_array() {
         .args(["extract-all", evtx.to_str().unwrap()])
         .output()
         .expect("run wt extract-all");
-    assert!(output.status.success(), "exit code: {:?}", output.status.code());
+    assert!(
+        output.status.success(),
+        "exit code: {:?}",
+        output.status.code()
+    );
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must output JSON array");
     assert!(json.is_array(), "output must be a JSON array");
@@ -633,7 +736,10 @@ fn extract_all_events_have_kind_field() {
         return;
     }
     for ev in &events {
-        assert!(ev.get("kind").is_some(), "each event must have a 'kind' field: {ev}");
+        assert!(
+            ev.get("kind").is_some(),
+            "each event must have a 'kind' field: {ev}"
+        );
     }
 }
 
@@ -662,7 +768,9 @@ fn login_with_directory_returns_sessions_json() {
     // RED: currently wt login passes the dir directly to winevt_extract::sessions()
     // which fails because a directory is not a valid EVTX file.
     let dir = foxitdata(".");
-    if !dir.exists() { return; }
+    if !dir.exists() {
+        return;
+    }
     let output = Command::new(wt_bin())
         .args(["login", dir.to_str().unwrap()])
         .output()
@@ -674,14 +782,17 @@ fn login_with_directory_returns_sessions_json() {
     );
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("must be a JSON array");
-    assert!(json.is_array(), "login output must be a JSON array of sessions");
+    assert!(
+        json.is_array(),
+        "login output must be a JSON array of sessions"
+    );
 }
 
 #[test]
 fn timeline_accepts_two_file_arguments() {
     // wt timeline file1 file2 must merge and sort events from both files.
     // RED: clap currently rejects a second positional argument.
-    let pre  = require_foxitdata!("pre-Security.evtx");
+    let pre = require_foxitdata!("pre-Security.evtx");
     let post = require_foxitdata!("post-Security.evtx");
     let output = Command::new(wt_bin())
         .args(["timeline", pre.to_str().unwrap(), post.to_str().unwrap()])
@@ -697,7 +808,8 @@ fn timeline_accepts_two_file_arguments() {
     // pre-Security has 123 events, post-Security has 126; combined = 249
     assert_eq!(events.len(), 249, "must merge events from both files");
     // Result must be timestamp-sorted (no regressions)
-    let timestamps: Vec<&str> = events.iter()
+    let timestamps: Vec<&str> = events
+        .iter()
         .filter_map(|e| e.get("timestamp").and_then(|t| t.as_str()))
         .collect();
     let mut sorted = timestamps.clone();
@@ -710,7 +822,9 @@ fn login_graph_with_directory_merges_graphs() {
     // wt login --graph <dir> must return a merged graph from all EVTX files in dir.
     // RED: currently passes dir directly to logon_graph() which errors.
     let dir = foxitdata(".");
-    if !dir.exists() { return; }
+    if !dir.exists() {
+        return;
+    }
     let output = Command::new(wt_bin())
         .args(["login", "--graph", dir.to_str().unwrap()])
         .output()
@@ -720,8 +834,7 @@ fn login_graph_with_directory_merges_graphs() {
         "wt login --graph <dir> must exit 0; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert!(json.get("nodes").is_some(), "must have 'nodes'");
     assert!(json.get("edges").is_some(), "must have 'edges'");
 }
@@ -731,7 +844,9 @@ fn extract_lateral_with_directory_succeeds() {
     // wt extract --lateral <dir> must walk directory and union results.
     // RED: currently passes dir directly to lateral_movement() which errors.
     let dir = foxitdata(".");
-    if !dir.exists() { return; }
+    if !dir.exists() {
+        return;
+    }
     let output = Command::new(wt_bin())
         .args(["extract", "--lateral", dir.to_str().unwrap()])
         .output()
@@ -744,9 +859,8 @@ fn extract_lateral_with_directory_succeeds() {
         String::from_utf8_lossy(&output.stderr)
     );
     // Output must be valid JSON
-    let _: serde_json::Value =
-        serde_json::from_slice(&output.stdout)
-            .expect("lateral output must be JSON even for directories");
+    let _: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .expect("lateral output must be JSON even for directories");
 }
 
 #[test]
@@ -754,7 +868,9 @@ fn frequency_with_directory_returns_valid_report() {
     // wt frequency <dir> must aggregate frequency across all EVTX files.
     // RED: currently passes dir directly to frequency() which errors.
     let dir = foxitdata(".");
-    if !dir.exists() { return; }
+    if !dir.exists() {
+        return;
+    }
     let output = Command::new(wt_bin())
         .args(["frequency", dir.to_str().unwrap()])
         .output()
@@ -764,10 +880,15 @@ fn frequency_with_directory_returns_valid_report() {
         "wt frequency <dir> must exit 0; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-    assert!(json.get("total_events").is_some(), "must have 'total_events'");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(
+        json.get("total_events").is_some(),
+        "must have 'total_events'"
+    );
     let total = json["total_events"].as_u64().unwrap_or(0);
     // fox-it dir has pre + post = 249 events total
-    assert_eq!(total, 249, "frequency total_events must sum across all files in dir");
+    assert_eq!(
+        total, 249,
+        "frequency total_events must sum across all files in dir"
+    );
 }

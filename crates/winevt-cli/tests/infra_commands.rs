@@ -5,7 +5,7 @@ use std::process::Command;
 
 fn wt_bin() -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.push("../../target/debug/wt");
+    p.push("../../target/debug/ev4n6");
     p
 }
 
@@ -17,7 +17,9 @@ fn workspace_root() -> PathBuf {
 }
 
 fn foxitdata(name: &str) -> PathBuf {
-    workspace_root().join("tests/data/fox-it-danderspritz").join(name)
+    workspace_root()
+        .join("tests/data/fox-it-danderspritz")
+        .join(name)
 }
 
 macro_rules! require_foxitdata {
@@ -55,10 +57,15 @@ fn repair_valid_evtx_exits_0() {
         "repair must exit 0; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-    assert!(json.get("chunks_checked").is_some(), "must report chunks_checked");
-    assert!(json.get("chunks_repaired").is_some(), "must report chunks_repaired");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(
+        json.get("chunks_checked").is_some(),
+        "must report chunks_checked"
+    );
+    assert!(
+        json.get("chunks_repaired").is_some(),
+        "must report chunks_repaired"
+    );
     assert!(fixed.exists(), "output file must be created");
 }
 
@@ -74,13 +81,23 @@ fn repair_is_idempotent() {
 
     // First pass — may repair some chunks.
     Command::new(wt_bin())
-        .args(["repair", evtx.to_str().unwrap(), "--output", fixed1.to_str().unwrap()])
+        .args([
+            "repair",
+            evtx.to_str().unwrap(),
+            "--output",
+            fixed1.to_str().unwrap(),
+        ])
         .output()
         .expect("run wt repair pass 1");
 
     // Second pass — must report 0 chunks repaired (idempotency).
     let output2 = Command::new(wt_bin())
-        .args(["repair", fixed1.to_str().unwrap(), "--output", fixed2.to_str().unwrap()])
+        .args([
+            "repair",
+            fixed1.to_str().unwrap(),
+            "--output",
+            fixed2.to_str().unwrap(),
+        ])
         .output()
         .expect("run wt repair pass 2");
 
@@ -126,8 +143,7 @@ fn repair_corrupted_checksum_repairs_chunk() {
         "repair of corrupted file must exit 0; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert!(
         json["chunks_repaired"].as_u64().unwrap_or(0) >= 1,
         "corrupted checksum should be repaired; got: {json}"
@@ -164,8 +180,14 @@ fn report_format_md_outputs_markdown() {
         stdout.starts_with("# Triage Report"),
         "markdown must start with '# Triage Report'; got: {stdout}"
     );
-    assert!(stdout.contains("## Input"), "markdown must have ## Input section");
-    assert!(stdout.contains("## EVTX Files"), "markdown must have ## EVTX Files section");
+    assert!(
+        stdout.contains("## Input"),
+        "markdown must have ## Input section"
+    );
+    assert!(
+        stdout.contains("## EVTX Files"),
+        "markdown must have ## EVTX Files section"
+    );
 }
 
 #[test]
@@ -217,8 +239,7 @@ fn report_directory_returns_all_evtx_files() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     let files = json["evtx_files"].as_array().expect("evtx_files");
 
     // Count .evtx files in directory manually
@@ -256,9 +277,11 @@ fn powershell_deobfuscate_flag_exits_cleanly() {
         "extract --powershell must exit 0 by default; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-    assert!(json.is_array(), "extract --powershell output must be JSON array");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(
+        json.is_array(),
+        "extract --powershell output must be JSON array"
+    );
 }
 
 #[test]
@@ -266,7 +289,12 @@ fn powershell_no_deobfuscate_flag_is_accepted() {
     // --no-deobfuscate opts out of automatic base64 decoding.
     let evtx = require_foxitdata!("pre-Security.evtx");
     let output = Command::new(wt_bin())
-        .args(["extract", "--powershell", "--no-deobfuscate", evtx.to_str().unwrap()])
+        .args([
+            "extract",
+            "--powershell",
+            "--no-deobfuscate",
+            evtx.to_str().unwrap(),
+        ])
         .output()
         .expect("run wt extract --powershell --no-deobfuscate");
     assert_eq!(
@@ -275,7 +303,9 @@ fn powershell_no_deobfuscate_flag_is_accepted() {
         "--no-deobfuscate must be accepted; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-    assert!(json.is_array(), "--no-deobfuscate output must be JSON array");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(
+        json.is_array(),
+        "--no-deobfuscate output must be JSON array"
+    );
 }

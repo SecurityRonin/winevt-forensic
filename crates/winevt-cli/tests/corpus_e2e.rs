@@ -23,7 +23,7 @@ use std::process::Command;
 
 fn wt_bin() -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.push("../../target/debug/wt");
+    p.push("../../target/debug/ev4n6");
     p
 }
 
@@ -80,8 +80,7 @@ fn cmdline_detects_lolbin_in_sysmon_file() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     let arr = json.as_array().expect("must be array");
 
     assert!(
@@ -90,7 +89,10 @@ fn cmdline_detects_lolbin_in_sysmon_file() {
     );
 
     let has_lolbin = arr.iter().any(|e| e["is_lolbin"].as_bool() == Some(true));
-    assert!(has_lolbin, "expected is_lolbin: true for pcalua.exe; entries: {arr:?}");
+    assert!(
+        has_lolbin,
+        "expected is_lolbin: true for pcalua.exe; entries: {arr:?}"
+    );
 }
 
 /// `wt extract --cmdline` against a multi-LOLBin Sysmon file (rundll32 via
@@ -113,8 +115,7 @@ fn cmdline_sysmon_corpus_nonempty() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     let arr = json.as_array().expect("must be array");
     assert!(
         !arr.is_empty(),
@@ -132,15 +133,23 @@ fn cmdline_sysmon_entries_have_required_fields() {
         .output()
         .expect("run wt extract --cmdline sysmon lolbin fields");
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     let arr = json.as_array().expect("must be array");
 
     for entry in arr {
-        assert!(entry.get("timestamp").is_some(), "must have timestamp: {entry}");
+        assert!(
+            entry.get("timestamp").is_some(),
+            "must have timestamp: {entry}"
+        );
         assert!(entry.get("image").is_some(), "must have image: {entry}");
-        assert!(entry.get("command_line").is_some(), "must have command_line: {entry}");
-        assert!(entry.get("is_lolbin").is_some(), "must have is_lolbin: {entry}");
+        assert!(
+            entry.get("command_line").is_some(),
+            "must have command_line: {entry}"
+        );
+        assert!(
+            entry.get("is_lolbin").is_some(),
+            "must have is_lolbin: {entry}"
+        );
     }
 }
 
@@ -167,8 +176,7 @@ fn scheduled_task_known_positive_nonempty() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     let arr = json.as_array().expect("must be array");
     assert!(
         !arr.is_empty(),
@@ -198,8 +206,7 @@ fn powershell_obfuscation_known_positive() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     let arr = json.as_array().expect("must be array");
     assert!(
         !arr.is_empty(),
@@ -220,9 +227,11 @@ fn powershell_obfuscation_string_known_positive() {
         .expect("run wt extract --powershell string-obfuscation");
 
     assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-    assert!(!json.as_array().unwrap().is_empty(), "expected PowerShell entries");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
+    assert!(
+        !json.as_array().unwrap().is_empty(),
+        "expected PowerShell entries"
+    );
 }
 
 // ── Corpus robustness: wt info must not panic on any corpus file ──────────────
@@ -271,7 +280,10 @@ fn corpus_robustness_hayabusa_info() {
     }
 
     let evtx_files: Vec<PathBuf> = walkdir_evtx(&corpus_dir);
-    assert!(!evtx_files.is_empty(), "hayabusa corpus must contain EVTX files");
+    assert!(
+        !evtx_files.is_empty(),
+        "hayabusa corpus must contain EVTX files"
+    );
 
     let mut failures = Vec::new();
     for path in &evtx_files {
@@ -354,16 +366,17 @@ fn frequency_execution_corpus_sorted() {
         return; // no EVTX data in corpus path
     }
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
-    let arr = json["by_event_id"].as_array().expect("must have by_event_id array");
-    assert!(!arr.is_empty(), "expected frequency results from Execution corpus");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let arr = json["by_event_id"]
+        .as_array()
+        .expect("must have by_event_id array");
+    assert!(
+        !arr.is_empty(),
+        "expected frequency results from Execution corpus"
+    );
 
     // Verify LFO (least-frequent-first, ascending) sort by count.
-    let counts: Vec<u64> = arr
-        .iter()
-        .filter_map(|e| e["count"].as_u64())
-        .collect();
+    let counts: Vec<u64> = arr.iter().filter_map(|e| e["count"].as_u64()).collect();
     let mut sorted = counts.clone();
     sorted.sort_unstable();
     assert_eq!(counts, sorted, "by_event_id must be sorted ascending (LFO)");
@@ -471,8 +484,7 @@ fn dfir_museum_wmi_subscription_events_have_consumer_name() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     let arr = json.as_array().expect("must be array");
 
     let sub_events: Vec<_> = arr
@@ -509,8 +521,7 @@ fn dfir_museum_wmi_subscription_events_have_filter_name() {
         .output()
         .expect("run wt extract --wmi");
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     let arr = json.as_array().expect("must be array");
 
     let sub_events: Vec<_> = arr
@@ -565,9 +576,8 @@ fn dfir_museum_aptvm_robustness_no_panic() {
 /// APTSimulatorVM Sysmon EID 1 log must yield LOLBin cmdline entries.
 #[test]
 fn dfir_museum_aptvm_sysmon_cmdline_lolbins_nonempty() {
-    let sysmon = require_dfir_museum!(
-        "APTSimulatorVM-Win10/Microsoft-Windows-Sysmon%4Operational.evtx"
-    );
+    let sysmon =
+        require_dfir_museum!("APTSimulatorVM-Win10/Microsoft-Windows-Sysmon%4Operational.evtx");
 
     let output = Command::new(wt_bin())
         .args(["extract", "--cmdline", sysmon.to_str().unwrap()])
@@ -581,10 +591,12 @@ fn dfir_museum_aptvm_sysmon_cmdline_lolbins_nonempty() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     let arr = json.as_array().expect("must be array");
-    assert!(!arr.is_empty(), "APTSimulatorVM Sysmon log must yield cmdline entries");
+    assert!(
+        !arr.is_empty(),
+        "APTSimulatorVM Sysmon log must yield cmdline entries"
+    );
 
     let lolbins: Vec<_> = arr
         .iter()
@@ -610,8 +622,7 @@ fn dfir_museum_belkasoft_powershell_blocks_nonempty() {
         .expect("run wt extract --powershell belkasoft");
 
     assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     let arr = json.as_array().expect("must be array");
     assert!(
         !arr.is_empty(),
@@ -649,7 +660,9 @@ fn dfir_museum_aptvm_report_enumerates_evtx_files() {
 
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout must be JSON");
-    let files = json["evtx_files"].as_array().expect("evtx_files must be array");
+    let files = json["evtx_files"]
+        .as_array()
+        .expect("evtx_files must be array");
     assert!(
         !files.is_empty(),
         "wt report on APTSimulatorVM directory must enumerate EVTX files"
@@ -677,7 +690,10 @@ macro_rules! require_mitre {
     ($rel:expr) => {{
         let p = mitre_corpus($rel);
         if !p.exists() {
-            eprintln!("SKIP: EVTX-to-MITRE-Attack corpus not found: {}", p.display());
+            eprintln!(
+                "SKIP: EVTX-to-MITRE-Attack corpus not found: {}",
+                p.display()
+            );
             return;
         }
         p
@@ -767,8 +783,7 @@ fn mitre_execution_ps_blocks_nonempty() {
         .expect("run wt extract --powershell mitre ps");
 
     assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert!(
         !json.as_array().unwrap().is_empty(),
         "T1059.001 PowerShell payload file must yield EID 4104 blocks"
@@ -788,8 +803,7 @@ fn mitre_execution_scheduled_task_nonempty() {
         .expect("run wt extract --scheduled-task mitre");
 
     assert_eq!(output.status.code(), Some(0));
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("must be JSON");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("must be JSON");
     assert!(
         !json.as_array().unwrap().is_empty(),
         "T1053.005 scheduled task file must yield EID 4698 entries"
@@ -1026,8 +1040,7 @@ fn cybedefenders_powershell_blocks_nonempty() {
 /// This corpus is notable for having 838 WMI provider events.
 #[test]
 fn cybedefenders_wmi_activity_events_nonempty() {
-    let evtx =
-        require_cybedefenders!("Microsoft-Windows-WMI-Activity%4Operational.evtx");
+    let evtx = require_cybedefenders!("Microsoft-Windows-WMI-Activity%4Operational.evtx");
     let output = Command::new(wt_bin())
         .args(["extract", "--wmi", evtx.to_str().unwrap()])
         .output()
