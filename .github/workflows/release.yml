@@ -38,12 +38,12 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get install -y musl-tools
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} -p wt-evtx
+        run: cargo build --release --target ${{ matrix.target }} -p winevt-cli
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: wt-evtx-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/wt-evtx${{ matrix.suffix }}
+          name: ev4n6-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/ev4n6${{ matrix.suffix }}
 
   release:
     needs: build
