@@ -79,7 +79,10 @@ mod tests {
 
     #[test]
     fn mozilla_maintenance_task_detected() {
-        let ev = task_event(EID_TASK_UPDATED, "\\MozillaMaintenance {12345678-abcd-ef00-1234-567890abcdef}");
+        let ev = task_event(
+            EID_TASK_UPDATED,
+            "\\MozillaMaintenance {12345678-abcd-ef00-1234-567890abcdef}",
+        );
         assert!(!detect_fake_browser_task(&[ev]).is_empty());
     }
 
@@ -91,7 +94,10 @@ mod tests {
 
     #[test]
     fn legitimate_schtask_not_detected() {
-        let ev = task_event(EID_TASK_REGISTERED, "\\Microsoft\\Windows\\WindowsUpdate\\Scheduled Start");
+        let ev = task_event(
+            EID_TASK_REGISTERED,
+            "\\Microsoft\\Windows\\WindowsUpdate\\Scheduled Start",
+        );
         assert!(detect_fake_browser_task(&[ev]).is_empty());
     }
 

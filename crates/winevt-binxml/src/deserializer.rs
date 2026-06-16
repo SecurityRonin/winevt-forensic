@@ -165,8 +165,7 @@ pub(crate) fn run(
                 attach(&mut stack, &mut roots, Node::Text(text));
             }
             TOK_TEMPLATE_INSTANCE => {
-                let nodes =
-                    crate::template::read_template_instance(cur, chunk, names, limits)?;
+                let nodes = crate::template::read_template_instance(cur, chunk, names, limits)?;
                 for node in nodes {
                     attach(&mut stack, &mut roots, node);
                 }
@@ -229,12 +228,16 @@ fn read_attribute_value(
     }
     match token_base(vtok) {
         TOK_VALUE => read_value_token(cur),
-        TOK_NORMAL_SUBSTITUTION => {
-            Ok(substitution_to_attr_string(lookup_substitution(cur, substitutions, false)?))
-        }
-        TOK_OPTIONAL_SUBSTITUTION => {
-            Ok(substitution_to_attr_string(lookup_substitution(cur, substitutions, true)?))
-        }
+        TOK_NORMAL_SUBSTITUTION => Ok(substitution_to_attr_string(lookup_substitution(
+            cur,
+            substitutions,
+            false,
+        )?)),
+        TOK_OPTIONAL_SUBSTITUTION => Ok(substitution_to_attr_string(lookup_substitution(
+            cur,
+            substitutions,
+            true,
+        )?)),
         _ => Err(DeserializeError::Unsupported("attribute value")),
     }
 }
@@ -264,8 +267,9 @@ fn lookup_substitution<'a>(
     optional: bool,
 ) -> Result<Option<&'a SubstitutionValue>, DeserializeError> {
     let desc = read_substitution_descriptor(cur, optional)?;
-    let subs = substitutions
-        .ok_or(DeserializeError::Unsupported("substitution outside template"))?;
+    let subs = substitutions.ok_or(DeserializeError::Unsupported(
+        "substitution outside template",
+    ))?;
     if desc.ignore {
         return Ok(None);
     }
@@ -459,10 +463,7 @@ mod tests {
             b.push(tok);
             b.extend_from_slice(&0u16.to_le_bytes()); // substitution index
             b.push(0x01); // value_type String (non-Null, so not ignored)
-            assert!(matches!(
-                decode(&b),
-                Err(DeserializeError::Unsupported(_))
-            ));
+            assert!(matches!(decode(&b), Err(DeserializeError::Unsupported(_))));
         }
     }
 

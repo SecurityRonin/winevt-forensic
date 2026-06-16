@@ -23,9 +23,7 @@ pub fn detect_taskkill_av_cluster(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
         .iter()
         .filter(|ev| is_process_event(ev))
         .filter(|ev| basename(image(ev)).to_lowercase() == "taskkill.exe")
-        .filter_map(|ev| {
-            killed_canonical_process(ev).map(|proc| (ev.timestamp_ns, proc, ev))
-        })
+        .filter_map(|ev| killed_canonical_process(ev).map(|proc| (ev.timestamp_ns, proc, ev)))
         .collect();
 
     matches.sort_by_key(|(ts, _, _)| *ts);
@@ -52,10 +50,7 @@ pub fn detect_taskkill_av_cluster(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                     (window.last().unwrap().0 - window_start) / 1_000_000,
                     processes.join(", ")
                 ),
-                evidence: processes
-                    .iter()
-                    .map(|p| format!("killed={p}"))
-                    .collect(),
+                evidence: processes.iter().map(|p| format!("killed={p}")).collect(),
                 timestamp_ns: window_start,
                 event_id: last_ev.event_id,
                 channel: last_ev.channel.clone(),
@@ -74,7 +69,9 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 fn cmdline(ev: &EvtxEvent) -> &str {
@@ -111,10 +108,7 @@ mod tests {
             SYSMON_CHANNEL,
             &[
                 ("Image", "C:\\Windows\\System32\\taskkill.exe"),
-                (
-                    "CommandLine",
-                    &format!("taskkill /F /IM {target}"),
-                ),
+                ("CommandLine", &format!("taskkill /F /IM {target}")),
             ],
         );
         ev.timestamp_ns = ts;
@@ -200,7 +194,11 @@ mod tests {
     #[test]
     fn evidence_contains_process_names() {
         let targets = [
-            "sqlservr.exe", "veeam.exe", "msmpeng.exe", "sophos.exe", "mbam.exe",
+            "sqlservr.exe",
+            "veeam.exe",
+            "msmpeng.exe",
+            "sophos.exe",
+            "mbam.exe",
         ];
         let events: Vec<_> = targets
             .iter()

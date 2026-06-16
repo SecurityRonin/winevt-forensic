@@ -19,8 +19,7 @@ fn workspace_root() -> std::path::PathBuf {
 }
 
 fn maxpowers_e01() -> std::path::PathBuf {
-    workspace_root()
-        .join("tests/data/DEF CON DFIR CTF 2018/MaxPowersCDrive.E01")
+    workspace_root().join("tests/data/DEF CON DFIR CTF 2018/MaxPowersCDrive.E01")
 }
 
 macro_rules! require_maxpowers {
@@ -105,8 +104,8 @@ const MAXPOWERS_NTFS_OFFSET: u64 = 1_026_048;
 fn extract_evtx_reports_correct_ntfs_offset() {
     let e01 = require_maxpowers!();
     let out = tempfile::tempdir().expect("tempdir");
-    let report = extract_evtx_from_e01(&e01, out.path())
-        .expect("extract_evtx_from_e01 should succeed");
+    let report =
+        extract_evtx_from_e01(&e01, out.path()).expect("extract_evtx_from_e01 should succeed");
     assert_eq!(
         report.ntfs_offset_sectors, MAXPOWERS_NTFS_OFFSET,
         "expected NTFS offset {MAXPOWERS_NTFS_OFFSET}, got {}",
@@ -118,12 +117,19 @@ fn extract_evtx_reports_correct_ntfs_offset() {
 fn extract_evtx_finds_security_evtx() {
     let e01 = require_maxpowers!();
     let out = tempfile::tempdir().expect("tempdir");
-    let report = extract_evtx_from_e01(&e01, out.path())
-        .expect("extract_evtx_from_e01 should succeed");
+    let report =
+        extract_evtx_from_e01(&e01, out.path()).expect("extract_evtx_from_e01 should succeed");
     assert!(
-        report.evtx_files.iter().any(|f| f.name.eq_ignore_ascii_case("Security.evtx")),
+        report
+            .evtx_files
+            .iter()
+            .any(|f| f.name.eq_ignore_ascii_case("Security.evtx")),
         "expected Security.evtx in extracted files; got: {:?}",
-        report.evtx_files.iter().map(|f| &f.name).collect::<Vec<_>>()
+        report
+            .evtx_files
+            .iter()
+            .map(|f| &f.name)
+            .collect::<Vec<_>>()
     );
 }
 
@@ -131,12 +137,19 @@ fn extract_evtx_finds_security_evtx() {
 fn extract_evtx_finds_system_evtx() {
     let e01 = require_maxpowers!();
     let out = tempfile::tempdir().expect("tempdir");
-    let report = extract_evtx_from_e01(&e01, out.path())
-        .expect("extract_evtx_from_e01 should succeed");
+    let report =
+        extract_evtx_from_e01(&e01, out.path()).expect("extract_evtx_from_e01 should succeed");
     assert!(
-        report.evtx_files.iter().any(|f| f.name.eq_ignore_ascii_case("System.evtx")),
+        report
+            .evtx_files
+            .iter()
+            .any(|f| f.name.eq_ignore_ascii_case("System.evtx")),
         "expected System.evtx in extracted files; got: {:?}",
-        report.evtx_files.iter().map(|f| &f.name).collect::<Vec<_>>()
+        report
+            .evtx_files
+            .iter()
+            .map(|f| &f.name)
+            .collect::<Vec<_>>()
     );
 }
 
@@ -144,8 +157,8 @@ fn extract_evtx_finds_system_evtx() {
 fn extract_evtx_files_have_evtx_magic() {
     let e01 = require_maxpowers!();
     let out = tempfile::tempdir().expect("tempdir");
-    let report = extract_evtx_from_e01(&e01, out.path())
-        .expect("extract_evtx_from_e01 should succeed");
+    let report =
+        extract_evtx_from_e01(&e01, out.path()).expect("extract_evtx_from_e01 should succeed");
 
     // Every extracted file must start with the EVTX magic bytes.
     const EVTX_MAGIC: &[u8] = b"ElfFile\x00";
@@ -162,9 +175,6 @@ fn extract_evtx_files_have_evtx_magic() {
 #[test]
 fn extract_evtx_nonexistent_image_returns_error() {
     let out = tempfile::tempdir().expect("tempdir");
-    let result = extract_evtx_from_e01(
-        std::path::Path::new("/nonexistent/no.E01"),
-        out.path(),
-    );
+    let result = extract_evtx_from_e01(std::path::Path::new("/nonexistent/no.E01"), out.path());
     assert!(result.is_err(), "expected error for nonexistent E01");
 }

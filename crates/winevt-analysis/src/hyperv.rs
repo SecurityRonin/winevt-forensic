@@ -101,11 +101,13 @@ mod tests {
     #[test]
     fn cluster_of_shutdowns_produces_multiple_detections() {
         let events: Vec<_> = (0..3)
-            .map(|i| make_event(
-                EID_HYPERV_VM_STOPPED,
-                HYPERV_VMMS_CHANNEL,
-                &[("VmName", &format!("vm-{i:02}"))],
-            ))
+            .map(|i| {
+                make_event(
+                    EID_HYPERV_VM_STOPPED,
+                    HYPERV_VMMS_CHANNEL,
+                    &[("VmName", &format!("vm-{i:02}"))],
+                )
+            })
             .collect();
         assert_eq!(detect_hyperv_vm_shutdown(&events).len(), 3);
     }

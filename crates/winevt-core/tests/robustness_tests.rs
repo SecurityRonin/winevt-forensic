@@ -1,5 +1,5 @@
-use winevt_core::binary::{EvtxChunkHeader, EvtxRecordHeader, ELFCHNK_MAGIC, RECORD_MAGIC};
 use forensicnomicon::evtx::CHUNK_SIZE;
+use winevt_core::binary::{EvtxChunkHeader, EvtxRecordHeader, ELFCHNK_MAGIC, RECORD_MAGIC};
 
 fn make_record_buf(size: u32) -> Vec<u8> {
     let mut buf = vec![0u8; 24];

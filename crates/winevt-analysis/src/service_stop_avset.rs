@@ -22,9 +22,7 @@ pub fn detect_service_stop_avset(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
     let mut matches: Vec<(i64, &str, &EvtxEvent)> = events
         .iter()
         .filter(|ev| is_process_event(ev))
-        .filter_map(|ev| {
-            stopped_canonical_service(ev).map(|svc| (ev.timestamp_ns, svc, ev))
-        })
+        .filter_map(|ev| stopped_canonical_service(ev).map(|svc| (ev.timestamp_ns, svc, ev)))
         .collect();
 
     matches.sort_by_key(|(ts, _, _)| *ts);
@@ -51,10 +49,7 @@ pub fn detect_service_stop_avset(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                     (window.last().unwrap().0 - window_start) / 1_000_000,
                     services.join(", ")
                 ),
-                evidence: services
-                    .iter()
-                    .map(|s| format!("stopped={s}"))
-                    .collect(),
+                evidence: services.iter().map(|s| format!("stopped={s}")).collect(),
                 timestamp_ns: window_start,
                 event_id: last_ev.event_id,
                 channel: last_ev.channel.clone(),
@@ -73,7 +68,9 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 fn stopped_canonical_service<'a>(ev: &EvtxEvent) -> Option<&'a str> {
@@ -200,6 +197,8 @@ mod tests {
         let hits = detect_service_stop_avset(&events);
         assert!(!hits.is_empty());
         let combined = hits[0].evidence.join(" ");
-        assert!(combined.contains("veeam") || combined.contains("gxvss") || combined.contains("sql"));
+        assert!(
+            combined.contains("veeam") || combined.contains("gxvss") || combined.contains("sql")
+        );
     }
 }

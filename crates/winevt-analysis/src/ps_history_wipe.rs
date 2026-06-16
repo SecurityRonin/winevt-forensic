@@ -21,7 +21,8 @@ pub fn detect_ps_history_wipe(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
     events
         .iter()
         .filter(|ev| {
-            (ev.event_id == EID_SYSMON_FILE_DELETE || ev.event_id == EID_SYSMON_FILE_DELETE_DETECTED)
+            (ev.event_id == EID_SYSMON_FILE_DELETE
+                || ev.event_id == EID_SYSMON_FILE_DELETE_DETECTED)
                 && ev.channel == SYSMON_CHANNEL
         })
         .filter_map(|ev| {
@@ -74,7 +75,10 @@ mod tests {
 
     #[test]
     fn benign_file_delete_not_detected() {
-        let ev = history_delete(EID_SYSMON_FILE_DELETE, "C:\\Users\\victim\\Desktop\\report.docx");
+        let ev = history_delete(
+            EID_SYSMON_FILE_DELETE,
+            "C:\\Users\\victim\\Desktop\\report.docx",
+        );
         assert!(detect_ps_history_wipe(&[ev]).is_empty());
     }
 

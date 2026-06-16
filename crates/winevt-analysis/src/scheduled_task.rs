@@ -35,7 +35,10 @@ pub fn detect_scheduled_task_creation(events: &[EvtxEvent]) -> Vec<EvtxDetection
                 mitre_technique_id: "T1053.005",
                 tactic: "Persistence",
                 description: format!("Scheduled task created: '{task_name}'"),
-                evidence: vec![format!("TaskName={task_name}"), format!("event_id={}", ev.event_id)],
+                evidence: vec![
+                    format!("TaskName={task_name}"),
+                    format!("event_id={}", ev.event_id),
+                ],
                 timestamp_ns: ev.timestamp_ns,
                 event_id: ev.event_id,
                 channel: ev.channel.clone(),

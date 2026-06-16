@@ -102,7 +102,10 @@ mod tests {
     #[test]
     fn attribute_only_element() {
         let v = record_to_json(&[el("Provider", &[("Name", "MS-Security")], vec![])]);
-        assert_eq!(v, serde_json::json!({ "Provider": { "@Name": "MS-Security" } }));
+        assert_eq!(
+            v,
+            serde_json::json!({ "Provider": { "@Name": "MS-Security" } })
+        );
     }
 
     #[test]

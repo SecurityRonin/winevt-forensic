@@ -31,10 +31,7 @@ pub fn detect_webclient_service_start(events: &[EvtxEvent]) -> Vec<EvtxDetection
                 description: format!(
                     "WebClient (Mini-Redirector) service started — enables WebDAV UNC path delivery"
                 ),
-                evidence: vec![
-                    format!("service={svc}"),
-                    format!("state={state}"),
-                ],
+                evidence: vec![format!("service={svc}"), format!("state={state}")],
                 timestamp_ns: ev.timestamp_ns,
                 event_id: ev.event_id,
                 channel: ev.channel.clone(),
@@ -87,7 +84,11 @@ mod tests {
 
     #[test]
     fn wrong_event_id_not_detected() {
-        let ev = make_event(7045, "System", &[("param1", WEBCLIENT_SERVICE_NAME), ("param2", "Running")]);
+        let ev = make_event(
+            7045,
+            "System",
+            &[("param1", WEBCLIENT_SERVICE_NAME), ("param2", "Running")],
+        );
         assert!(detect_webclient_service_start(&[ev]).is_empty());
     }
 

@@ -1,8 +1,8 @@
 //! Detect VSS shadow copy deletion via vssadmin.exe or wmic.exe (T1490).
 
 use forensicnomicon::heuristics::evtx::{
-    EID_PROCESS_CREATE, EID_SYSMON_PROCESS_CREATE, SYSMON_CHANNEL,
-    VSSADMIN_SHADOW_DELETE_PATTERNS, WMIC_SHADOW_DELETE_PATTERNS,
+    EID_PROCESS_CREATE, EID_SYSMON_PROCESS_CREATE, SYSMON_CHANNEL, VSSADMIN_SHADOW_DELETE_PATTERNS,
+    WMIC_SHADOW_DELETE_PATTERNS,
 };
 use winevt_core::EvtxEvent;
 
@@ -41,10 +41,7 @@ pub fn detect_vssadmin_wmic(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                         description: format!(
                             "vssadmin.exe shadow copy deletion '{pat}' in command line: '{cl}'"
                         ),
-                        evidence: vec![
-                            format!("Image={image}"),
-                            format!("CommandLine={cl}"),
-                        ],
+                        evidence: vec![format!("Image={image}"), format!("CommandLine={cl}")],
                         timestamp_ns: ev.timestamp_ns,
                         event_id: ev.event_id,
                         channel: ev.channel.clone(),
@@ -62,10 +59,7 @@ pub fn detect_vssadmin_wmic(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                         description: format!(
                             "wmic.exe shadow copy deletion '{pat}' in command line: '{cl}'"
                         ),
-                        evidence: vec![
-                            format!("Image={image}"),
-                            format!("CommandLine={cl}"),
-                        ],
+                        evidence: vec![format!("Image={image}"), format!("CommandLine={cl}")],
                         timestamp_ns: ev.timestamp_ns,
                         event_id: ev.event_id,
                         channel: ev.channel.clone(),
@@ -83,7 +77,9 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 #[cfg(test)]
@@ -131,10 +127,7 @@ mod tests {
 
     #[test]
     fn benign_wmic_not_detected() {
-        let ev = proc_event(
-            "C:\\Windows\\System32\\wbem\\wmic.exe",
-            "wmic process list",
-        );
+        let ev = proc_event("C:\\Windows\\System32\\wbem\\wmic.exe", "wmic process list");
         assert!(detect_vssadmin_wmic(&[ev]).is_empty());
     }
 

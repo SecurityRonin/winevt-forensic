@@ -189,7 +189,14 @@ mod tests {
     fn fragment_header_reads_three_bytes() {
         let mut cur = Cursor::new(&[0x01, 0x01, 0x00, 0x99]);
         let h = read_fragment_header(&mut cur).unwrap();
-        assert_eq!(h, FragmentHeader { major: 1, minor: 1, flags: 0 });
+        assert_eq!(
+            h,
+            FragmentHeader {
+                major: 1,
+                minor: 1,
+                flags: 0
+            }
+        );
         assert_eq!(cur.position(), 3);
     }
 
@@ -198,7 +205,15 @@ mod tests {
         // index=5, type=0x01 (String), not optional
         let mut cur = Cursor::new(&[0x05, 0x00, 0x01]);
         let d = read_substitution_descriptor(&mut cur, false).unwrap();
-        assert_eq!(d, SubstitutionDescriptor { index: 5, value_type: 0x01, optional: false, ignore: false });
+        assert_eq!(
+            d,
+            SubstitutionDescriptor {
+                index: 5,
+                value_type: 0x01,
+                optional: false,
+                ignore: false
+            }
+        );
     }
 
     #[test]
@@ -220,7 +235,13 @@ mod tests {
         let mut names = NameCache::new();
         let mut cur = Cursor::new(&chunk);
         let e = read_open_start_element(&mut cur, &chunk, &mut names, false, false).unwrap();
-        assert_eq!(e, OpenElement { name: "Event".to_string(), data_size: 0x10 });
+        assert_eq!(
+            e,
+            OpenElement {
+                name: "Event".to_string(),
+                data_size: 0x10
+            }
+        );
     }
 
     #[test]
@@ -252,7 +273,10 @@ mod tests {
         chunk.extend_from_slice(&name_struct("Name"));
         let mut names = NameCache::new();
         let mut cur = Cursor::new(&chunk);
-        assert_eq!(read_attribute_name(&mut cur, &chunk, &mut names).unwrap(), "Name");
+        assert_eq!(
+            read_attribute_name(&mut cur, &chunk, &mut names).unwrap(),
+            "Name"
+        );
     }
 
     #[test]

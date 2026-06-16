@@ -28,7 +28,10 @@ pub fn detect_vss_deletion(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                 "VSS shadow copy deletion event (EID {}): inhibit system recovery",
                 ev.event_id
             ),
-            evidence: vec![format!("event_id={}", ev.event_id), format!("channel={}", ev.channel)],
+            evidence: vec![
+                format!("event_id={}", ev.event_id),
+                format!("channel={}", ev.channel),
+            ],
             timestamp_ns: ev.timestamp_ns,
             event_id: ev.event_id,
             channel: ev.channel.clone(),

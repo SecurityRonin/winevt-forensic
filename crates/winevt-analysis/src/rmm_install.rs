@@ -50,7 +50,9 @@ pub fn detect_rmm_install(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 fn is_safe_path(path: &str) -> bool {
@@ -100,9 +102,7 @@ mod tests {
 
     #[test]
     fn anydesk_in_program_files_x86_not_detected() {
-        let ev = file_create_event(
-            "C:\\Program Files (x86)\\AnyDesk\\anydesk.exe",
-        );
+        let ev = file_create_event("C:\\Program Files (x86)\\AnyDesk\\anydesk.exe");
         assert!(detect_rmm_install(&[ev]).is_empty());
     }
 

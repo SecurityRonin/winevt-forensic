@@ -40,11 +40,7 @@ pub fn detect_explorer_lolbin(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                 .iter()
                 .find(|&&lol| lol.eq_ignore_ascii_case(&img_base))?;
             let parent = parent_image(ev);
-            let cmdline = ev
-                .data
-                .get("CommandLine")
-                .map(String::as_str)
-                .unwrap_or("");
+            let cmdline = ev.data.get("CommandLine").map(String::as_str).unwrap_or("");
             Some(EvtxDetection {
                 kind: EvtxDetectionKind::ExplorerLolbinExecution,
                 mitre_technique_id: "T1204.002",
@@ -72,7 +68,9 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 fn image(ev: &EvtxEvent) -> &str {
@@ -163,7 +161,10 @@ mod tests {
             &[
                 ("Image", "C:\\Windows\\System32\\rundll32.exe"),
                 ("ParentImage", "C:\\Windows\\System32\\svchost.exe"),
-                ("CommandLine", "rundll32.exe shell32.dll,SHCreateLocalServerRunDll"),
+                (
+                    "CommandLine",
+                    "rundll32.exe shell32.dll,SHCreateLocalServerRunDll",
+                ),
             ],
         );
         assert!(detect_explorer_lolbin(&[ev]).is_empty());

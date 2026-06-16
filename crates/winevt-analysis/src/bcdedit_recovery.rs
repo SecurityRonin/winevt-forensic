@@ -63,7 +63,9 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 #[cfg(test)]
@@ -93,8 +95,7 @@ mod tests {
 
     #[test]
     fn bootstatuspolicy_ignoreallfailures_detected() {
-        let ev =
-            bcdedit_event("bcdedit.exe /set {default} bootstatuspolicy ignoreallfailures");
+        let ev = bcdedit_event("bcdedit.exe /set {default} bootstatuspolicy ignoreallfailures");
         assert!(!detect_bcdedit_recovery(&[ev]).is_empty());
     }
 

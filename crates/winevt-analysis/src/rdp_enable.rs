@@ -21,7 +21,11 @@ pub fn detect_rdp_enable(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
         .iter()
         .filter(|ev| ev.event_id == EID_SYSMON_REGISTRY_MODIFY && ev.channel == SYSMON_CHANNEL)
         .filter_map(|ev| {
-            let target = ev.data.get("TargetObject").map(String::as_str).unwrap_or("");
+            let target = ev
+                .data
+                .get("TargetObject")
+                .map(String::as_str)
+                .unwrap_or("");
             if !target.contains(RDP_FDENYTSC_KEY_FRAGMENT) {
                 return None;
             }
@@ -39,9 +43,7 @@ pub fn detect_rdp_enable(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                 kind: EvtxDetectionKind::RdpEnabled,
                 mitre_technique_id: "T1021.001",
                 tactic: "Lateral Movement",
-                description: format!(
-                    "RDP enabled via registry: '{target}' set to '{details}'"
-                ),
+                description: format!("RDP enabled via registry: '{target}' set to '{details}'"),
                 evidence: vec![
                     format!("TargetObject={target}"),
                     format!("Details={details}"),

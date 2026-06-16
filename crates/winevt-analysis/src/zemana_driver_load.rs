@@ -53,7 +53,10 @@ fn is_zemana_signed(ev: &winevt_core::EvtxEvent) -> bool {
         && ev
             .data
             .get("Hashes")
-            .map(|h| h.to_uppercase().contains(&ZEMANA_SIGNER_THUMBPRINT.to_uppercase()))
+            .map(|h| {
+                h.to_uppercase()
+                    .contains(&ZEMANA_SIGNER_THUMBPRINT.to_uppercase())
+            })
             .unwrap_or(false)
 }
 
@@ -98,7 +101,10 @@ mod tests {
             EID_SYSMON_DRIVER_LOAD,
             SYSMON_CHANNEL,
             &[
-                ("ImageLoaded", "C:\\Program Files\\Zemana\\AntiMalware\\zamguard64.sys"),
+                (
+                    "ImageLoaded",
+                    "C:\\Program Files\\Zemana\\AntiMalware\\zamguard64.sys",
+                ),
                 ("Signed", "true"),
                 ("SignatureStatus", "Valid"),
                 (

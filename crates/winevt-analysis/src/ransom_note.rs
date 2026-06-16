@@ -29,9 +29,7 @@ pub fn detect_ransom_note_creation(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                     kind: EvtxDetectionKind::RansomNoteCreated,
                     mitre_technique_id: "T1486",
                     tactic: "Impact",
-                    description: format!(
-                        "Ransom note created: '{path}' (matched '{matched}')"
-                    ),
+                    description: format!("Ransom note created: '{path}' (matched '{matched}')"),
                     evidence: vec![
                         format!("TargetFilename={path}"),
                         format!("matched_note={matched}"),
@@ -45,7 +43,9 @@ pub fn detect_ransom_note_creation(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 #[cfg(test)]

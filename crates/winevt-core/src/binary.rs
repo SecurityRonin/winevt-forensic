@@ -285,8 +285,6 @@ impl IntegrityAnomaly {
     }
 }
 
-
-
 impl IntegrityAnomaly {
     /// Stable, scheme-prefixed machine code for this anomaly.
     #[must_use]
@@ -344,11 +342,14 @@ mod tests {
 
     #[test]
     fn constants_match_forensicnomicon() {
-        assert_eq!(ELFFILE_MAGIC,        forensicnomicon::evtx::ELFFILE_MAGIC);
-        assert_eq!(ELFCHNK_MAGIC,        forensicnomicon::evtx::ELFCHNK_MAGIC);
-        assert_eq!(RECORD_MAGIC,         forensicnomicon::evtx::RECORD_MAGIC);
-        assert_eq!(CHUNK_SIZE,           forensicnomicon::evtx::CHUNK_SIZE);
-        assert_eq!(CHUNK_RECORDS_OFFSET, forensicnomicon::evtx::CHUNK_RECORDS_OFFSET);
+        assert_eq!(ELFFILE_MAGIC, forensicnomicon::evtx::ELFFILE_MAGIC);
+        assert_eq!(ELFCHNK_MAGIC, forensicnomicon::evtx::ELFCHNK_MAGIC);
+        assert_eq!(RECORD_MAGIC, forensicnomicon::evtx::RECORD_MAGIC);
+        assert_eq!(CHUNK_SIZE, forensicnomicon::evtx::CHUNK_SIZE);
+        assert_eq!(
+            CHUNK_RECORDS_OFFSET,
+            forensicnomicon::evtx::CHUNK_RECORDS_OFFSET
+        );
     }
 
     // ── Severity ordering ────────────────────────────────────────────────────
@@ -478,7 +479,10 @@ mod tests {
 
     #[test]
     fn severity_file_not_cleanly_shutdown_is_warning() {
-        assert_eq!(IntegrityAnomaly::FileNotCleanlyShutdown.severity(), Severity::Medium);
+        assert_eq!(
+            IntegrityAnomaly::FileNotCleanlyShutdown.severity(),
+            Severity::Medium
+        );
     }
 
     #[test]
@@ -488,14 +492,20 @@ mod tests {
 
     #[test]
     fn severity_checksum_mismatch_is_warning() {
-        assert_eq!(IntegrityAnomaly::ChecksumMismatch.severity(), Severity::Medium);
+        assert_eq!(
+            IntegrityAnomaly::ChecksumMismatch.severity(),
+            Severity::Medium
+        );
     }
 
     // ── New variants: existence + Debug serialisation + severity ─────────────
 
     #[test]
     fn trailing_data_exists_and_debug() {
-        let a = IntegrityAnomaly::TrailingData { offset: 65536, len: 128 };
+        let a = IntegrityAnomaly::TrailingData {
+            offset: 65536,
+            len: 128,
+        };
         let s = format!("{a:?}");
         assert!(s.contains("TrailingData"));
     }
@@ -508,27 +518,39 @@ mod tests {
 
     #[test]
     fn truncated_file_exists_and_debug() {
-        let a = IntegrityAnomaly::TruncatedFile { declared_chunks: 10, found_chunks: 7 };
+        let a = IntegrityAnomaly::TruncatedFile {
+            declared_chunks: 10,
+            found_chunks: 7,
+        };
         let s = format!("{a:?}");
         assert!(s.contains("TruncatedFile"));
     }
 
     #[test]
     fn truncated_file_severity_is_error() {
-        let a = IntegrityAnomaly::TruncatedFile { declared_chunks: 10, found_chunks: 7 };
+        let a = IntegrityAnomaly::TruncatedFile {
+            declared_chunks: 10,
+            found_chunks: 7,
+        };
         assert_eq!(a.severity(), Severity::High);
     }
 
     #[test]
     fn overlapping_chunks_exists_and_debug() {
-        let a = IntegrityAnomaly::OverlappingChunks { chunk_a_offset: 512, chunk_b_offset: 1024 };
+        let a = IntegrityAnomaly::OverlappingChunks {
+            chunk_a_offset: 512,
+            chunk_b_offset: 1024,
+        };
         let s = format!("{a:?}");
         assert!(s.contains("OverlappingChunks"));
     }
 
     #[test]
     fn overlapping_chunks_severity_is_error() {
-        let a = IntegrityAnomaly::OverlappingChunks { chunk_a_offset: 0, chunk_b_offset: 512 };
+        let a = IntegrityAnomaly::OverlappingChunks {
+            chunk_a_offset: 0,
+            chunk_b_offset: 512,
+        };
         assert_eq!(a.severity(), Severity::High);
     }
 }

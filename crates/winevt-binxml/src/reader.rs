@@ -182,4 +182,3 @@ mod tests {
         assert!(decode_file(&data).is_empty());
     }
 }
-

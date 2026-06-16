@@ -26,17 +26,13 @@ pub fn detect_hvci_registry_tamper(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
             let key_matches = HVCI_REGISTRY_KEY_PATHS
                 .iter()
                 .any(|&frag| key.contains(frag));
-            let value_matches = HVCI_REGISTRY_VALUE_NAMES
-                .iter()
-                .any(|&v| value == v);
+            let value_matches = HVCI_REGISTRY_VALUE_NAMES.iter().any(|&v| value == v);
             if key_matches && value_matches {
                 Some(EvtxDetection {
                     kind: EvtxDetectionKind::HvciRegistryTamper,
                     mitre_technique_id: "T1562.001",
                     tactic: "Defense Evasion",
-                    description: format!(
-                        "HVCI/VBS registry value modified: '{value}' at '{key}'"
-                    ),
+                    description: format!("HVCI/VBS registry value modified: '{value}' at '{key}'"),
                     evidence: vec![
                         format!("ObjectName={key}"),
                         format!("ObjectValueName={value}"),
@@ -92,7 +88,10 @@ mod tests {
             EID_REGISTRY_VALUE_SET,
             "Security",
             &[
-                ("ObjectName", "\\REGISTRY\\MACHINE\\SOFTWARE\\Microsoft\\Windows\\Run"),
+                (
+                    "ObjectName",
+                    "\\REGISTRY\\MACHINE\\SOFTWARE\\Microsoft\\Windows\\Run",
+                ),
                 ("ObjectValueName", "SomeApp"),
             ],
         );

@@ -22,8 +22,7 @@ pub fn detect_qwcrypt_process(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
         .iter()
         .filter(|ev| {
             (ev.event_id == EID_PROCESS_CREATED && ev.channel == "Security")
-                || (ev.event_id == EID_SYSMON_PROCESS_CREATE
-                    && ev.channel.contains("Sysmon"))
+                || (ev.event_id == EID_SYSMON_PROCESS_CREATE && ev.channel.contains("Sysmon"))
         })
         .filter_map(|ev| {
             let path = ev
@@ -38,13 +37,8 @@ pub fn detect_qwcrypt_process(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                     kind: EvtxDetectionKind::QwcryptProcessExecution,
                     mitre_technique_id: "T1486",
                     tactic: "Impact",
-                    description: format!(
-                        "QWCrypt/RedCurl binary executed: '{base}'"
-                    ),
-                    evidence: vec![
-                        format!("process={path}"),
-                        format!("matched_ioc={ioc}"),
-                    ],
+                    description: format!("QWCrypt/RedCurl binary executed: '{base}'"),
+                    evidence: vec![format!("process={path}"), format!("matched_ioc={ioc}")],
                     timestamp_ns: ev.timestamp_ns,
                     event_id: ev.event_id,
                     channel: ev.channel.clone(),
@@ -54,7 +48,9 @@ pub fn detect_qwcrypt_process(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 #[cfg(test)]
@@ -67,7 +63,10 @@ mod tests {
         let ev = make_event(
             EID_PROCESS_CREATED,
             "Security",
-            &[("NewProcessName", "C:\\Users\\victim\\AppData\\Local\\Temp\\rbcw.exe")],
+            &[(
+                "NewProcessName",
+                "C:\\Users\\victim\\AppData\\Local\\Temp\\rbcw.exe",
+            )],
         );
         let hits = detect_qwcrypt_process(&[ev]);
         assert!(!hits.is_empty());
@@ -80,7 +79,10 @@ mod tests {
         let ev = make_event(
             EID_PROCESS_CREATED,
             "Security",
-            &[("NewProcessName", "C:\\Windows\\Temp\\ADNotificationManager.exe")],
+            &[(
+                "NewProcessName",
+                "C:\\Windows\\Temp\\ADNotificationManager.exe",
+            )],
         );
         assert!(!detect_qwcrypt_process(&[ev]).is_empty());
     }

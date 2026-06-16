@@ -48,7 +48,7 @@ impl WinevtIntegrity {
         let start = if file_header.is_some() { 4096 } else { 0 };
 
         let mut chunks: Vec<(u64, EvtxChunkHeader)> = Vec::new(); // (offset, header)
-        // (record_id, chunk_offset, header_timestamp) for export-corruption detection
+                                                                  // (record_id, chunk_offset, header_timestamp) for export-corruption detection
         let mut all_records_export: Vec<(u64, u64, u64)> = Vec::new();
         // (record_id, timestamp_ns as i64) for phantom detection
         let mut all_records_phantom: Vec<(u64, i64)> = Vec::new();
@@ -112,8 +112,7 @@ impl WinevtIntegrity {
                         }
                         rec_pairs.push((rhdr.record_id, rhdr.timestamp));
                         all_records_export.push((rhdr.record_id, chunk_offset, rhdr.timestamp));
-                        all_records_phantom
-                            .push((rhdr.record_id, rhdr.timestamp as i64));
+                        all_records_phantom.push((rhdr.record_id, rhdr.timestamp as i64));
                         pos += sz;
                     } else {
                         break;
@@ -160,7 +159,9 @@ impl WinevtIntegrity {
 
         // Phantom record injection — convert suspicious PhantomAlerts to IntegrityAnomaly
         all_records_phantom.sort_by_key(|&(id, _)| id);
-        out.extend(phantom_alerts_to_anomalies(&detect_phantom_records(&all_records_phantom)));
+        out.extend(phantom_alerts_to_anomalies(&detect_phantom_records(
+            &all_records_phantom,
+        )));
 
         // ── Dedup + sort by severity descending ───────────────────────────────
         // Use Debug repr for dedup (IntegrityAnomaly derives Debug).
@@ -345,7 +346,10 @@ pub fn check_log_file_guid_consistency(guids: &[[u8; 16]]) -> Vec<IntegrityAnoma
         return vec![];
     }
     let first = guids[0];
-    guids.iter().enumerate().skip(1)
+    guids
+        .iter()
+        .enumerate()
+        .skip(1)
         .filter(|(_, g)| **g != first)
         .map(|(i, g)| IntegrityAnomaly::LogFileGuidMismatch {
             chunk_index: i,
@@ -1020,14 +1024,20 @@ mod tests {
     fn chunk_data_length_too_small_returns_indicator() {
         let v = check_chunk_data_length(256);
         assert_eq!(v.len(), 1, "length 256 is below minimum 512");
-        assert!(matches!(&v[0], IntegrityAnomaly::InvalidChunkDataLength(256)));
+        assert!(matches!(
+            &v[0],
+            IntegrityAnomaly::InvalidChunkDataLength(256)
+        ));
     }
 
     #[test]
     fn chunk_data_length_too_large_returns_indicator() {
         let v = check_chunk_data_length(65537);
         assert_eq!(v.len(), 1, "length 65537 is above maximum 65536");
-        assert!(matches!(&v[0], IntegrityAnomaly::InvalidChunkDataLength(65537)));
+        assert!(matches!(
+            &v[0],
+            IntegrityAnomaly::InvalidChunkDataLength(65537)
+        ));
     }
 
     #[test]
@@ -1063,8 +1073,12 @@ mod tests {
         let v = check_log_file_guid_consistency(&guids);
         assert_eq!(v.len(), 1, "one mismatch expected; got {:?}", v);
         assert!(
-            matches!(&v[0], IntegrityAnomaly::LogFileGuidMismatch { chunk_index: 2, .. }),
-            "mismatch should be at chunk_index 2; got {:?}", v
+            matches!(
+                &v[0],
+                IntegrityAnomaly::LogFileGuidMismatch { chunk_index: 2, .. }
+            ),
+            "mismatch should be at chunk_index 2; got {:?}",
+            v
         );
     }
 
@@ -1075,7 +1089,12 @@ mod tests {
         let g3 = [0x03u8; 16];
         let guids = vec![g1, g2, g3];
         let v = check_log_file_guid_consistency(&guids);
-        assert_eq!(v.len(), 2, "chunks 1 and 2 differ from chunk 0; got {:?}", v);
+        assert_eq!(
+            v.len(),
+            2,
+            "chunks 1 and 2 differ from chunk 0; got {:?}",
+            v
+        );
     }
 
     // ── §3: detect_phantom_records ────────────────────────────────────────────
@@ -1103,7 +1122,10 @@ mod tests {
         let records: &[(u64, i64)] = &[(1, 1_000_000), (2, 2_000_000), (10, 3_000_000)];
         let alerts = detect_phantom_records(records);
         assert_eq!(alerts.len(), 1, "one gap expected; got {:?}", alerts);
-        assert!(alerts[0].suspicious, "timestamp doesn't explain the gap → suspicious");
+        assert!(
+            alerts[0].suspicious,
+            "timestamp doesn't explain the gap → suspicious"
+        );
         assert_eq!(alerts[0].gap_start_id, 3, "gap starts at 3 (next after 2)");
         assert_eq!(alerts[0].gap_end_id, 9, "gap ends at 9 (just before 10)");
     }
@@ -1120,16 +1142,22 @@ mod tests {
         // Two gaps: 2..9 (no time gap → suspicious) and 11..19 (large time gap → not suspicious)
         let suspicious_count = alerts.iter().filter(|a| a.suspicious).count();
         let not_suspicious_count = alerts.iter().filter(|a| !a.suspicious).count();
-        assert!(suspicious_count >= 1, "gap 2..9 has no time gap → suspicious");
-        assert!(not_suspicious_count >= 1, "gap 11..19 has large time gap → not suspicious");
+        assert!(
+            suspicious_count >= 1,
+            "gap 2..9 has no time gap → suspicious"
+        );
+        assert!(
+            not_suspicious_count >= 1,
+            "gap 11..19 has large time gap → not suspicious"
+        );
     }
 
     #[test]
     fn phantom_no_alerts_on_contiguous_records_with_time_gaps() {
         let records: &[(u64, i64)] = &[
             (1, 0),
-            (2, 60_000_000_000),   // 60s gap
-            (3, 120_000_000_000),  // 60s gap
+            (2, 60_000_000_000),  // 60s gap
+            (3, 120_000_000_000), // 60s gap
         ];
         assert!(detect_phantom_records(records).is_empty());
     }

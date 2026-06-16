@@ -10,7 +10,7 @@
     clippy::doc_markdown,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::must_use_candidate,
+    clippy::must_use_candidate
 )]
 
 pub mod adexplorer_recon;
@@ -248,7 +248,9 @@ mod tests {
     fn detect_all_byovd_event_detected() {
         let ev = make_event(7045, "System", &[("ServiceName", "zamguard64")]);
         let hits = detect_all(&[ev]);
-        assert!(hits.iter().any(|h| h.kind == EvtxDetectionKind::ByovdDriverInstall));
+        assert!(hits
+            .iter()
+            .any(|h| h.kind == EvtxDetectionKind::ByovdDriverInstall));
     }
 
     #[test]

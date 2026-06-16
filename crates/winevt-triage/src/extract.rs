@@ -3,7 +3,7 @@
 use std::io::{Read, Seek, Write};
 use std::path::Path;
 
-use crate::{ExtractedEvtx, TriageError, TriageReport, partition::PartitionReader};
+use crate::{partition::PartitionReader, ExtractedEvtx, TriageError, TriageReport};
 
 const SECTOR_SIZE: u64 = 512;
 const EVTX_LOGS_PATH: &[&str] = &["Windows", "System32", "winevt", "Logs"];
@@ -19,8 +19,7 @@ pub(crate) fn run(e01_path: &Path, out_dir: &Path) -> Result<TriageReport, Triag
     };
 
     // 2. Open E01 for NTFS traversal — EwfReader implements Read + Seek.
-    let reader =
-        ewf::EwfReader::open(e01_path).map_err(|e| TriageError::Ewf(e.to_string()))?;
+    let reader = ewf::EwfReader::open(e01_path).map_err(|e| TriageError::Ewf(e.to_string()))?;
 
     // 3. Wrap reader so the ntfs crate sees the NTFS volume at position 0.
     let mut part = PartitionReader::new(reader, ntfs_offset_sectors * SECTOR_SIZE)?;
@@ -86,8 +85,12 @@ where
 
     while let Some(entry) = iter.next(fs) {
         let entry = entry.map_err(|e| TriageError::Ntfs(e.to_string()))?;
-        let Some(Ok(fname)) = entry.key() else { continue };
-        let Ok(fname_str) = fname.name().to_string() else { continue };
+        let Some(Ok(fname)) = entry.key() else {
+            continue;
+        };
+        let Ok(fname_str) = fname.name().to_string() else {
+            continue;
+        };
         if fname_str.eq_ignore_ascii_case(name) {
             let file = entry
                 .to_file(ntfs, fs)
@@ -122,8 +125,12 @@ where
 
         while let Some(entry) = iter.next(fs) {
             let entry = entry.map_err(|e| TriageError::Ntfs(e.to_string()))?;
-            let Some(Ok(fname)) = entry.key() else { continue };
-            let Ok(name) = fname.name().to_string() else { continue };
+            let Some(Ok(fname)) = entry.key() else {
+                continue;
+            };
+            let Ok(name) = fname.name().to_string() else {
+                continue;
+            };
             if name.to_ascii_lowercase().ends_with(".evtx") {
                 let file = entry
                     .to_file(ntfs, fs)
@@ -142,7 +149,11 @@ where
             .map_err(|e| TriageError::Ntfs(e.to_string()))?;
         let out_path = out_dir.join(&name);
         let size = stream_file_data(fs, &file, &out_path)?;
-        extracted.push(ExtractedEvtx { name, path: out_path, size });
+        extracted.push(ExtractedEvtx {
+            name,
+            path: out_path,
+            size,
+        });
     }
     Ok(extracted)
 }

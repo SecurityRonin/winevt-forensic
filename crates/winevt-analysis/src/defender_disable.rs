@@ -28,7 +28,10 @@ pub fn detect_defender_disable(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                     .get("ScriptBlockText")
                     .map(String::as_str)
                     .unwrap_or("");
-                if let Some(&pat) = DEFENDER_TAMPER_PATTERNS.iter().find(|&&p| script.contains(p)) {
+                if let Some(&pat) = DEFENDER_TAMPER_PATTERNS
+                    .iter()
+                    .find(|&&p| script.contains(p))
+                {
                     return Some(EvtxDetection {
                         kind: EvtxDetectionKind::DefenderDisabled,
                         mitre_technique_id: "T1562.001",
@@ -55,7 +58,8 @@ pub fn detect_defender_disable(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                     kind: EvtxDetectionKind::DefenderDisabled,
                     mitre_technique_id: "T1562.001",
                     tactic: "Defense Evasion",
-                    description: "Windows Defender real-time protection was disabled (EID 5001)".to_string(),
+                    description: "Windows Defender real-time protection was disabled (EID 5001)"
+                        .to_string(),
                     evidence: vec![
                         format!("event_id={}", ev.event_id),
                         format!("channel={}", ev.channel),
@@ -152,6 +156,8 @@ mod tests {
         let hits = detect_defender_disable(&[ev]);
         assert!(!hits.is_empty());
         let combined = hits[0].evidence.join(" ");
-        assert!(combined.contains("DisableRealtimeMonitoring") || combined.contains("MpPreference"));
+        assert!(
+            combined.contains("DisableRealtimeMonitoring") || combined.contains("MpPreference")
+        );
     }
 }

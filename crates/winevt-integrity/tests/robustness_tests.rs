@@ -10,8 +10,14 @@ fn analyse_empty_buffer_returns_truncated_file() {
         !anomalies.is_empty(),
         "empty buffer must produce at least one anomaly"
     );
-    let has_truncated = anomalies.iter().any(|a| matches!(a, IntegrityAnomaly::TruncatedFile { .. }));
-    assert!(has_truncated, "empty buffer must produce TruncatedFile; got {:?}", anomalies);
+    let has_truncated = anomalies
+        .iter()
+        .any(|a| matches!(a, IntegrityAnomaly::TruncatedFile { .. }));
+    assert!(
+        has_truncated,
+        "empty buffer must produce TruncatedFile; got {:?}",
+        anomalies
+    );
 }
 
 #[test]
@@ -22,14 +28,22 @@ fn analyse_sub_128_buffer_returns_truncated_file() {
         !anomalies.is_empty(),
         "buffer < 128 bytes must produce at least one anomaly"
     );
-    let has_truncated = anomalies.iter().any(|a| matches!(a, IntegrityAnomaly::TruncatedFile { .. }));
-    assert!(has_truncated, "buffer < 128 bytes must produce TruncatedFile; got {:?}", anomalies);
+    let has_truncated = anomalies
+        .iter()
+        .any(|a| matches!(a, IntegrityAnomaly::TruncatedFile { .. }));
+    assert!(
+        has_truncated,
+        "buffer < 128 bytes must produce TruncatedFile; got {:?}",
+        anomalies
+    );
 }
 
 #[test]
 fn analyse_truncated_anomaly_is_error_severity() {
     let anomalies = WinevtIntegrity::analyse(&[]);
-    let truncated = anomalies.iter().find(|a| matches!(a, IntegrityAnomaly::TruncatedFile { .. }));
+    let truncated = anomalies
+        .iter()
+        .find(|a| matches!(a, IntegrityAnomaly::TruncatedFile { .. }));
     let a = truncated.expect("TruncatedFile must be present");
     assert_eq!(a.severity(), Severity::High);
 }
@@ -57,8 +71,14 @@ fn analyse_detects_empty_log_when_chunk_count_zero() {
     buf[0..8].copy_from_slice(&ELFFILE_MAGIC);
     // chunk_count at bytes [42..44] — leave as 0 (already zero-initialised)
     let anomalies = WinevtIntegrity::analyse(&buf);
-    let has_empty_log = anomalies.iter().any(|a| matches!(a, IntegrityAnomaly::EmptyLog));
-    assert!(has_empty_log, "zero chunk_count must produce EmptyLog; got {:?}", anomalies);
+    let has_empty_log = anomalies
+        .iter()
+        .any(|a| matches!(a, IntegrityAnomaly::EmptyLog));
+    assert!(
+        has_empty_log,
+        "zero chunk_count must produce EmptyLog; got {:?}",
+        anomalies
+    );
 }
 
 // ── PhantomRecordInjection ────────────────────────────────────────────────────
@@ -96,8 +116,11 @@ fn suspicious_phantom_alerts_convert_to_phantom_record_injection() {
 
     let anomalies = phantom_alerts_to_anomalies(&alerts);
     assert!(
-        anomalies.iter().any(|a| matches!(a, IntegrityAnomaly::PhantomRecordInjection { .. })),
-        "suspicious alerts must produce PhantomRecordInjection; got {:?}", anomalies
+        anomalies
+            .iter()
+            .any(|a| matches!(a, IntegrityAnomaly::PhantomRecordInjection { .. })),
+        "suspicious alerts must produce PhantomRecordInjection; got {:?}",
+        anomalies
     );
 }
 
@@ -108,7 +131,9 @@ fn benign_gap_does_not_produce_phantom_record_injection() {
     let alerts = detect_phantom_records(&records);
     let anomalies = phantom_alerts_to_anomalies(&alerts);
     assert!(
-        !anomalies.iter().any(|a| matches!(a, IntegrityAnomaly::PhantomRecordInjection { .. })),
+        !anomalies
+            .iter()
+            .any(|a| matches!(a, IntegrityAnomaly::PhantomRecordInjection { .. })),
         "benign gap must not produce PhantomRecordInjection"
     );
 }

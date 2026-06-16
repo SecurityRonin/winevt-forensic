@@ -248,7 +248,10 @@ fn collect_data_field(value: &serde_json::Value, out: &mut BTreeMap<String, Stri
 fn insert_data_item(index: usize, item: &serde_json::Value, out: &mut BTreeMap<String, String>) {
     if let serde_json::Value::Object(obj) = item {
         if let Some(name) = obj.get("@Name").and_then(serde_json::Value::as_str) {
-            let val = obj.get("#text").and_then(scalar_to_string).unwrap_or_default();
+            let val = obj
+                .get("#text")
+                .and_then(scalar_to_string)
+                .unwrap_or_default();
             out.insert(name.to_string(), val);
         } else {
             collect_fields(item, out);
@@ -481,7 +484,10 @@ pub fn sessions_multi(paths: &[&Path]) -> Result<Vec<LogonSession>, AnalyzeError
             Ok(mut parser) => {
                 any_ok = true;
                 for result in parser.records_json_value() {
-                    let record = match result { Ok(r) => r, Err(_) => continue };
+                    let record = match result {
+                        Ok(r) => r,
+                        Err(_) => continue,
+                    };
                     let system = record.data.get("Event").and_then(|e| e.get("System"));
                     let event_id = match system.and_then(event_id_from_system) {
                         Some(id) if matches!(id, 4624 | 4634 | 4647) => id,
@@ -519,18 +525,30 @@ pub fn sessions_multi(paths: &[&Path]) -> Result<Vec<LogonSession>, AnalyzeError
         };
         match raw.event_id {
             4624 => {
-                let logon_id = event_data_str(ed, "TargetLogonId").unwrap_or("-").to_owned();
-                let username  = event_data_str(ed, "TargetUserName").unwrap_or("-").to_owned();
-                let domain    = event_data_str(ed, "TargetDomainName").unwrap_or("-").to_owned();
+                let logon_id = event_data_str(ed, "TargetLogonId")
+                    .unwrap_or("-")
+                    .to_owned();
+                let username = event_data_str(ed, "TargetUserName")
+                    .unwrap_or("-")
+                    .to_owned();
+                let domain = event_data_str(ed, "TargetDomainName")
+                    .unwrap_or("-")
+                    .to_owned();
                 let logon_type = event_data_str(ed, "LogonType")
-                    .and_then(|s| s.parse().ok()).unwrap_or(0);
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
                 let ip_address = event_data_str(ed, "IpAddress")
                     .map(str::to_owned)
                     .filter(|ip| ip != "-" && !ip.is_empty());
                 let session = LogonSession {
-                    logon_id: logon_id.clone(), username, domain, logon_type,
-                    ip_address, logon_time: Some(raw.timestamp.clone()),
-                    logoff_time: None, duration_secs: None,
+                    logon_id: logon_id.clone(),
+                    username,
+                    domain,
+                    logon_type,
+                    ip_address,
+                    logon_time: Some(raw.timestamp.clone()),
+                    logoff_time: None,
+                    duration_secs: None,
                 };
                 if !open.contains_key(&logon_id) {
                     insertion_order.push(logon_id.clone());
@@ -544,9 +562,10 @@ pub fn sessions_multi(paths: &[&Path]) -> Result<Vec<LogonSession>, AnalyzeError
                 };
                 if let Some(mut session) = open.remove(&logon_id) {
                     session.logoff_time = Some(raw.timestamp.clone());
-                    if let (Some(logon), Some(logoff)) =
-                        (session.logon_time.as_deref(), session.logoff_time.as_deref())
-                    {
+                    if let (Some(logon), Some(logoff)) = (
+                        session.logon_time.as_deref(),
+                        session.logoff_time.as_deref(),
+                    ) {
                         if let (Ok(t0), Ok(t1)) = (
                             logon.parse::<jiff::Timestamp>(),
                             logoff.parse::<jiff::Timestamp>(),
@@ -584,9 +603,12 @@ pub fn logon_graph_multi(paths: &[&Path]) -> Result<LogonGraph, AnalyzeError> {
 
     for &path in paths {
         if let Ok(g) = logon_graph(path) {
-            for node in g.nodes { node_set.insert(node); }
+            for node in g.nodes {
+                node_set.insert(node);
+            }
             for edge in g.edges {
-                *edge_map.entry((edge.source, edge.target, edge.logon_type))
+                *edge_map
+                    .entry((edge.source, edge.target, edge.logon_type))
                     .or_insert(0) += edge.count;
             }
         }
@@ -594,8 +616,14 @@ pub fn logon_graph_multi(paths: &[&Path]) -> Result<LogonGraph, AnalyzeError> {
 
     let mut nodes: Vec<String> = node_set.into_iter().collect();
     nodes.sort();
-    let mut edges: Vec<LogonEdge> = edge_map.into_iter()
-        .map(|((source, target, logon_type), count)| LogonEdge { source, target, logon_type, count })
+    let mut edges: Vec<LogonEdge> = edge_map
+        .into_iter()
+        .map(|((source, target, logon_type), count)| LogonEdge {
+            source,
+            target,
+            logon_type,
+            count,
+        })
         .collect();
     edges.sort_by(|a, b| a.source.cmp(&b.source).then(a.target.cmp(&b.target)));
 
@@ -768,9 +796,8 @@ mod tests {
 
     #[test]
     fn extract_all_returns_evtx_events() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../tests/data/hayabusa-sample-evtx/DeepBlueCLI/new-user-creation.evtx",
-        );
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/hayabusa-sample-evtx/DeepBlueCLI/new-user-creation.evtx");
         if !path.exists() {
             eprintln!("SKIP: corpus file not found");
             return;
@@ -782,9 +809,8 @@ mod tests {
 
     #[test]
     fn extract_all_results_are_sorted_by_timestamp() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../tests/data/hayabusa-sample-evtx/DeepBlueCLI/new-user-creation.evtx",
-        );
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/data/hayabusa-sample-evtx/DeepBlueCLI/new-user-creation.evtx");
         if !path.exists() {
             eprintln!("SKIP: corpus file not found");
             return;
@@ -793,7 +819,10 @@ mod tests {
         let timestamps: Vec<&str> = events.iter().map(|e| e.timestamp()).collect();
         let mut sorted = timestamps.clone();
         sorted.sort_unstable();
-        assert_eq!(timestamps, sorted, "events must be in ascending timestamp order");
+        assert_eq!(
+            timestamps, sorted,
+            "events must be in ascending timestamp order"
+        );
     }
 
     #[test]
@@ -1043,9 +1072,18 @@ mod tests {
             }}
         });
         let m = flatten_event_data(&rec);
-        assert_eq!(m.get("Image").map(String::as_str), Some("C:\\Windows\\Temp\\evil.exe"));
-        assert_eq!(m.get("CommandLine").map(String::as_str), Some("evil.exe -enc AAAA"));
-        assert_eq!(m.get("ParentImage").map(String::as_str), Some("C:\\Windows\\System32\\services.exe"));
+        assert_eq!(
+            m.get("Image").map(String::as_str),
+            Some("C:\\Windows\\Temp\\evil.exe")
+        );
+        assert_eq!(
+            m.get("CommandLine").map(String::as_str),
+            Some("evil.exe -enc AAAA")
+        );
+        assert_eq!(
+            m.get("ParentImage").map(String::as_str),
+            Some("C:\\Windows\\System32\\services.exe")
+        );
     }
 
     #[test]
@@ -1079,8 +1117,14 @@ mod tests {
             }}}
         });
         let m = flatten_event_data(&rec);
-        assert_eq!(m.get("PolicyName").map(String::as_str), Some("Script Rules"));
-        assert_eq!(m.get("FilePath").map(String::as_str), Some("%OSDRIVE%\\evil.ps1"));
+        assert_eq!(
+            m.get("PolicyName").map(String::as_str),
+            Some("Script Rules")
+        );
+        assert_eq!(
+            m.get("FilePath").map(String::as_str),
+            Some("%OSDRIVE%\\evil.ps1")
+        );
     }
 
     #[test]
@@ -1137,7 +1181,10 @@ mod tests {
             }}
         });
         let m = flatten_event_data(&rec);
-        assert!(!m.keys().any(|k| k.starts_with('@')), "top-level @attr must be skipped");
+        assert!(
+            !m.keys().any(|k| k.starts_with('@')),
+            "top-level @attr must be skipped"
+        );
         assert_eq!(m.get("ScalarList0").map(String::as_str), Some("x"));
         assert_eq!(m.get("ScalarList1").map(String::as_str), Some("y"));
         assert_eq!(m.get("SubField").map(String::as_str), Some("subval"));
@@ -1157,19 +1204,23 @@ mod tests {
     fn flatten_real_security_record_is_lossless() {
         // Doer-Checker: a real audit record must yield its account/subject fields.
         let path = require_foxitdata!("pre-Security.evtx");
-        let mut parser =
-            evtx::EvtxParser::from_path(&path).expect("open pre-Security.evtx");
+        let mut parser = evtx::EvtxParser::from_path(&path).expect("open pre-Security.evtx");
         let mut found = false;
         for r in parser.records_json_value() {
             let Ok(rec) = r else { continue };
             let m = flatten_event_data(&rec.data);
             // Any Security record with EventData should expose named account fields.
-            if m.keys().any(|k| k == "SubjectUserName" || k == "TargetUserName") {
+            if m.keys()
+                .any(|k| k == "SubjectUserName" || k == "TargetUserName")
+            {
                 found = true;
                 break;
             }
         }
-        assert!(found, "expected a real Security record to flatten account fields");
+        assert!(
+            found,
+            "expected a real Security record to flatten account fields"
+        );
     }
 }
 
@@ -1627,9 +1678,7 @@ fn value_contains_str(v: &serde_json::Value, query: &str) -> bool {
     match v {
         serde_json::Value::String(s) => s.to_ascii_lowercase().contains(query),
         serde_json::Value::Array(arr) => arr.iter().any(|item| value_contains_str(item, query)),
-        serde_json::Value::Object(map) => {
-            map.values().any(|val| value_contains_str(val, query))
-        }
+        serde_json::Value::Object(map) => map.values().any(|val| value_contains_str(val, query)),
         _ => false,
     }
 }
@@ -1659,8 +1708,8 @@ pub fn search(
     if !use_regex {
         return pivot(path, query);
     }
-    let re = regex::Regex::new(query)
-        .map_err(|e| AnalyzeError::Parse(format!("invalid regex: {e}")))?;
+    let re =
+        regex::Regex::new(query).map_err(|e| AnalyzeError::Parse(format!("invalid regex: {e}")))?;
     let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
     let mut parser =
         evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
@@ -1705,10 +1754,8 @@ pub fn search(
 pub fn diff(a: &Path, b: &Path) -> Result<EvtxDiff, AnalyzeError> {
     let entries_a = timeline(a)?;
     let entries_b = timeline(b)?;
-    let ids_a: std::collections::HashSet<u64> =
-        entries_a.iter().map(|e| e.record_id).collect();
-    let ids_b: std::collections::HashSet<u64> =
-        entries_b.iter().map(|e| e.record_id).collect();
+    let ids_a: std::collections::HashSet<u64> = entries_a.iter().map(|e| e.record_id).collect();
+    let ids_b: std::collections::HashSet<u64> = entries_b.iter().map(|e| e.record_id).collect();
     let added = entries_b
         .into_iter()
         .filter(|e| !ids_a.contains(&e.record_id))
@@ -1749,7 +1796,9 @@ pub fn process_tree(path: &Path) -> Result<Vec<ProcessNode>, AnalyzeError> {
             let ppid = event_data_str(ed, "ProcessId")
                 .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
                 .unwrap_or(0);
-            let image = event_data_str(ed, "NewProcessName").unwrap_or("-").to_owned();
+            let image = event_data_str(ed, "NewProcessName")
+                .unwrap_or("-")
+                .to_owned();
             let cmdline = event_data_str(ed, "CommandLine").unwrap_or("").to_owned();
             (pid, ppid, image, cmdline)
         } else {
@@ -1827,8 +1876,9 @@ pub fn logon_graph(path: &Path) -> Result<LogonGraph, AnalyzeError> {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("-")
             .to_owned();
-        let workstation =
-            event_data_str(ed, "WorkstationName").unwrap_or("").to_owned();
+        let workstation = event_data_str(ed, "WorkstationName")
+            .unwrap_or("")
+            .to_owned();
         let ip = event_data_str(ed, "IpAddress").unwrap_or("").to_owned();
         let logon_type: u32 = event_data_str(ed, "LogonType")
             .and_then(|s| s.parse().ok())
@@ -1847,7 +1897,12 @@ pub fn logon_graph(path: &Path) -> Result<LogonGraph, AnalyzeError> {
     for ((source, target, logon_type), count) in edge_map {
         node_set.insert(source.clone());
         node_set.insert(target.clone());
-        edges.push(LogonEdge { source, target, logon_type, count });
+        edges.push(LogonEdge {
+            source,
+            target,
+            logon_type,
+            count,
+        });
     }
 
     let mut nodes: Vec<String> = node_set.into_iter().collect();
@@ -1888,7 +1943,9 @@ pub fn rare_processes(path: &Path, threshold: usize) -> Result<Vec<RareProcess>,
         if let Some(img) = image_opt {
             let img = img.to_owned();
             let ts = record.timestamp.to_string();
-            let entry = freq.entry(img).or_insert_with(|| (0, ts.clone(), ts.clone()));
+            let entry = freq
+                .entry(img)
+                .or_insert_with(|| (0, ts.clone(), ts.clone()));
             entry.0 += 1;
             if ts < entry.1 {
                 entry.1 = ts.clone();
@@ -1965,8 +2022,7 @@ pub fn hunt(path: &Path, name: &str) -> Result<Vec<TimelineEntry>, AnalyzeError>
             "dcsync" => ed
                 .map(|d| {
                     let access = event_data_str(d, "AccessMask").unwrap_or("");
-                    let obj_server =
-                        event_data_str(d, "ObjectServer").unwrap_or("");
+                    let obj_server = event_data_str(d, "ObjectServer").unwrap_or("");
                     obj_server.contains("Directory Service") || access.contains("0x100")
                 })
                 .unwrap_or(false),
@@ -2021,7 +2077,7 @@ pub fn hunt(path: &Path, name: &str) -> Result<Vec<TimelineEntry>, AnalyzeError>
 /// Windows PowerShell encodes commands as Base64 of UTF-16LE bytes.
 /// Returns `Some(decoded)` when detected, `None` for plain scripts.
 pub fn deobfuscate_ps(text: &str) -> Option<String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
 
     let flags = ["-encodedcommand", "-enc", "-ec", "-en"];
     let tokens: Vec<&str> = text.split_whitespace().collect();
@@ -2075,12 +2131,21 @@ pub fn anomaly(path: &Path, min_z: f64) -> Result<Vec<AnomalyEntry>, AnalyzeErro
             } else {
                 0.0
             };
-            AnomalyEntry { event_id: f.event_id, count: f.count, z_score: z }
+            AnomalyEntry {
+                event_id: f.event_id,
+                count: f.count,
+                z_score: z,
+            }
         })
         .filter(|e| e.z_score.abs() >= min_z)
         .collect();
 
-    entries.sort_by(|a, b| b.z_score.abs().partial_cmp(&a.z_score.abs()).unwrap_or(std::cmp::Ordering::Equal));
+    entries.sort_by(|a, b| {
+        b.z_score
+            .abs()
+            .partial_cmp(&a.z_score.abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     Ok(entries)
 }
 
@@ -2097,8 +2162,8 @@ pub struct FieldValue {
 /// returned frequency-ranked (most common first).
 pub fn extract_field(path: &Path, field: &str) -> Result<Vec<FieldValue>, AnalyzeError> {
     use std::collections::HashMap;
-    let mut parser = evtx::EvtxParser::from_path(path)
-        .map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
     let mut counts: HashMap<String, usize> = HashMap::new();
 
     for record in parser.records_json_value() {
@@ -2115,7 +2180,11 @@ pub fn extract_field(path: &Path, field: &str) -> Result<Vec<FieldValue>, Analyz
 }
 
 /// Recursively collect all string values of `field_name` from a JSON tree.
-fn collect_field_values(v: &serde_json::Value, field_name: &str, out: &mut std::collections::HashMap<String, usize>) {
+fn collect_field_values(
+    v: &serde_json::Value,
+    field_name: &str,
+    out: &mut std::collections::HashMap<String, usize>,
+) {
     match v {
         serde_json::Value::Object(map) => {
             for (k, val) in map {
@@ -2164,8 +2233,8 @@ pub fn lateral_movement(path: &Path) -> Result<Vec<LateralMovementEvent>, Analyz
         let ev = match event_id {
             4648 => {
                 // Explicit credential logon (RunAs / Pass-the-Hash indicator)
-                let logon_type = event_data_str(ed, "LogonType")
-                    .and_then(|s| s.parse::<u32>().ok());
+                let logon_type =
+                    event_data_str(ed, "LogonType").and_then(|s| s.parse::<u32>().ok());
                 LateralMovementEvent {
                     timestamp: record.timestamp.to_string(),
                     event_id,
@@ -2248,8 +2317,7 @@ pub fn rdp_sessions(path: &Path) -> Result<Vec<RdpSessionEvent>, AnalyzeError> {
             Some(e) => e,
             None => continue,
         };
-        let session_id = event_data_str(ed, "SessionID")
-            .and_then(|s| s.parse::<u32>().ok());
+        let session_id = event_data_str(ed, "SessionID").and_then(|s| s.parse::<u32>().ok());
         events.push(RdpSessionEvent {
             timestamp: record.timestamp.to_string(),
             event_id,
@@ -2391,8 +2459,7 @@ pub fn wmi_events(path: &Path) -> Result<Vec<WmiEvent>, AnalyzeError> {
                     .or_else(|| {
                         // Sysmon EID 19 (WmiEventFilter) and EID 21 use "Name"/"Filter"
                         if matches!(event_id, 19 | 21) {
-                            event_data_str(ed, "Name")
-                                .or_else(|| event_data_str(ed, "Filter"))
+                            event_data_str(ed, "Name").or_else(|| event_data_str(ed, "Filter"))
                         } else {
                             None
                         }
@@ -2403,8 +2470,7 @@ pub fn wmi_events(path: &Path) -> Result<Vec<WmiEvent>, AnalyzeError> {
                     .or_else(|| event_data_str(ed, "ConsumerName"))
                     .or_else(|| {
                         if matches!(event_id, 20 | 21) {
-                            event_data_str(ed, "Name")
-                                .or_else(|| event_data_str(ed, "Consumer"))
+                            event_data_str(ed, "Name").or_else(|| event_data_str(ed, "Consumer"))
                         } else {
                             None
                         }
@@ -2506,7 +2572,9 @@ pub fn process_cmdlines(path: &Path) -> Result<Vec<ProcessExecution>, AnalyzeErr
             None => continue,
         };
         let (image, command_line, pid, parent_pid, parent_image) = if event_id == 4688 {
-            let image = event_data_str(ed, "NewProcessName").unwrap_or("-").to_owned();
+            let image = event_data_str(ed, "NewProcessName")
+                .unwrap_or("-")
+                .to_owned();
             let cmdline = event_data_str(ed, "CommandLine").unwrap_or("").to_owned();
             let pid = event_data_str(ed, "NewProcessId")
                 .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
@@ -2904,7 +2972,10 @@ mod ioc_tests {
                 let system = r.data.get("Event").and_then(|e| e.get("System"));
                 if system.and_then(event_id_from_system) == Some(4104) {
                     let ed = r.data.get("Event").and_then(|e| e.get("EventData"));
-                    eprintln!("EID 4104 EventData: {}", serde_json::to_string_pretty(&ed).unwrap());
+                    eprintln!(
+                        "EID 4104 EventData: {}",
+                        serde_json::to_string_pretty(&ed).unwrap()
+                    );
                     return;
                 }
             }
@@ -2914,8 +2985,9 @@ mod ioc_tests {
 
     #[test]
     fn sysmon_eid1_eventdata_structure_dump() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/data/EVTX-ATTACK-SAMPLES/Execution/exec_sysmon_1_lolbin_pcalua.evtx");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../tests/data/EVTX-ATTACK-SAMPLES/Execution/exec_sysmon_1_lolbin_pcalua.evtx",
+        );
         if !path.exists() {
             eprintln!("SKIP: corpus file not found");
             return;
@@ -3024,51 +3096,51 @@ mod ioc_tests {
     // ── Type-contract tests: extraction functions must return forensicnomicon types ──
 
     #[allow(dead_code)]
-    fn _assert_lateral_movement_returns_forensicnomicon_type(p: &std::path::Path)
-        -> Result<Vec<forensicnomicon::evtx::LateralMovementEvent>, AnalyzeError>
-    {
+    fn _assert_lateral_movement_returns_forensicnomicon_type(
+        p: &std::path::Path,
+    ) -> Result<Vec<forensicnomicon::evtx::LateralMovementEvent>, AnalyzeError> {
         lateral_movement(p)
     }
 
     #[allow(dead_code)]
-    fn _assert_rdp_sessions_returns_forensicnomicon_type(p: &std::path::Path)
-        -> Result<Vec<forensicnomicon::evtx::RdpSessionEvent>, AnalyzeError>
-    {
+    fn _assert_rdp_sessions_returns_forensicnomicon_type(
+        p: &std::path::Path,
+    ) -> Result<Vec<forensicnomicon::evtx::RdpSessionEvent>, AnalyzeError> {
         rdp_sessions(p)
     }
 
     #[allow(dead_code)]
-    fn _assert_smb_access_returns_forensicnomicon_type(p: &std::path::Path)
-        -> Result<Vec<forensicnomicon::evtx::SmbAccessEvent>, AnalyzeError>
-    {
+    fn _assert_smb_access_returns_forensicnomicon_type(
+        p: &std::path::Path,
+    ) -> Result<Vec<forensicnomicon::evtx::SmbAccessEvent>, AnalyzeError> {
         smb_access(p)
     }
 
     #[allow(dead_code)]
-    fn _assert_defender_events_returns_forensicnomicon_type(p: &std::path::Path)
-        -> Result<Vec<forensicnomicon::evtx::DefenderEvent>, AnalyzeError>
-    {
+    fn _assert_defender_events_returns_forensicnomicon_type(
+        p: &std::path::Path,
+    ) -> Result<Vec<forensicnomicon::evtx::DefenderEvent>, AnalyzeError> {
         defender_events(p)
     }
 
     #[allow(dead_code)]
-    fn _assert_wmi_events_returns_forensicnomicon_type(p: &std::path::Path)
-        -> Result<Vec<forensicnomicon::evtx::WmiEvent>, AnalyzeError>
-    {
+    fn _assert_wmi_events_returns_forensicnomicon_type(
+        p: &std::path::Path,
+    ) -> Result<Vec<forensicnomicon::evtx::WmiEvent>, AnalyzeError> {
         wmi_events(p)
     }
 
     #[allow(dead_code)]
-    fn _assert_scheduled_tasks_returns_forensicnomicon_type(p: &std::path::Path)
-        -> Result<Vec<forensicnomicon::evtx::ScheduledTask>, AnalyzeError>
-    {
+    fn _assert_scheduled_tasks_returns_forensicnomicon_type(
+        p: &std::path::Path,
+    ) -> Result<Vec<forensicnomicon::evtx::ScheduledTask>, AnalyzeError> {
         scheduled_tasks(p)
     }
 
     #[allow(dead_code)]
-    fn _assert_process_cmdlines_returns_forensicnomicon_type(p: &std::path::Path)
-        -> Result<Vec<forensicnomicon::evtx::ProcessExecution>, AnalyzeError>
-    {
+    fn _assert_process_cmdlines_returns_forensicnomicon_type(
+        p: &std::path::Path,
+    ) -> Result<Vec<forensicnomicon::evtx::ProcessExecution>, AnalyzeError> {
         process_cmdlines(p)
     }
 
@@ -3092,27 +3164,38 @@ mod ioc_tests {
     fn sessions_multi_single_path_matches_sessions() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/data/fox-it-danderspritz/pre-Security.evtx");
-        if !path.exists() { return; }
+        if !path.exists() {
+            return;
+        }
         let single = sessions(&path).expect("sessions should succeed");
-        let multi  = sessions_multi(&[&path]).expect("sessions_multi should succeed");
-        assert_eq!(multi.len(), single.len(),
-            "sessions_multi with one path must equal sessions()");
+        let multi = sessions_multi(&[&path]).expect("sessions_multi should succeed");
+        assert_eq!(
+            multi.len(),
+            single.len(),
+            "sessions_multi with one path must equal sessions()"
+        );
     }
 
     #[test]
     fn sessions_multi_two_files_has_at_least_as_many_as_either_alone() {
-        let pre  = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        let pre = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/data/fox-it-danderspritz/pre-Security.evtx");
         let post = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/data/fox-it-danderspritz/post-Security.evtx");
-        if !pre.exists() || !post.exists() { return; }
-        let n_pre  = sessions(&pre).unwrap().len();
+        if !pre.exists() || !post.exists() {
+            return;
+        }
+        let n_pre = sessions(&pre).unwrap().len();
         let n_post = sessions(&post).unwrap().len();
-        let multi  = sessions_multi(&[&pre, &post]).expect("sessions_multi must succeed");
-        assert!(multi.len() >= n_pre.max(n_post),
-            "cross-file correlation must yield at least as many sessions as the larger file alone");
-        assert!(multi.len() <= n_pre + n_post,
-            "cross-file correlation must not invent sessions (upper bound)");
+        let multi = sessions_multi(&[&pre, &post]).expect("sessions_multi must succeed");
+        assert!(
+            multi.len() >= n_pre.max(n_post),
+            "cross-file correlation must yield at least as many sessions as the larger file alone"
+        );
+        assert!(
+            multi.len() <= n_pre + n_post,
+            "cross-file correlation must not invent sessions (upper bound)"
+        );
     }
 
     #[test]
@@ -3125,18 +3208,22 @@ mod ioc_tests {
 
     #[test]
     fn logon_graph_multi_two_files_superset_of_either_alone() {
-        let pre  = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        let pre = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/data/fox-it-danderspritz/pre-Security.evtx");
         let post = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/data/fox-it-danderspritz/post-Security.evtx");
-        if !pre.exists() || !post.exists() { return; }
-        let g_pre  = logon_graph(&pre).unwrap();
+        if !pre.exists() || !post.exists() {
+            return;
+        }
+        let g_pre = logon_graph(&pre).unwrap();
         let g_post = logon_graph(&post).unwrap();
         let g_multi = logon_graph_multi(&[&pre, &post]).expect("must succeed");
         // Every node from either file must appear in the merged graph.
         for node in g_pre.nodes.iter().chain(g_post.nodes.iter()) {
-            assert!(g_multi.nodes.contains(node),
-                "merged graph must contain node '{node}' from per-file graph");
+            assert!(
+                g_multi.nodes.contains(node),
+                "merged graph must contain node '{node}' from per-file graph"
+            );
         }
     }
 
@@ -3176,15 +3263,20 @@ mod ioc_tests {
     fn rdp_type10_with_no_usable_ip_returns_none() {
         // No IP and WorkstationName is destination — no source can be identified.
         let source = resolve_logon_source(10, "DEST-MACHINE", "-");
-        assert!(source.is_none(), "Type 10 with no usable IP must return None");
+        assert!(
+            source.is_none(),
+            "Type 10 with no usable IP must return None"
+        );
     }
 
     #[test]
     fn rdp_type10_ignores_loopback_ip() {
         let source = resolve_logon_source(10, "DEST-MACHINE", "127.0.0.1");
-        assert!(source.is_none(), "loopback must be filtered even for Type 10");
+        assert!(
+            source.is_none(),
+            "loopback must be filtered even for Type 10"
+        );
         let source6 = resolve_logon_source(10, "DEST-MACHINE", "::1");
         assert!(source6.is_none(), "IPv6 loopback must also be filtered");
     }
-
 }

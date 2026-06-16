@@ -1,8 +1,8 @@
 //! Detect RPivot / Chisel reverse proxy / SOCKS5 tunnel execution (T1090).
 
 use forensicnomicon::heuristics::evtx::{
-    CHISEL_CMDLINE_INDICATORS, EID_PROCESS_CREATE, EID_SYSMON_PROCESS_CREATE, RPIVOT_CMDLINE_INDICATORS,
-    SYSMON_CHANNEL,
+    CHISEL_CMDLINE_INDICATORS, EID_PROCESS_CREATE, EID_SYSMON_PROCESS_CREATE,
+    RPIVOT_CMDLINE_INDICATORS, SYSMON_CHANNEL,
 };
 use winevt_core::EvtxEvent;
 
@@ -92,7 +92,10 @@ mod tests {
             SYSMON_CHANNEL,
             &[
                 ("Image", "C:\\ProgramData\\tools\\chisel.exe"),
-                ("CommandLine", "chisel.exe client --reverse socks5 10.10.0.1:8080"),
+                (
+                    "CommandLine",
+                    "chisel.exe client --reverse socks5 10.10.0.1:8080",
+                ),
             ],
         );
         let hits = detect_rpivot_chisel(&[ev]);
@@ -108,7 +111,10 @@ mod tests {
             "Security",
             &[
                 ("NewProcessName", "C:\\Temp\\relay.exe"),
-                ("CommandLine", "relay.exe client --tls-skip-verify 192.168.1.1:443 R:socks"),
+                (
+                    "CommandLine",
+                    "relay.exe client --tls-skip-verify 192.168.1.1:443 R:socks",
+                ),
             ],
         );
         assert!(!detect_rpivot_chisel(&[ev]).is_empty());
@@ -121,7 +127,10 @@ mod tests {
             SYSMON_CHANNEL,
             &[
                 ("Image", "C:\\ProgramData\\redcurl\\python.exe"),
-                ("CommandLine", "python.exe cl.py --s 109.206.236.209 --p 10310"),
+                (
+                    "CommandLine",
+                    "python.exe cl.py --s 109.206.236.209 --p 10310",
+                ),
             ],
         );
         assert!(!detect_rpivot_chisel(&[ev]).is_empty());
@@ -173,12 +182,19 @@ mod tests {
             SYSMON_CHANNEL,
             &[
                 ("Image", "C:\\Temp\\chisel.exe"),
-                ("CommandLine", "chisel.exe client --reverse R:socks 10.0.0.1:8080"),
+                (
+                    "CommandLine",
+                    "chisel.exe client --reverse R:socks 10.0.0.1:8080",
+                ),
             ],
         );
         let hits = detect_rpivot_chisel(&[ev]);
         assert!(!hits.is_empty());
         let combined = hits[0].evidence.join(" ");
-        assert!(combined.contains("chisel") || combined.contains("R:socks") || combined.contains("--reverse"));
+        assert!(
+            combined.contains("chisel")
+                || combined.contains("R:socks")
+                || combined.contains("--reverse")
+        );
     }
 }

@@ -23,7 +23,7 @@ pub struct MemoryCarvedRecord {
 ///
 /// Records whose size field would extend beyond the buffer are silently skipped.
 pub fn scan_memory_buffer(buf: &[u8]) -> Vec<MemoryCarvedRecord> {
-    const MIN_RECORD: usize = 28;   // 4 magic + 4 size + 8 id + 8 ts + 0 payload + 4 tail
+    const MIN_RECORD: usize = 28; // 4 magic + 4 size + 8 id + 8 ts + 0 payload + 4 tail
     const MAX_RECORD: usize = 65536;
     const FRAGMENT_HEADER: u8 = 0x0F;
 
@@ -39,9 +39,7 @@ pub fn scan_memory_buffer(buf: &[u8]) -> Vec<MemoryCarvedRecord> {
             pos += 1;
             continue;
         }
-        let size = u32::from_le_bytes(
-            buf[pos + 4..pos + 8].try_into().unwrap_or([0; 4]),
-        ) as usize;
+        let size = u32::from_le_bytes(buf[pos + 4..pos + 8].try_into().unwrap_or([0; 4])) as usize;
         if size < MIN_RECORD || size > MAX_RECORD {
             pos += 1;
             continue;
@@ -53,7 +51,11 @@ pub fn scan_memory_buffer(buf: &[u8]) -> Vec<MemoryCarvedRecord> {
         let raw = buf[pos..pos + size].to_vec();
         // BinXML payload starts at offset 24 (after 24-byte record header)
         let binxml_valid = raw.len() > 24 && raw[24] == FRAGMENT_HEADER;
-        out.push(MemoryCarvedRecord { offset: pos, raw, binxml_valid });
+        out.push(MemoryCarvedRecord {
+            offset: pos,
+            raw,
+            binxml_valid,
+        });
         pos += size;
     }
     out
@@ -658,7 +660,10 @@ mod tests {
     fn scan_buffer_with_no_magic_returns_empty() {
         let buf = vec![0xFFu8; 256];
         let records = scan_memory_buffer(&buf);
-        assert!(records.is_empty(), "buffer with no record magic must return empty");
+        assert!(
+            records.is_empty(),
+            "buffer with no record magic must return empty"
+        );
     }
 
     #[test]
@@ -669,7 +674,12 @@ mod tests {
         buf.extend_from_slice(&rec);
         buf.extend_from_slice(&[0u8; 64]);
         let records = scan_memory_buffer(&buf);
-        assert_eq!(records.len(), 1, "should find exactly one record; got {}", records.len());
+        assert_eq!(
+            records.len(),
+            1,
+            "should find exactly one record; got {}",
+            records.len()
+        );
         assert_eq!(records[0].offset, 64, "record should be at offset 64");
     }
 
@@ -685,7 +695,8 @@ mod tests {
         let records = scan_memory_buffer(&buf);
         assert!(
             records.is_empty(),
-            "magic with invalid size must be ignored; got {} records", records.len()
+            "magic with invalid size must be ignored; got {} records",
+            records.len()
         );
     }
 
@@ -700,7 +711,12 @@ mod tests {
         buf.extend_from_slice(&rec2);
         buf.extend_from_slice(&rec3);
         let records = scan_memory_buffer(&buf);
-        assert_eq!(records.len(), 3, "should find 3 records; got {}", records.len());
+        assert_eq!(
+            records.len(),
+            3,
+            "should find 3 records; got {}",
+            records.len()
+        );
         assert_eq!(records[0].offset, 32);
         assert!(records[1].offset > records[0].offset);
         assert!(records[2].offset > records[1].offset);

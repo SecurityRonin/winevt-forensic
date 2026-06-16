@@ -393,20 +393,18 @@ pub fn repair_evtx(input: &Path, output: &Path) -> Result<RepairReport, CarveErr
             // 1. Records-area checksum: CRC32(chunk[0x200..free_off]), stored at chunk[0x34]
             //    Free space offset is at chunk[0x30..0x34] (bytes 48..52 relative to chunk start)
             if data.len() >= offset + 0x38 {
-                let free_off = u32::from_le_bytes(
-                    data[offset + 48..offset + 52].try_into().unwrap_or([0; 4]),
-                ) as usize;
+                let free_off =
+                    u32::from_le_bytes(data[offset + 48..offset + 52].try_into().unwrap_or([0; 4]))
+                        as usize;
                 if free_off >= 0x200 && free_off <= chunk_size {
                     let records_end = offset + free_off;
                     if data.len() >= records_end {
-                        let expected =
-                            crc32fast::hash(&data[offset + 0x200..records_end]);
+                        let expected = crc32fast::hash(&data[offset + 0x200..records_end]);
                         let stored = u32::from_le_bytes(
                             data[offset + 52..offset + 56].try_into().unwrap_or([0; 4]),
                         );
                         if stored != expected {
-                            data[offset + 52..offset + 56]
-                                .copy_from_slice(&expected.to_le_bytes());
+                            data[offset + 52..offset + 56].copy_from_slice(&expected.to_le_bytes());
                             repaired = true;
                         }
                     }
@@ -418,11 +416,12 @@ pub fn repair_evtx(input: &Path, output: &Path) -> Result<RepairReport, CarveErr
             if data.len() >= offset + 0x7C {
                 let expected = crc32fast::hash(&data[offset..offset + 0x78]);
                 let stored = u32::from_le_bytes(
-                    data[offset + 0x78..offset + 0x7C].try_into().unwrap_or([0; 4]),
+                    data[offset + 0x78..offset + 0x7C]
+                        .try_into()
+                        .unwrap_or([0; 4]),
                 );
                 if stored != expected {
-                    data[offset + 0x78..offset + 0x7C]
-                        .copy_from_slice(&expected.to_le_bytes());
+                    data[offset + 0x78..offset + 0x7C].copy_from_slice(&expected.to_le_bytes());
                     repaired = true;
                 }
             }
@@ -435,7 +434,11 @@ pub fn repair_evtx(input: &Path, output: &Path) -> Result<RepairReport, CarveErr
     }
 
     std::fs::write(output, &data)?;
-    Ok(RepairReport { chunks_checked, chunks_repaired, header_repaired })
+    Ok(RepairReport {
+        chunks_checked,
+        chunks_repaired,
+        header_repaired,
+    })
 }
 
 /// Confidence level for a free-space carved record.
@@ -492,9 +495,8 @@ pub fn carve_chunk_free_space(chunk_data: &[u8], chunk_offset: u64) -> Vec<FreeS
             pos += 1;
             continue;
         }
-        let size = u32::from_le_bytes(
-            free_space[pos + 4..pos + 8].try_into().unwrap_or([0; 4]),
-        ) as usize;
+        let size =
+            u32::from_le_bytes(free_space[pos + 4..pos + 8].try_into().unwrap_or([0; 4])) as usize;
         // Minimum valid record: 4 magic + 4 size + 8 id + 8 ts + 0 payload + 4 tail = 28
         if size < 28 || pos + size > free_space.len() {
             pos += 1;
@@ -1737,11 +1739,19 @@ mod tests {
     fn carve_free_space_single_deleted_record_recovers_it() {
         let data = chunk_with_live_record_and_free_space_record(b"live", b"deleted");
         let records = carve_chunk_free_space(&data, 0x4000);
-        assert_eq!(records.len(), 1, "expected 1 carved record; got {:?} records", records.len());
+        assert_eq!(
+            records.len(),
+            1,
+            "expected 1 carved record; got {:?} records",
+            records.len()
+        );
         assert_eq!(records[0].chunk_offset, 0x4000);
         // record in free space should be identified
         assert!(
-            matches!(records[0].confidence, CarveConfidence::Definite | CarveConfidence::Probable),
+            matches!(
+                records[0].confidence,
+                CarveConfidence::Definite | CarveConfidence::Probable
+            ),
             "confidence must be Definite or Probable"
         );
     }
@@ -1753,13 +1763,15 @@ mod tests {
         // Should return the free-space record but NOT the live record
         assert!(
             records.len() <= 1,
-            "must not return live records; got {} records", records.len()
+            "must not return live records; got {} records",
+            records.len()
         );
         // Verify the returned record's offset is beyond the live record
         for r in &records {
             assert!(
                 r.record_offset_within_chunk >= 0x200 + 4 + 4,
-                "carved record at offset {} is in the live area", r.record_offset_within_chunk
+                "carved record at offset {} is in the live area",
+                r.record_offset_within_chunk
             );
         }
     }

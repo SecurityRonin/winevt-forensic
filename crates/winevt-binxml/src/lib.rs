@@ -59,7 +59,10 @@ pub fn validate_binxml(bytes: &[u8]) -> Result<(), BinXmlError> {
         return Err(BinXmlError::TooShort { len: bytes.len() });
     }
     if bytes[0] != 0x0F {
-        return Err(BinXmlError::InvalidFragmentHeader { offset: 0, got: bytes[0] });
+        return Err(BinXmlError::InvalidFragmentHeader {
+            offset: 0,
+            got: bytes[0],
+        });
     }
     // Walk tokens starting after the 4-byte fragment header (token + major + minor + flags)
     let mut steps = 0usize;
@@ -77,7 +80,10 @@ pub fn validate_binxml(bytes: &[u8]) -> Result<(), BinXmlError> {
         // Strip the "has-more" flag bit (bit 6 in some token encodings) — base token is low 6 bits
         // However, the standard EVTX tokens are in [0x01..0x0F]; > 0x0F is invalid.
         if token > MAX_TOKEN {
-            return Err(BinXmlError::UnknownOpcode { opcode: token, offset: pos });
+            return Err(BinXmlError::UnknownOpcode {
+                opcode: token,
+                offset: pos,
+            });
         }
         match token {
             0x01 => {
@@ -88,7 +94,9 @@ pub fn validate_binxml(bytes: &[u8]) -> Result<(), BinXmlError> {
                     return Err(BinXmlError::Truncated { offset: pos });
                 }
                 let name_offset = u32::from_le_bytes(
-                    bytes[name_off_start..name_off_start + 4].try_into().unwrap_or([0; 4]),
+                    bytes[name_off_start..name_off_start + 4]
+                        .try_into()
+                        .unwrap_or([0; 4]),
                 );
                 if name_offset > CHUNK_BOUNDARY {
                     return Err(BinXmlError::StringTableOverflow {
@@ -211,9 +219,10 @@ mod tests {
         bytes[0] = 0xAA; // not 0x0F
         let result = validate_binxml(&bytes);
         assert!(result.is_err(), "wrong fragment header must return error");
-        assert!(
-            matches!(result, Err(BinXmlError::InvalidFragmentHeader { .. }))
-        );
+        assert!(matches!(
+            result,
+            Err(BinXmlError::InvalidFragmentHeader { .. })
+        ));
     }
 
     #[test]
@@ -222,9 +231,10 @@ mod tests {
         let bytes = vec![0x0F, 0x01, 0x01, 0x00, 0x7F];
         let result = validate_binxml(&bytes);
         assert!(result.is_err(), "unknown opcode must return error");
-        assert!(
-            matches!(result, Err(BinXmlError::UnknownOpcode { opcode: 0x7F, .. }))
-        );
+        assert!(matches!(
+            result,
+            Err(BinXmlError::UnknownOpcode { opcode: 0x7F, .. })
+        ));
     }
 
     #[test]
@@ -240,9 +250,10 @@ mod tests {
         bytes.push(0x00); // EndOfStream
         let result = validate_binxml(&bytes);
         assert!(result.is_err(), "string table overflow must return error");
-        assert!(
-            matches!(result, Err(BinXmlError::StringTableOverflow { .. }))
-        );
+        assert!(matches!(
+            result,
+            Err(BinXmlError::StringTableOverflow { .. })
+        ));
     }
 
     #[test]
@@ -260,9 +271,10 @@ mod tests {
         let mut bytes = vec![0x0F, 0x01, 0x01, 0x00]; // fragment header
         bytes.extend(std::iter::repeat(0x02u8).take(65_537)); // one past the limit
         let result = validate_binxml(&bytes);
-        assert!(
-            matches!(result, Err(BinXmlError::IterationLimitExceeded { .. }))
-        );
+        assert!(matches!(
+            result,
+            Err(BinXmlError::IterationLimitExceeded { .. })
+        ));
     }
 
     #[test]

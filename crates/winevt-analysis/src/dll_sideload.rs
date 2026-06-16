@@ -48,7 +48,9 @@ pub fn detect_dll_sideload(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 fn is_safe_system_path(path: &str) -> bool {
@@ -68,7 +70,10 @@ mod tests {
             EID_SYSMON_IMAGE_LOAD,
             SYSMON_CHANNEL,
             &[
-                ("Image", "C:\\Users\\victim\\AppData\\Local\\Temp\\ADNotificationManager.exe"),
+                (
+                    "Image",
+                    "C:\\Users\\victim\\AppData\\Local\\Temp\\ADNotificationManager.exe",
+                ),
                 ("ImageLoaded", dll_path),
                 ("Signed", "false"),
             ],
@@ -109,7 +114,10 @@ mod tests {
             SYSMON_CHANNEL,
             &[
                 ("Image", "C:\\Users\\victim\\AppData\\Local\\Temp\\app.exe"),
-                ("ImageLoaded", "C:\\Users\\victim\\AppData\\Local\\Temp\\myhelper.dll"),
+                (
+                    "ImageLoaded",
+                    "C:\\Users\\victim\\AppData\\Local\\Temp\\myhelper.dll",
+                ),
                 ("Signed", "false"),
             ],
         );

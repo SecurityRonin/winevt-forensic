@@ -48,7 +48,8 @@ fn decoded_records_match_omerbenamram_event_ids() {
     let ours = decode_file(&data);
     assert!(!ours.is_empty(), "should decode at least some records");
     assert!(
-        ours.iter().any(|r| r.record.channel.as_deref() == Some("Security")),
+        ours.iter()
+            .any(|r| r.record.channel.as_deref() == Some("Security")),
         "expected a Security-channel record"
     );
 

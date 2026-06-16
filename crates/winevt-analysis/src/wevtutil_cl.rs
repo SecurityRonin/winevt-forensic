@@ -2,7 +2,7 @@
 
 use forensicnomicon::heuristics::evtx::{
     EID_PROCESS_CREATE, EID_PS_SCRIPT_BLOCK, EID_SYSMON_PROCESS_CREATE,
-    PS_CLEAR_EVENTLOG_PATTERNS, POWERSHELL_OPERATIONAL_CHANNEL, SYSMON_CHANNEL,
+    POWERSHELL_OPERATIONAL_CHANNEL, PS_CLEAR_EVENTLOG_PATTERNS, SYSMON_CHANNEL,
     WEVTUTIL_CLEAR_SUBSTRINGS,
 };
 use winevt_core::EvtxEvent;
@@ -44,10 +44,7 @@ pub fn detect_wevtutil_cl(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                             description: format!(
                                 "wevtutil log-clear pattern '{pat}' in command line: '{cl}'"
                             ),
-                            evidence: vec![
-                                format!("Image={image}"),
-                                format!("CommandLine={cl}"),
-                            ],
+                            evidence: vec![format!("Image={image}"), format!("CommandLine={cl}")],
                             timestamp_ns: ev.timestamp_ns,
                             event_id: ev.event_id,
                             channel: ev.channel.clone(),
@@ -74,7 +71,10 @@ pub fn detect_wevtutil_cl(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                             "PowerShell log-clear pattern '{pat}' in script block"
                         ),
                         evidence: vec![
-                            format!("ScriptBlockText snippet: ...{}...", &script[..script.len().min(120)]),
+                            format!(
+                                "ScriptBlockText snippet: ...{}...",
+                                &script[..script.len().min(120)]
+                            ),
                             format!("matched_pattern={pat}"),
                         ],
                         timestamp_ns: ev.timestamp_ns,
@@ -94,7 +94,9 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 #[cfg(test)]
@@ -136,7 +138,10 @@ mod tests {
         let ev = make_event(
             EID_PS_SCRIPT_BLOCK,
             POWERSHELL_OPERATIONAL_CHANNEL,
-            &[("ScriptBlockText", "Clear-EventLog -LogName Security,System,Application")],
+            &[(
+                "ScriptBlockText",
+                "Clear-EventLog -LogName Security,System,Application",
+            )],
         );
         assert!(!detect_wevtutil_cl(&[ev]).is_empty());
     }
@@ -146,7 +151,10 @@ mod tests {
         let ev = make_event(
             EID_PS_SCRIPT_BLOCK,
             POWERSHELL_OPERATIONAL_CHANNEL,
-            &[("ScriptBlockText", "& wevtutil cl Security; wevtutil cl System")],
+            &[(
+                "ScriptBlockText",
+                "& wevtutil cl Security; wevtutil cl System",
+            )],
         );
         assert!(!detect_wevtutil_cl(&[ev]).is_empty());
     }
@@ -156,7 +164,10 @@ mod tests {
         let ev = make_event(
             EID_PS_SCRIPT_BLOCK,
             POWERSHELL_OPERATIONAL_CHANNEL,
-            &[("ScriptBlockText", "Get-EventLog -LogName Security -Newest 10")],
+            &[(
+                "ScriptBlockText",
+                "Get-EventLog -LogName Security -Newest 10",
+            )],
         );
         assert!(detect_wevtutil_cl(&[ev]).is_empty());
     }

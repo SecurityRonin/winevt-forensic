@@ -55,7 +55,9 @@ pub fn detect_sevenz_staging(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 fn is_process_event(ev: &winevt_core::EvtxEvent) -> bool {

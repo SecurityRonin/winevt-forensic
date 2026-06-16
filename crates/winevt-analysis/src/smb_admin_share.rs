@@ -128,10 +128,7 @@ mod tests {
         let ev = make_event(
             5145, // object-level access, not share access
             "Security",
-            &[
-                ("ShareName", "\\\\*\\ADMIN$"),
-                ("IpAddress", "10.0.0.42"),
-            ],
+            &[("ShareName", "\\\\*\\ADMIN$"), ("IpAddress", "10.0.0.42")],
         );
         assert!(detect_smb_admin_share(&[ev]).is_empty());
     }

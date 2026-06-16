@@ -106,7 +106,9 @@ fn is_process_event(ev: &EvtxEvent) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 #[cfg(test)]
@@ -139,7 +141,10 @@ mod tests {
             EID_SYSMON_PROCESS_CREATE,
             SYSMON_CHANNEL,
             &[
-                ("Image", "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"),
+                (
+                    "Image",
+                    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                ),
                 (
                     "CommandLine",
                     "powershell -c \"rundll32 comsvcs.dll MiniDump $pid lsass.dmp full\"",

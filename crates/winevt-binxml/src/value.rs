@@ -202,7 +202,10 @@ fn to_hex(bytes: &[u8]) -> String {
 
 /// Decode an ANSI (latin-1) string, dropping NUL bytes.
 fn ansi_to_string(raw: &[u8]) -> String {
-    raw.iter().filter(|&&b| b != 0).map(|&b| b as char).collect()
+    raw.iter()
+        .filter(|&&b| b != 0)
+        .map(|&b| b as char)
+        .collect()
 }
 
 /// Read a 16-byte GUID and render it canonically (`xxxxxxxx-xxxx-…`, lower-case).
@@ -247,8 +250,8 @@ fn render_filetime(filetime: u64) -> Result<String, ValueError> {
     let secs_1601 = i64::try_from(filetime / 10_000_000).unwrap_or(i64::MAX);
     let nanos = u32::try_from((filetime % 10_000_000) * 100).unwrap_or(0);
     let unix_secs = secs_1601.saturating_sub(EPOCH_DIFF_SECS);
-    let dt = chrono::DateTime::from_timestamp(unix_secs, nanos)
-        .ok_or(ValueError::InvalidTimestamp)?;
+    let dt =
+        chrono::DateTime::from_timestamp(unix_secs, nanos).ok_or(ValueError::InvalidTimestamp)?;
     Ok(dt.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string())
 }
 
@@ -308,28 +311,79 @@ mod tests {
 
     #[test]
     fn signed_and_unsigned_ints() {
-        assert_eq!(read_value(&mut cur(&[0xFF]), VT_INT8, Some(1)).unwrap(), BinXmlValue::Int8(-1));
-        assert_eq!(read_value(&mut cur(&[0xFF]), VT_UINT8, Some(1)).unwrap(), BinXmlValue::UInt8(255));
-        assert_eq!(read_value(&mut cur(&[0xFF, 0xFF]), VT_INT16, Some(2)).unwrap(), BinXmlValue::Int16(-1));
-        assert_eq!(read_value(&mut cur(&[0x34, 0x12]), VT_UINT16, Some(2)).unwrap(), BinXmlValue::UInt16(0x1234));
-        assert_eq!(read_value(&mut cur(&[0xFF, 0xFF, 0xFF, 0xFF]), VT_INT32, Some(4)).unwrap(), BinXmlValue::Int32(-1));
-        assert_eq!(read_value(&mut cur(&[1, 0, 0, 0]), VT_UINT32, Some(4)).unwrap(), BinXmlValue::UInt32(1));
-        assert_eq!(read_value(&mut cur(&[0xFF; 8]), VT_INT64, Some(8)).unwrap(), BinXmlValue::Int64(-1));
-        assert_eq!(read_value(&mut cur(&[2, 0, 0, 0, 0, 0, 0, 0]), VT_UINT64, Some(8)).unwrap(), BinXmlValue::UInt64(2));
-        assert_eq!(read_value(&mut cur(&[7, 0, 0, 0]), VT_INT32, Some(4)).unwrap().render(), "7");
+        assert_eq!(
+            read_value(&mut cur(&[0xFF]), VT_INT8, Some(1)).unwrap(),
+            BinXmlValue::Int8(-1)
+        );
+        assert_eq!(
+            read_value(&mut cur(&[0xFF]), VT_UINT8, Some(1)).unwrap(),
+            BinXmlValue::UInt8(255)
+        );
+        assert_eq!(
+            read_value(&mut cur(&[0xFF, 0xFF]), VT_INT16, Some(2)).unwrap(),
+            BinXmlValue::Int16(-1)
+        );
+        assert_eq!(
+            read_value(&mut cur(&[0x34, 0x12]), VT_UINT16, Some(2)).unwrap(),
+            BinXmlValue::UInt16(0x1234)
+        );
+        assert_eq!(
+            read_value(&mut cur(&[0xFF, 0xFF, 0xFF, 0xFF]), VT_INT32, Some(4)).unwrap(),
+            BinXmlValue::Int32(-1)
+        );
+        assert_eq!(
+            read_value(&mut cur(&[1, 0, 0, 0]), VT_UINT32, Some(4)).unwrap(),
+            BinXmlValue::UInt32(1)
+        );
+        assert_eq!(
+            read_value(&mut cur(&[0xFF; 8]), VT_INT64, Some(8)).unwrap(),
+            BinXmlValue::Int64(-1)
+        );
+        assert_eq!(
+            read_value(&mut cur(&[2, 0, 0, 0, 0, 0, 0, 0]), VT_UINT64, Some(8)).unwrap(),
+            BinXmlValue::UInt64(2)
+        );
+        assert_eq!(
+            read_value(&mut cur(&[7, 0, 0, 0]), VT_INT32, Some(4))
+                .unwrap()
+                .render(),
+            "7"
+        );
     }
 
     #[test]
     fn reals() {
-        assert_eq!(read_value(&mut cur(&[0, 0, 0x80, 0x3F]), VT_REAL32, Some(4)).unwrap(), BinXmlValue::Real32(1.0));
-        assert_eq!(read_value(&mut cur(&[0, 0, 0, 0, 0, 0, 0xF0, 0x3F]), VT_REAL64, Some(8)).unwrap(), BinXmlValue::Real64(1.0));
+        assert_eq!(
+            read_value(&mut cur(&[0, 0, 0x80, 0x3F]), VT_REAL32, Some(4)).unwrap(),
+            BinXmlValue::Real32(1.0)
+        );
+        assert_eq!(
+            read_value(
+                &mut cur(&[0, 0, 0, 0, 0, 0, 0xF0, 0x3F]),
+                VT_REAL64,
+                Some(8)
+            )
+            .unwrap(),
+            BinXmlValue::Real64(1.0)
+        );
     }
 
     #[test]
     fn bool_is_four_bytes_nonzero_true() {
-        assert_eq!(read_value(&mut cur(&[0, 0, 0, 0]), VT_BOOL, Some(4)).unwrap(), BinXmlValue::Bool(false));
-        assert_eq!(read_value(&mut cur(&[1, 0, 0, 0]), VT_BOOL, Some(4)).unwrap(), BinXmlValue::Bool(true));
-        assert_eq!(read_value(&mut cur(&[0xFF, 0, 0, 0]), VT_BOOL, Some(4)).unwrap().render(), "true");
+        assert_eq!(
+            read_value(&mut cur(&[0, 0, 0, 0]), VT_BOOL, Some(4)).unwrap(),
+            BinXmlValue::Bool(false)
+        );
+        assert_eq!(
+            read_value(&mut cur(&[1, 0, 0, 0]), VT_BOOL, Some(4)).unwrap(),
+            BinXmlValue::Bool(true)
+        );
+        assert_eq!(
+            read_value(&mut cur(&[0xFF, 0, 0, 0]), VT_BOOL, Some(4))
+                .unwrap()
+                .render(),
+            "true"
+        );
     }
 
     #[test]
@@ -340,20 +394,43 @@ mod tests {
 
     #[test]
     fn hex_ints_render_prefixed() {
-        assert_eq!(read_value(&mut cur(&[0x78, 0x56, 0x34, 0x12]), VT_HEX32, Some(4)).unwrap().render(), "0x12345678");
-        assert_eq!(read_value(&mut cur(&[0, 0, 0, 0, 0, 0, 0, 0x01]), VT_HEX64, Some(8)).unwrap().render(), "0x0100000000000000");
+        assert_eq!(
+            read_value(&mut cur(&[0x78, 0x56, 0x34, 0x12]), VT_HEX32, Some(4))
+                .unwrap()
+                .render(),
+            "0x12345678"
+        );
+        assert_eq!(
+            read_value(&mut cur(&[0, 0, 0, 0, 0, 0, 0, 0x01]), VT_HEX64, Some(8))
+                .unwrap()
+                .render(),
+            "0x0100000000000000"
+        );
     }
 
     #[test]
     fn sizet_renders_hex_by_width() {
-        assert_eq!(read_value(&mut cur(&[0x01, 0, 0, 0]), VT_SIZET, Some(4)).unwrap().render(), "0x00000001");
-        assert_eq!(read_value(&mut cur(&[0x01, 0, 0, 0, 0, 0, 0, 0]), VT_SIZET, Some(8)).unwrap().render(), "0x0000000000000001");
+        assert_eq!(
+            read_value(&mut cur(&[0x01, 0, 0, 0]), VT_SIZET, Some(4))
+                .unwrap()
+                .render(),
+            "0x00000001"
+        );
+        assert_eq!(
+            read_value(&mut cur(&[0x01, 0, 0, 0, 0, 0, 0, 0]), VT_SIZET, Some(8))
+                .unwrap()
+                .render(),
+            "0x0000000000000001"
+        );
     }
 
     #[test]
     fn guid_renders_canonical() {
         // data1=0x11223344 LE, data2=0x5566 LE, data3=0x7788 LE, d4 = 99 aa bb cc dd ee ff 00
-        let bytes = [0x44, 0x33, 0x22, 0x11, 0x66, 0x55, 0x88, 0x77, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00];
+        let bytes = [
+            0x44, 0x33, 0x22, 0x11, 0x66, 0x55, 0x88, 0x77, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE,
+            0xFF, 0x00,
+        ];
         let v = read_value(&mut cur(&bytes), VT_GUID, Some(16)).unwrap();
         assert_eq!(v.render(), "11223344-5566-7788-99aa-bbccddeeff00");
     }

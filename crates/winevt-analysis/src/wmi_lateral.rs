@@ -82,10 +82,7 @@ mod tests {
         let ev = make_event(
             EID_WMI_FILTER_TRIGGERED,
             WMI_ACTIVITY_CHANNEL,
-            &[
-                ("User", "DOMAIN\\attacker"),
-                ("PossibleCause", "Permanent"),
-            ],
+            &[("User", "DOMAIN\\attacker"), ("PossibleCause", "Permanent")],
         );
         let hits = detect_wmi_lateral_movement(&[ev]);
         assert!(!hits.is_empty());

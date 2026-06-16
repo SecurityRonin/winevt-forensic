@@ -47,7 +47,9 @@ pub fn detect_workers_dev_dns(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(path)
+    path.rsplit(|c| c == '\\' || c == '/')
+        .next()
+        .unwrap_or(path)
 }
 
 fn is_browser(image: &str) -> bool {
@@ -120,10 +122,7 @@ mod tests {
 
     #[test]
     fn non_workers_dev_domain_not_detected() {
-        let ev = dns_query(
-            "C:\\Windows\\System32\\rundll32.exe",
-            "microsoft.com",
-        );
+        let ev = dns_query("C:\\Windows\\System32\\rundll32.exe", "microsoft.com");
         assert!(detect_workers_dev_dns(&[ev]).is_empty());
     }
 

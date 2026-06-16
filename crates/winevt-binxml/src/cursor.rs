@@ -276,7 +276,11 @@ mod tests {
         let mut c = Cursor::new(&[1, 2]);
         assert!(matches!(
             c.take(3),
-            Err(CursorError::OutOfBounds { need: 3, available: 2, .. })
+            Err(CursorError::OutOfBounds {
+                need: 3,
+                available: 2,
+                ..
+            })
         ));
         // position must not move on error
         assert_eq!(c.position(), 0);
@@ -285,7 +289,10 @@ mod tests {
     #[test]
     fn read_u32_truncated_is_error() {
         let mut c = Cursor::new(&[1, 2, 3]);
-        assert!(matches!(c.read_u32_le(), Err(CursorError::OutOfBounds { .. })));
+        assert!(matches!(
+            c.read_u32_le(),
+            Err(CursorError::OutOfBounds { .. })
+        ));
     }
 
     #[test]

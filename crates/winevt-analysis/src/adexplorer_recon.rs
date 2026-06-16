@@ -87,7 +87,10 @@ mod tests {
         let ev = make_event(
             EID_SYSMON_REGISTRY_ADD,
             SYSMON_CHANNEL,
-            &[("TargetObject", "HKCU\\Software\\Microsoft\\Office\\16.0\\Common")],
+            &[(
+                "TargetObject",
+                "HKCU\\Software\\Microsoft\\Office\\16.0\\Common",
+            )],
         );
         assert!(detect_adexplorer_recon(&[ev]).is_empty());
     }

@@ -24,7 +24,9 @@ pub struct ManifestDb {
 
 impl ManifestDb {
     pub fn new() -> Self {
-        ManifestDb { templates: HashMap::new() }
+        ManifestDb {
+            templates: HashMap::new(),
+        }
     }
 
     /// Load the bundled snapshot of the 30 most common Microsoft provider manifests.
@@ -32,7 +34,8 @@ impl ManifestDb {
         let mut db = ManifestDb::new();
         for (guid, event_id, fields) in bundled::ENTRIES {
             let key = (normalize_guid(guid), *event_id);
-            db.templates.insert(key, fields.iter().map(|s| s.to_string()).collect());
+            db.templates
+                .insert(key, fields.iter().map(|s| s.to_string()).collect());
         }
         db
     }
@@ -64,7 +67,9 @@ impl ManifestDb {
         data: &mut HashMap<String, String>,
     ) {
         let key = (normalize_guid(provider_guid), event_id);
-        let Some(fields) = self.templates.get(&key) else { return };
+        let Some(fields) = self.templates.get(&key) else {
+            return;
+        };
 
         let mut renames: Vec<(String, String)> = Vec::new();
         for (k, _) in data.iter() {
@@ -83,7 +88,9 @@ impl ManifestDb {
 }
 
 impl Default for ManifestDb {
-    fn default() -> Self { ManifestDb::new() }
+    fn default() -> Self {
+        ManifestDb::new()
+    }
 }
 
 /// Return 0-based index from a `Param1`-style key, or `None` if not that pattern.
@@ -129,8 +136,14 @@ mod tests {
             ("Param2".to_string(), "ADMIN".to_string()),
         ]);
         db.resolve_fields(4624, "{54849625-5478-4994-A5BA-3E3B0328C30D}", &mut data);
-        assert!(data.contains_key("SubjectUserSid"), "Param1 should be renamed to SubjectUserSid");
-        assert!(data.contains_key("SubjectUserName"), "Param2 should be renamed to SubjectUserName");
+        assert!(
+            data.contains_key("SubjectUserSid"),
+            "Param1 should be renamed to SubjectUserSid"
+        );
+        assert!(
+            data.contains_key("SubjectUserName"),
+            "Param2 should be renamed to SubjectUserName"
+        );
         assert!(!data.contains_key("Param1"), "Param1 key should be removed");
         assert!(!data.contains_key("Param2"), "Param2 key should be removed");
     }
@@ -138,11 +151,12 @@ mod tests {
     #[test]
     fn resolve_unknown_provider_leaves_fields_unchanged() {
         let db = ManifestDb::load_bundled();
-        let mut data = HashMap::from([
-            ("Param1".to_string(), "value".to_string()),
-        ]);
+        let mut data = HashMap::from([("Param1".to_string(), "value".to_string())]);
         db.resolve_fields(9999, "{00000000-0000-0000-0000-000000000000}", &mut data);
-        assert!(data.contains_key("Param1"), "unknown provider: Param1 must remain unchanged");
+        assert!(
+            data.contains_key("Param1"),
+            "unknown provider: Param1 must remain unchanged"
+        );
         assert_eq!(data["Param1"], "value");
     }
 
@@ -153,7 +167,10 @@ mod tests {
         let db = ManifestDb::load_from_directory(dir.path()).unwrap();
         let mut data = HashMap::from([("Param1".to_string(), "v".to_string())]);
         db.resolve_fields(1, "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}", &mut data);
-        assert!(data.contains_key("TestField"), "Param1 should be renamed to TestField");
+        assert!(
+            data.contains_key("TestField"),
+            "Param1 should be renamed to TestField"
+        );
         assert!(!data.contains_key("Param1"), "Param1 key should be removed");
     }
 
@@ -168,8 +185,14 @@ mod tests {
             ("Param9".to_string(), "3".to_string()),
         ]);
         db.resolve_fields(4624, security_guid, &mut data4624);
-        assert!(data4624.contains_key("SubjectUserSid"), "EID 4624 Param1 must resolve to SubjectUserSid");
-        assert!(data4624.contains_key("LogonType"), "EID 4624 Param9 must resolve to LogonType");
+        assert!(
+            data4624.contains_key("SubjectUserSid"),
+            "EID 4624 Param1 must resolve to SubjectUserSid"
+        );
+        assert!(
+            data4624.contains_key("LogonType"),
+            "EID 4624 Param9 must resolve to LogonType"
+        );
 
         // EID 4688 Process Create: Param1→SubjectUserSid, Param5→NewProcessId
         let mut data4688 = HashMap::from([
@@ -177,7 +200,13 @@ mod tests {
             ("Param5".to_string(), "0x1234".to_string()),
         ]);
         db.resolve_fields(4688, security_guid, &mut data4688);
-        assert!(data4688.contains_key("SubjectUserSid"), "EID 4688 Param1 must resolve to SubjectUserSid");
-        assert!(data4688.contains_key("NewProcessId"), "EID 4688 Param5 must resolve to NewProcessId");
+        assert!(
+            data4688.contains_key("SubjectUserSid"),
+            "EID 4688 Param1 must resolve to SubjectUserSid"
+        );
+        assert!(
+            data4688.contains_key("NewProcessId"),
+            "EID 4688 Param5 must resolve to NewProcessId"
+        );
     }
 }

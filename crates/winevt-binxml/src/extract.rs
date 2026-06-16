@@ -156,12 +156,20 @@ mod tests {
                     "System",
                     &[],
                     vec![
-                        el("Provider", &[("Name", "Microsoft-Windows-Security-Auditing")], vec![]),
+                        el(
+                            "Provider",
+                            &[("Name", "Microsoft-Windows-Security-Auditing")],
+                            vec![],
+                        ),
                         el("EventID", &[], vec![text("4624")]),
                         el("Level", &[], vec![text("0")]),
                         el("Channel", &[], vec![text("Security")]),
                         el("Computer", &[], vec![text("DC01")]),
-                        el("TimeCreated", &[("SystemTime", "2024-01-01T00:00:00.000000Z")], vec![]),
+                        el(
+                            "TimeCreated",
+                            &[("SystemTime", "2024-01-01T00:00:00.000000Z")],
+                            vec![],
+                        ),
                     ],
                 ),
                 el(
@@ -180,17 +188,26 @@ mod tests {
     fn extracts_system_envelope_fields() {
         let r = extract_record(&security_event());
         assert_eq!(r.event_id, 4624);
-        assert_eq!(r.provider.as_deref(), Some("Microsoft-Windows-Security-Auditing"));
+        assert_eq!(
+            r.provider.as_deref(),
+            Some("Microsoft-Windows-Security-Auditing")
+        );
         assert_eq!(r.channel.as_deref(), Some("Security"));
         assert_eq!(r.computer.as_deref(), Some("DC01"));
         assert_eq!(r.level, Some(0));
-        assert_eq!(r.time_created.as_deref(), Some("2024-01-01T00:00:00.000000Z"));
+        assert_eq!(
+            r.time_created.as_deref(),
+            Some("2024-01-01T00:00:00.000000Z")
+        );
     }
 
     #[test]
     fn flattens_named_data_eventdata() {
         let r = extract_record(&security_event());
-        assert_eq!(r.data.get("TargetUserName").map(String::as_str), Some("jdoe"));
+        assert_eq!(
+            r.data.get("TargetUserName").map(String::as_str),
+            Some("jdoe")
+        );
         assert_eq!(r.data.get("LogonType").map(String::as_str), Some("10"));
     }
 
@@ -213,8 +230,14 @@ mod tests {
         )];
         let r = extract_record(&nodes);
         assert_eq!(r.event_id, 1);
-        assert_eq!(r.data.get("Image").map(String::as_str), Some("C:\\evil.exe"));
-        assert_eq!(r.data.get("CommandLine").map(String::as_str), Some("evil.exe -enc AAAA"));
+        assert_eq!(
+            r.data.get("Image").map(String::as_str),
+            Some("C:\\evil.exe")
+        );
+        assert_eq!(
+            r.data.get("CommandLine").map(String::as_str),
+            Some("evil.exe -enc AAAA")
+        );
     }
 
     #[test]
@@ -236,8 +259,14 @@ mod tests {
             )],
         )];
         let r = extract_record(&nodes);
-        assert_eq!(r.data.get("PolicyName").map(String::as_str), Some("Script Rules"));
-        assert_eq!(r.data.get("FilePath").map(String::as_str), Some("%OSDRIVE%\\evil.ps1"));
+        assert_eq!(
+            r.data.get("PolicyName").map(String::as_str),
+            Some("Script Rules")
+        );
+        assert_eq!(
+            r.data.get("FilePath").map(String::as_str),
+            Some("%OSDRIVE%\\evil.ps1")
+        );
     }
 
     #[test]

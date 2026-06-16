@@ -73,7 +73,11 @@ pub(crate) fn read_template_instance(
             values.push(SubstitutionValue::Nodes(nodes));
         } else {
             // Scalar value (array types still surface as ValueError::Unsupported).
-            values.push(SubstitutionValue::Scalar(read_value(cur, *value_type, Some(*size))?));
+            values.push(SubstitutionValue::Scalar(read_value(
+                cur,
+                *value_type,
+                Some(*size),
+            )?));
         }
     }
 
@@ -304,16 +308,22 @@ mod tests {
         let b = build_two_instances("aaa", "bbb");
         let nodes = decode_all(&b);
         assert_eq!(nodes.len(), 2, "two instances → two elements");
-        assert_eq!(nodes[0], Node::Element(Element {
-            name: "Event".to_string(),
-            attributes: Vec::new(),
-            children: vec![Node::Text("aaa".to_string())],
-        }));
-        assert_eq!(nodes[1], Node::Element(Element {
-            name: "Event".to_string(),
-            attributes: Vec::new(),
-            children: vec![Node::Text("bbb".to_string())],
-        }));
+        assert_eq!(
+            nodes[0],
+            Node::Element(Element {
+                name: "Event".to_string(),
+                attributes: Vec::new(),
+                children: vec![Node::Text("aaa".to_string())],
+            })
+        );
+        assert_eq!(
+            nodes[1],
+            Node::Element(Element {
+                name: "Event".to_string(),
+                attributes: Vec::new(),
+                children: vec![Node::Text("bbb".to_string())],
+            })
+        );
     }
 
     fn push_value_array(b: &mut Vec<u8>, value: &str) {

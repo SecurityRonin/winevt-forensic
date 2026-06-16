@@ -298,12 +298,7 @@ pub static ENTRIES: &[(&str, u32, &[&str])] = &[
     (
         "{54849625-5478-4994-a5ba-3e3b0328c30d}",
         4776, // The computer attempted to validate the credentials for an account
-        &[
-            "PackageName",
-            "TargetUserName",
-            "Workstation",
-            "Status",
-        ],
+        &["PackageName", "TargetUserName", "Workstation", "Status"],
     ),
     (
         "{54849625-5478-4994-a5ba-3e3b0328c30d}",
@@ -315,7 +310,6 @@ pub static ENTRIES: &[(&str, u32, &[&str])] = &[
             "SubjectLogonId",
         ],
     ),
-
     // ── Microsoft-Windows-System-Events / Eventlog ───────────────────────────
     // {fc65ddd8-d6ef-4962-83d5-6e5cfe9ce148}  (System log cleared EID 104)
     (
@@ -323,7 +317,6 @@ pub static ENTRIES: &[(&str, u32, &[&str])] = &[
         104, // The System log file was cleared
         &["SubjectUserName", "SubjectDomainName"],
     ),
-
     // ── Microsoft-Windows-PowerShell ─────────────────────────────────────────
     // {a0c1853b-5c40-4b15-8766-3cf1c58f985a}
     (
@@ -340,12 +333,8 @@ pub static ENTRIES: &[(&str, u32, &[&str])] = &[
     (
         "{a0c1853b-5c40-4b15-8766-3cf1c58f985a}",
         4103, // Module logging
-        &[
-            "ContextInfo",
-            "UserData",
-        ],
+        &["ContextInfo", "UserData"],
     ),
-
     // ── Microsoft-Windows-WMI-Activity ───────────────────────────────────────
     // {1418ef04-b0b4-4623-bf7e-d74ab47bbdaa}
     (
@@ -377,24 +366,13 @@ pub static ENTRIES: &[(&str, u32, &[&str])] = &[
     (
         "{1418ef04-b0b4-4623-bf7e-d74ab47bbdaa}",
         5860, // WMI temporary event subscription
-        &[
-            "NamespaceName",
-            "Query",
-            "User",
-            "ClientMachine",
-        ],
+        &["NamespaceName", "Query", "User", "ClientMachine"],
     ),
     (
         "{1418ef04-b0b4-4623-bf7e-d74ab47bbdaa}",
         5861, // WMI permanent event subscription
-        &[
-            "NamespaceName",
-            "Query",
-            "Consumer",
-            "PossibleCause",
-        ],
+        &["NamespaceName", "Query", "Consumer", "PossibleCause"],
     ),
-
     // ── Microsoft-Windows-Sysmon ─────────────────────────────────────────────
     // {5770385f-c22a-43e0-bf4c-06f5698ffbd9}
     (
@@ -486,7 +464,6 @@ pub static ENTRIES: &[(&str, u32, &[&str])] = &[
             "User",
         ],
     ),
-
     // ── Microsoft-Windows-TaskScheduler ─────────────────────────────────────
     // {de7b24ea-73c8-4a09-985d-5bdadcfa9017}
     (
@@ -504,7 +481,6 @@ pub static ENTRIES: &[(&str, u32, &[&str])] = &[
         201, // Task action completed
         &["TaskName", "TaskInstanceId", "ActionName", "ResultCode"],
     ),
-
     // ── Microsoft-Windows-TerminalServices-RemoteConnectionManager ───────────
     // {c76baa63-ae81-421c-b425-340b4b24157f}
     (
@@ -512,7 +488,6 @@ pub static ENTRIES: &[(&str, u32, &[&str])] = &[
         1149, // Remote Desktop Services: User authentication succeeded
         &["Param1", "Param2", "Param3"],
     ),
-
     // ── Microsoft-Windows-Windows Defender ───────────────────────────────────
     // {11cd958a-c507-4ef3-b3f2-5fd9dfbd2c78}
     (

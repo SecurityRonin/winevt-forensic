@@ -12,7 +12,10 @@ impl<R: Read + Seek> PartitionReader<R> {
     /// Seek `inner` to `base_offset` bytes and wrap it.
     pub(crate) fn new(mut inner: R, base_offset: u64) -> Result<Self> {
         inner.seek(SeekFrom::Start(base_offset))?;
-        Ok(Self { inner, base: base_offset })
+        Ok(Self {
+            inner,
+            base: base_offset,
+        })
     }
 }
 
