@@ -39,13 +39,9 @@ allow = [
     "Zlib",
     "0BSD",
 ]
-# Reject unknown/unlicensed crates
-unlicensed = "deny"
-# Warn on copyleft (we don't use any GPL, but surface it if introduced)
-copyleft = "warn"
-# Allow dual-licensed crates to use either license
-allow-osi-fsf-free = "neither"
-default = "deny"
+# Under the v2 license schema, any license not in `allow` is denied — so the
+# removed `unlicensed`/`copyleft`/`allow-osi-fsf-free`/`default` keys are now
+# implicit (deny-by-default). See cargo-deny PR #611.
 
 # ── Bans ──────────────────────────────────────────────────────────────────────
 [bans]
