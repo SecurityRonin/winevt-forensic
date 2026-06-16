@@ -1261,7 +1261,7 @@ fn main() {
                     Err(_) => (0, vec![], None, None),
                 };
 
-                let ioc_count = ioc_report.map(|r| r.iocs.len()).unwrap_or(0);
+                let ioc_count = ioc_report.map_or(0, |r| r.iocs.len());
 
                 results.push(serde_json::json!({
                     "file": file_name,

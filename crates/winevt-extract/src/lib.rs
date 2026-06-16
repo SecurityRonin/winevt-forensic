@@ -2175,7 +2175,7 @@ pub fn extract_field(path: &Path, field: &str) -> Result<Vec<FieldValue>, Analyz
         .into_iter()
         .map(|(value, count)| FieldValue { value, count })
         .collect();
-    result.sort_by(|a, b| b.count.cmp(&a.count));
+    result.sort_by_key(|b| std::cmp::Reverse(b.count));
     Ok(result)
 }
 

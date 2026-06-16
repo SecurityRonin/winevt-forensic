@@ -160,7 +160,7 @@ fn passthrough_evtx(evtx: &Path, evtx_dir: &Path) -> Result<Vec<EvtxEntry>, Stri
     );
     let dest = evtx_dir.join(&name);
     std::fs::copy(evtx, &dest).map_err(|e| e.to_string())?;
-    let size = dest.metadata().map(|m| m.len()).unwrap_or(0);
+    let size = dest.metadata().map_or(0, |m| m.len());
     Ok(vec![EvtxEntry {
         name,
         path: dest,
@@ -175,7 +175,7 @@ fn collect_evtx_from_dir(dir: &Path, evtx_dir: &Path) -> Result<Vec<EvtxEntry>, 
     for entry in walkdir(dir)? {
         let dest = evtx_dir.join(entry.file_name().unwrap_or(entry.as_os_str()));
         std::fs::copy(&entry, &dest).map_err(|e| e.to_string())?;
-        let size = dest.metadata().map(|m| m.len()).unwrap_or(0);
+        let size = dest.metadata().map_or(0, |m| m.len());
         entries.push(EvtxEntry {
             name: entry
                 .file_name()
