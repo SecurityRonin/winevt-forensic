@@ -11,12 +11,33 @@
 
 use winevt_core::binary::{
     EvtxChunkHeader, EvtxFileHeader, EvtxRecordHeader, CHUNK_RECORDS_OFFSET, CHUNK_SIZE,
+    ELFFILE_MAGIC,
 };
 
 use crate::cursor::Cursor;
 use crate::deserializer::deserialize_fragment;
 use crate::extract::{extract_record, DecodedRecord};
 use crate::name::NameCache;
+
+/// Failure of the EVTX file-header bootstrap — the prerequisite every record
+/// decode depends on. Distinct from a valid-but-empty log (`Ok(vec![])`): an
+/// invalid header means the input is not an EVTX file (or its header is corrupt
+/// or forged), which must be surfaced loudly, never masked as "no records".
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum DecodeFileError {
+    /// The `ElfFile` magic / header block did not parse. Carries the bytes that
+    /// were found where the 8-byte `ElfFile\0` magic was expected (fewer than 8
+    /// when the input is shorter than the magic).
+    #[error(
+        "invalid EVTX file header: expected magic {expected:02x?}, found {found:02x?} at offset 0"
+    )]
+    InvalidHeader {
+        /// The expected `ElfFile\0` magic.
+        expected: [u8; 8],
+        /// The bytes actually present at offset 0 (up to 8).
+        found: Vec<u8>,
+    },
+}
 
 /// The EVTX file header block is 4 KiB; the first chunk starts after it.
 const FILE_HEADER_BLOCK: usize = 0x1000;
@@ -34,8 +55,28 @@ pub struct RecordEntry {
     pub record: DecodedRecord,
 }
 
+/// Decode every record in an in-memory EVTX file, surfacing the file-header
+/// bootstrap as a loud error.
+///
+/// Returns [`DecodeFileError::InvalidHeader`] when the `ElfFile` header does not
+/// parse (the input is not an EVTX file, or its header is corrupt/forged), so
+/// that condition stays distinguishable from a valid log with zero records
+/// (`Ok(vec![])`). Undecodable individual records are still skipped leniently.
+///
+/// # Errors
+/// Returns [`DecodeFileError::InvalidHeader`] if the EVTX file header is invalid.
+pub fn decode_file_checked(data: &[u8]) -> Result<Vec<RecordEntry>, DecodeFileError> {
+    // RED stub: always Ok, never errors — the bootstrap masker is still present.
+    Ok(decode_file(data))
+}
+
 /// Decode every record in an in-memory EVTX file. Returns an empty vec if the
 /// file header is not a valid `ElfFile`. Undecodable records are skipped.
+///
+/// This is the lenient, best-effort wrapper over [`decode_file_checked`] — use
+/// it in bulk/carve loops where a non-EVTX input is expected and tolerable. When
+/// the caller needs to distinguish "not an EVTX file" from "an empty EVTX log",
+/// call [`decode_file_checked`] instead.
 #[must_use]
 pub fn decode_file(data: &[u8]) -> Vec<RecordEntry> {
     let mut out = Vec::new();
@@ -88,6 +129,31 @@ mod tests {
     fn non_evtx_input_yields_no_records() {
         assert!(decode_file(b"not an evtx file at all").is_empty());
         assert!(decode_file(&[]).is_empty());
+    }
+
+    /// A valid `ElfFile` header (128+ bytes, correct magic) followed by no chunk
+    /// data — a legitimate, pristine empty log with zero records.
+    fn valid_header_zero_records() -> Vec<u8> {
+        let mut file = vec![0u8; FILE_HEADER_BLOCK];
+        file[..8].copy_from_slice(b"ElfFile\0");
+        file
+    }
+
+    #[test]
+    fn invalid_header_errors_not_silently_empty() {
+        // A garbage / forged file must be a LOUD error, never the same empty vec
+        // a pristine-but-empty log returns.
+        assert!(decode_file_checked(b"not an evtx file at all").is_err());
+        assert!(decode_file_checked(&[]).is_err());
+    }
+
+    #[test]
+    fn valid_header_zero_records_is_ok_empty() {
+        // A valid header with zero records is a legitimate empty case: Ok(empty),
+        // NOT an error — this must stay distinguishable from a corrupt header.
+        let decoded = decode_file_checked(&valid_header_zero_records());
+        assert!(decoded.is_ok());
+        assert!(decoded.unwrap().is_empty());
     }
 
     /// A minimal single-record EVTX file: one chunk, one record whose payload is
