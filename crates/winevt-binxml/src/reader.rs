@@ -66,8 +66,14 @@ pub struct RecordEntry {
 /// # Errors
 /// Returns [`DecodeFileError::InvalidHeader`] if the EVTX file header is invalid.
 pub fn decode_file_checked(data: &[u8]) -> Result<Vec<RecordEntry>, DecodeFileError> {
-    // RED stub: always Ok, never errors — the bootstrap masker is still present.
-    Ok(decode_file(data))
+    if EvtxFileHeader::parse(data).is_none() {
+        let found = data.get(..ELFFILE_MAGIC.len()).unwrap_or(data).to_vec();
+        return Err(DecodeFileError::InvalidHeader {
+            expected: ELFFILE_MAGIC,
+            found,
+        });
+    }
+    Ok(decode_records(data))
 }
 
 /// Decode every record in an in-memory EVTX file. Returns an empty vec if the
@@ -79,10 +85,13 @@ pub fn decode_file_checked(data: &[u8]) -> Result<Vec<RecordEntry>, DecodeFileEr
 /// call [`decode_file_checked`] instead.
 #[must_use]
 pub fn decode_file(data: &[u8]) -> Vec<RecordEntry> {
+    decode_file_checked(data).unwrap_or_default()
+}
+
+/// Decode the records of a buffer whose `ElfFile` header has already been
+/// validated by [`decode_file_checked`]. Undecodable records/chunks are skipped.
+fn decode_records(data: &[u8]) -> Vec<RecordEntry> {
     let mut out = Vec::new();
-    if EvtxFileHeader::parse(data).is_none() {
-        return out;
-    }
     let chunk_size = usize::try_from(CHUNK_SIZE).unwrap_or(usize::MAX);
     let mut chunk_off = FILE_HEADER_BLOCK;
     while let Some(chunk) = data.get(chunk_off..chunk_off.saturating_add(chunk_size)) {
