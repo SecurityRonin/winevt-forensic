@@ -33,16 +33,16 @@ rayon = "1"
 ewf = "0.2"
 
 # Internal (version + path: path drives local dev, version is used on publish)
-winevt-core = { version = "0.2.0", path = "crates/winevt-core" }
-winevt-binxml = { version = "0.1.0", path = "crates/winevt-binxml" }
-winevt-integrity = { version = "0.2.0", path = "crates/winevt-integrity" }
-winevt-carver = { version = "0.1.0", path = "crates/winevt-carver" }
-winevt-memory = { version = "0.1.0", path = "crates/winevt-memory" }
-winevt-writer = { version = "0.1.0", path = "crates/winevt-writer" }
-winevt-extract = { version = "0.1.0", path = "crates/winevt-extract" }
+winevt-core = { version = "0.2.1", path = "crates/winevt-core" }
+winevt-binxml = { version = "0.1.1", path = "crates/winevt-binxml" }
+winevt-integrity = { version = "0.2.1", path = "crates/winevt-integrity" }
+winevt-carver = { version = "0.1.1", path = "crates/winevt-carver" }
+winevt-memory = { version = "0.1.1", path = "crates/winevt-memory" }
+winevt-writer = { version = "0.1.1", path = "crates/winevt-writer" }
+winevt-extract = { version = "0.1.1", path = "crates/winevt-extract" }
 winevt-manifest = { version = "0.1.0", path = "crates/winevt-manifest" }
-forensicnomicon = { version = "0.5", features = ["serde"] }
-winevt-triage = { version = "0.1.0", path = "crates/winevt-triage" }
+forensicnomicon = { version = "0.11", features = ["serde"] }
+winevt-triage = { version = "0.1.1", path = "crates/winevt-triage" }
 winevt-cli = { version = "0.1.0", path = "crates/winevt-cli" }
 
 [workspace.lints.clippy]
