@@ -1814,7 +1814,7 @@ dependencies = [
 
 [[package]]
 name = "winevt-analysis"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "forensicnomicon",
  "serde",
@@ -1867,7 +1867,7 @@ dependencies = [
 
 [[package]]
 name = "winevt-core"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "crc32fast",
  "forensicnomicon",
@@ -1876,7 +1876,7 @@ dependencies = [
 
 [[package]]
 name = "winevt-extract"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "base64",
  "evtx",
@@ -1890,7 +1890,7 @@ dependencies = [
 
 [[package]]
 name = "winevt-integrity"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "crc32fast",
  "forensicnomicon",
