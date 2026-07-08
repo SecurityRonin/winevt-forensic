@@ -31,6 +31,9 @@ tempfile = "3"
 sha2 = "0.10"
 rayon = "1"
 ewf = "0.2"
+# Canonical mixed-endian GUID rendering — reuse the vetted crate rather than
+# hand-roll the format string (from_bytes_le is the exact form; cf. dpapi).
+uuid = "1"
 
 # Internal (version + path: path drives local dev, version is used on publish)
 winevt-core = { version = "0.3.0", path = "crates/winevt-core" }

@@ -210,16 +210,13 @@ fn ansi_to_string(raw: &[u8]) -> String {
 
 /// Read a 16-byte GUID and render it canonically (`xxxxxxxx-xxxx-…`, lower-case).
 fn read_guid(cur: &mut Cursor<'_>) -> Result<String, ValueError> {
-    let d1 = cur.read_u32_le()?;
-    let d2 = cur.read_u16_le()?;
-    let d3 = cur.read_u16_le()?;
-    let d4 = cur.take(8)?;
-    let (clock, node) = d4.split_at(2);
-    Ok(format!(
-        "{d1:08x}-{d2:04x}-{d3:04x}-{}-{}",
-        to_hex(clock),
-        to_hex(node)
-    ))
+    // The 16 on-disk bytes are mixed-endian (first three fields little-endian,
+    // trailing 8 as-is) — exactly what uuid::from_bytes_le renders. Reuse the
+    // vetted crate instead of the hand-rolled formatter. take(16) yields exactly
+    // 16 bytes, so copy_from_slice never panics (same idiom as Cursor::read_array).
+    let mut raw = [0u8; 16];
+    raw.copy_from_slice(cur.take(16)?);
+    Ok(uuid::Uuid::from_bytes_le(raw).to_string())
 }
 
 /// Read a SID (`revision u8, sub_count u8, authority 48-bit BE, sub×u32 LE`) and
