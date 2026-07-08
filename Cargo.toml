@@ -37,7 +37,7 @@ uuid = "1"
 
 # Internal (version + path: path drives local dev, version is used on publish)
 winevt-core = { version = "0.3.0", path = "crates/winevt-core" }
-winevt-binxml = { version = "0.1.1", path = "crates/winevt-binxml" }
+winevt-binxml = { version = "0.1.2", path = "crates/winevt-binxml" }
 winevt-integrity = { version = "0.3.0", path = "crates/winevt-integrity" }
 winevt-carver = { version = "0.1.1", path = "crates/winevt-carver" }
 winevt-memory = { version = "0.1.1", path = "crates/winevt-memory" }
@@ -54,3 +54,9 @@ module_name_repetitions = "allow"
 must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
+# Pedantic cast noise — allowed fleet-wide (canonical [workspace.lints] recipe);
+# the casts are on already-bounds-checked lengths / small test fixtures.
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
