@@ -3249,6 +3249,61 @@ mod ioc_tests {
             .as_deref()
             .unwrap()
             .starts_with("EB52904E54465320"));
+        // The NTFS 8-byte volume serial (VBR offset 0x48), decoded from Vbr0.
+        assert_eq!(first.ntfs_volume_serial, Some(0x36B0_8F15_B08E_DAAF));
+        // No FAT 4-byte serial — this is an NTFS volume (the NTFS-8 ≠ LNK-4 trap).
+        assert_eq!(first.fat_volume_serial, None);
+    }
+
+    fn ntfs_vbr(serial: u64) -> Vec<u8> {
+        let mut v = vec![0u8; 512];
+        v[3..11].copy_from_slice(b"NTFS    ");
+        v[0x48..0x50].copy_from_slice(&serial.to_le_bytes());
+        v
+    }
+
+    fn fat32_vbr(serial: u32) -> Vec<u8> {
+        let mut v = vec![0u8; 512];
+        v[0x52..0x5A].copy_from_slice(b"FAT32   ");
+        v[0x43..0x47].copy_from_slice(&serial.to_le_bytes());
+        v
+    }
+
+    fn fat16_vbr(serial: u32) -> Vec<u8> {
+        let mut v = vec![0u8; 512];
+        v[0x36..0x3E].copy_from_slice(b"FAT16   ");
+        v[0x27..0x2B].copy_from_slice(&serial.to_le_bytes());
+        v
+    }
+
+    #[test]
+    fn ntfs_volume_serial_reads_the_8_byte_serial_at_0x48() {
+        assert_eq!(
+            ntfs_volume_serial(&ntfs_vbr(0x36B0_8F15_B08E_DAAF)),
+            Some(0x36B0_8F15_B08E_DAAF)
+        );
+        // A FAT boot sector is not NTFS → no 8-byte serial.
+        assert_eq!(ntfs_volume_serial(&fat32_vbr(0xDEAD_BEEF)), None);
+        // Too short / garbage → None, never a panic.
+        assert_eq!(ntfs_volume_serial(&[0u8; 8]), None);
+    }
+
+    #[test]
+    fn fat_volume_serial_reads_bs_volid_for_fat32_and_fat16() {
+        // FAT32: BS_FilSysType "FAT32   " at 0x52, BS_VolID at 0x43.
+        assert_eq!(
+            fat_volume_serial(&fat32_vbr(0xDEAD_BEEF)),
+            Some(0xDEAD_BEEF)
+        );
+        // FAT16: BS_FilSysType "FAT16   " at 0x36, BS_VolID at 0x27.
+        assert_eq!(
+            fat_volume_serial(&fat16_vbr(0x1234_5678)),
+            Some(0x1234_5678)
+        );
+        // NTFS is not FAT → no 4-byte serial (the trap: NTFS uses the 8-byte serial).
+        assert_eq!(fat_volume_serial(&ntfs_vbr(1)), None);
+        // Garbage / too short → None.
+        assert_eq!(fat_volume_serial(&[0u8; 16]), None);
     }
 
     #[test]
