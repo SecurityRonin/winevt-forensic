@@ -2462,8 +2462,16 @@ pub struct PartitionDiagEvent {
     /// PnP enumerator path (`ParentId`) — the USB/PCI lineage of the device.
     pub parent_id: Option<String>,
     /// First VBR boot sector as a hex string (the `evtx` crate hex-encodes binary
-    /// EventData). Carries the volume serial for a later VBR decode; `None` when empty.
+    /// EventData). The raw source of the volume serials below; `None` when empty.
     pub vbr0_hex: Option<String>,
+    /// FAT 4-byte volume serial (`BS_VolID`), decoded from `Vbr0` for FAT12/16/32
+    /// volumes. This is the value a Shell Link's `DriveSerialNumber` records, so it is
+    /// the join key to LNK file-access. `None` for NTFS or a non-FAT VBR.
+    pub fat_volume_serial: Option<u32>,
+    /// NTFS 8-byte volume serial (VBR offset `0x48`), decoded from `Vbr0`. Distinct from
+    /// (and wider than) the FAT/LNK 4-byte serial — do not compare the two. `None` for a
+    /// non-NTFS VBR.
+    pub ntfs_volume_serial: Option<u64>,
 }
 
 /// Extract Windows Partition/Diagnostic disk-arrival events (EID 1006) from a
@@ -2501,6 +2509,10 @@ pub fn partition_diag(path: &Path) -> Result<Vec<PartitionDiagEvent>, AnalyzeErr
             Some(e) => e,
             None => continue,
         };
+        let vbr0_hex = event_data_str(ed, "Vbr0")
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        let vbr0 = vbr0_hex.as_deref().and_then(hex_bytes);
         events.push(PartitionDiagEvent {
             timestamp: record.timestamp.to_string(),
             event_id,
@@ -2513,12 +2525,45 @@ pub fn partition_diag(path: &Path) -> Result<Vec<PartitionDiagEvent>, AnalyzeErr
             disk_id: event_data_str(ed, "DiskId").map(str::to_owned),
             capacity: event_data_num(ed, "Capacity"),
             parent_id: event_data_str(ed, "ParentId").map(str::to_owned),
-            vbr0_hex: event_data_str(ed, "Vbr0")
-                .filter(|s| !s.is_empty())
-                .map(str::to_owned),
+            fat_volume_serial: vbr0.as_deref().and_then(fat_volume_serial),
+            ntfs_volume_serial: vbr0.as_deref().and_then(ntfs_volume_serial),
+            vbr0_hex,
         });
     }
     Ok(events)
+}
+
+/// Decode an even-length hex string to bytes; `None` on odd length or a non-hex digit.
+fn hex_bytes(hex: &str) -> Option<Vec<u8>> {
+    if !hex.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
+        .collect()
+}
+
+/// Read the NTFS 8-byte volume serial at VBR offset `0x48`, when the OEM name (offset 3)
+/// is `NTFS    `. `None` for a non-NTFS or too-short boot sector.
+fn ntfs_volume_serial(vbr: &[u8]) -> Option<u64> {
+    if vbr.get(3..11)? != b"NTFS    " {
+        return None;
+    }
+    Some(u64::from_le_bytes(vbr.get(0x48..0x50)?.try_into().ok()?))
+}
+
+/// Read the FAT 4-byte volume serial (`BS_VolID`): FAT32 at `0x43` (BS_FilSysType
+/// `FAT32   ` at `0x52`), FAT12/16 at `0x27` (BS_FilSysType begins `FAT` at `0x36`).
+/// `None` for a non-FAT or too-short boot sector.
+fn fat_volume_serial(vbr: &[u8]) -> Option<u32> {
+    if vbr.get(0x52..0x5A) == Some(b"FAT32   ") {
+        return Some(u32::from_le_bytes(vbr.get(0x43..0x47)?.try_into().ok()?));
+    }
+    if vbr.get(0x36..0x39) == Some(b"FAT") {
+        return Some(u32::from_le_bytes(vbr.get(0x27..0x2B)?.try_into().ok()?));
+    }
+    None
 }
 
 // ── WMI events (EID 5857-5861) ────────────────────────────────────────────────
