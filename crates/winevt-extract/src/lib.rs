@@ -154,6 +154,28 @@ fn event_data_str<'a>(event_data: &'a serde_json::Value, key: &str) -> Option<&'
     event_data.get(key)?.as_str()
 }
 
+/// Read a numeric EventData field by name, across both serialization shapes and whether
+/// the value is a JSON number or a numeric string. Partition/Diagnostic emits `BusType`,
+/// `Capacity`, and `DiskNumber` as JSON numbers, which [`event_data_str`] cannot read.
+/// Returns `None` when the field is absent or not numeric — never panics.
+fn event_data_num(event_data: &serde_json::Value, key: &str) -> Option<u64> {
+    let as_num = |v: &serde_json::Value| {
+        v.as_u64()
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    };
+    // Shape 1: named-attribute array.
+    if let Some(arr) = event_data.get("Data").and_then(|d| d.as_array()) {
+        if let Some(item) = arr
+            .iter()
+            .find(|it| it.get("@Name").and_then(|v| v.as_str()) == Some(key))
+        {
+            return item.get("#text").and_then(as_num);
+        }
+    }
+    // Shape 2: flat named-element object.
+    event_data.get(key).and_then(as_num)
+}
+
 /// Read a string field from Sysmon EventData (flat object format).
 fn sysmon_str<'a>(event_data: &'a serde_json::Value, key: &str) -> Option<&'a str> {
     event_data.get(key)?.as_str()
@@ -2407,6 +2429,92 @@ pub fn defender_events(path: &Path) -> Result<Vec<DefenderEvent>, AnalyzeError> 
                 .map(str::to_owned),
             process_name: event_data_str(ed, "Process Name")
                 .or_else(|| event_data_str(ed, "ProcessName"))
+                .map(str::to_owned),
+        });
+    }
+    Ok(events)
+}
+
+// ── Partition/Diagnostic disk-arrival events (EID 1006) ───────────────────────
+
+/// A Windows Partition/Diagnostic disk-arrival event (`Microsoft-Windows-Partition`,
+/// EID 1006). The kernel logs one record per physical disk observed at partition-scan
+/// time, carrying the disk's bus/model/serial identity, its PnP parent lineage, and the
+/// raw boot sectors captured at that moment.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PartitionDiagEvent {
+    /// Record `TimeCreated`, ISO-8601 (the disk-arrival time).
+    pub timestamp: String,
+    /// Always `1006` for this provider.
+    pub event_id: u32,
+    /// OS disk number (`DiskNumber`).
+    pub disk_number: Option<u32>,
+    /// Storage bus type: `3`=ATA, `7`=USB, `8`=RAID, `17`=NVMe, ….
+    pub bus_type: Option<u32>,
+    /// Device model string (identifying field when the serial is absent).
+    pub model: Option<String>,
+    /// Device serial number; `None` when the provider logged it empty.
+    pub serial_number: Option<String>,
+    /// Disk GUID (`DiskId`).
+    pub disk_id: Option<String>,
+    /// Capacity in bytes.
+    pub capacity: Option<u64>,
+    /// PnP enumerator path (`ParentId`) — the USB/PCI lineage of the device.
+    pub parent_id: Option<String>,
+    /// First VBR boot sector as a hex string (the `evtx` crate hex-encodes binary
+    /// EventData). Carries the volume serial for a later VBR decode; `None` when empty.
+    pub vbr0_hex: Option<String>,
+}
+
+/// Extract Windows Partition/Diagnostic disk-arrival events (EID 1006) from a
+/// `Microsoft-Windows-Partition%4Diagnostic.evtx` log — one event per disk scanned.
+///
+/// EID 1006 is also used by Windows Defender, so records are filtered by the
+/// `Microsoft-Windows-Partition` provider name; a non-partition log yields no events.
+pub fn partition_diag(path: &Path) -> Result<Vec<PartitionDiagEvent>, AnalyzeError> {
+    let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
+    let mut parser =
+        evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
+
+    let mut events = Vec::new();
+    for result in parser.records_json_value() {
+        let record = match result {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let system = record.data.get("Event").and_then(|e| e.get("System"));
+        // Disambiguate from the unrelated Defender EID 1006 by provider name.
+        let is_partition = system
+            .and_then(|s| s.get("Provider"))
+            .and_then(|p| p.get("#attributes"))
+            .and_then(|a| a.get("Name"))
+            .and_then(|v| v.as_str())
+            == Some("Microsoft-Windows-Partition");
+        if !is_partition {
+            continue;
+        }
+        let event_id = match system.and_then(event_id_from_system) {
+            Some(1006) => 1006,
+            _ => continue,
+        };
+        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
+            Some(e) => e,
+            None => continue,
+        };
+        events.push(PartitionDiagEvent {
+            timestamp: record.timestamp.to_string(),
+            event_id,
+            disk_number: event_data_num(ed, "DiskNumber").map(|n| n as u32),
+            bus_type: event_data_num(ed, "BusType").map(|n| n as u32),
+            model: event_data_str(ed, "Model").map(str::to_owned),
+            serial_number: event_data_str(ed, "SerialNumber")
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned),
+            disk_id: event_data_str(ed, "DiskId").map(str::to_owned),
+            capacity: event_data_num(ed, "Capacity"),
+            parent_id: event_data_str(ed, "ParentId").map(str::to_owned),
+            vbr0_hex: event_data_str(ed, "Vbr0")
+                .filter(|s| !s.is_empty())
                 .map(str::to_owned),
         });
     }
