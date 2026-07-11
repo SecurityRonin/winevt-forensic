@@ -3093,6 +3093,70 @@ mod ioc_tests {
         assert!(result.is_empty(), "expected no Defender events");
     }
 
+    // ── Partition/Diagnostic (EID 1006) ──────────────────────────────────────
+
+    #[test]
+    fn event_data_num_reads_json_number_and_numeric_string_both_shapes() {
+        // Flat-object shape, JSON numbers (how the evtx crate emits BusType/Capacity).
+        let flat = serde_json::json!({"BusType": 3, "Capacity": 42_949_672_960u64});
+        assert_eq!(event_data_num(&flat, "BusType"), Some(3));
+        assert_eq!(event_data_num(&flat, "Capacity"), Some(42_949_672_960));
+        // Named-attribute array shape with a numeric string #text.
+        let arr = serde_json::json!({"Data": [{"@Name": "BusType", "#text": "7"}]});
+        assert_eq!(event_data_num(&arr, "BusType"), Some(7));
+        // Absent or non-numeric → None, never a panic.
+        assert_eq!(event_data_num(&flat, "Missing"), None);
+        let strs = serde_json::json!({"Model": "Virtual HD"});
+        assert_eq!(event_data_num(&strs, "Model"), None);
+    }
+
+    #[test]
+    fn partition_diag_matches_the_real_artifact() {
+        // Tier-1: the real DFIRArtifactMuseum Partition/Diagnostic log, cross-checked
+        // against the python-evtx oracle (22 EID-1006 records, all BusType=3 ATA).
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../tests/data/DFIRArtifactMuseum/BelkasoftCTF-InsiderThreat/Microsoft-Windows-Partition%4Diagnostic.evtx",
+        );
+        if !path.exists() {
+            eprintln!("SKIP: corpus file not found");
+            return;
+        }
+        let events = partition_diag(&path).expect("should parse");
+        assert_eq!(events.len(), 22, "22 EID-1006 partition-diagnostic records");
+        let first = &events[0];
+        assert_eq!(first.event_id, 1006);
+        assert_eq!(first.bus_type, Some(3)); // ATA
+        assert_eq!(first.model.as_deref(), Some("Virtual HD"));
+        assert_eq!(first.capacity, Some(42_949_672_960));
+        assert_eq!(first.disk_number, Some(0));
+        assert_eq!(
+            first.disk_id.as_deref(),
+            Some("0A13EAD6-D449-11EA-9195-806E6F6E6963")
+        );
+        // SerialNumber is empty in this ATA/Virtual-HD sample → None.
+        assert_eq!(first.serial_number, None);
+        // Vbr0 is the NTFS boot sector, hex-encoded (jump `EB5290` + OEM "NTFS ").
+        assert!(first
+            .vbr0_hex
+            .as_deref()
+            .unwrap()
+            .starts_with("EB52904E54465320"));
+    }
+
+    #[test]
+    fn partition_diag_ignores_non_partition_provider() {
+        // EID 1006 is shared with Windows Defender; the provider filter must exclude
+        // any non-Microsoft-Windows-Partition log so no false partition events appear.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../tests/data/hayabusa-sample-evtx/DeepBlueCLI/Powershell-Invoke-Obfuscation-string-menu.evtx",
+        );
+        if !path.exists() {
+            eprintln!("SKIP: corpus file not found");
+            return;
+        }
+        assert!(partition_diag(&path).expect("should parse").is_empty());
+    }
+
     // ── Type-contract tests: extraction functions must return forensicnomicon types ──
 
     #[allow(dead_code)]
