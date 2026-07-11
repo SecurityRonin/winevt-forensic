@@ -42,7 +42,7 @@ winevt-integrity = { version = "0.3.0", path = "crates/winevt-integrity" }
 winevt-carver = { version = "0.1.1", path = "crates/winevt-carver" }
 winevt-memory = { version = "0.1.1", path = "crates/winevt-memory" }
 winevt-writer = { version = "0.1.1", path = "crates/winevt-writer" }
-winevt-extract = { version = "0.3.0", path = "crates/winevt-extract" }
+winevt-extract = { version = "0.4.0", path = "crates/winevt-extract" }
 winevt-manifest = { version = "0.1.0", path = "crates/winevt-manifest" }
 forensicnomicon = { version = "1", features = ["serde"] }
 winevt-triage = { version = "0.1.1", path = "crates/winevt-triage" }
