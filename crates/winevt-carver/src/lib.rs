@@ -2,6 +2,9 @@ use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
+mod carver;
+pub use carver::{EvtxChunkCarver, EVTX_CHUNK_CARVER};
+
 fn compute_sha256(data: &[u8]) -> String {
     let hash = Sha256::digest(data);
     use std::fmt::Write as _;

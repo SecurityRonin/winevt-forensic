@@ -18,6 +18,7 @@ ewf = { workspace = true }
 memmap2 = "0.9"
 serde = { workspace = true }
 forensic-carve = { workspace = true }
+inventory = { workspace = true }
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]

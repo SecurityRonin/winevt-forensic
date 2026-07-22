@@ -1857,6 +1857,7 @@ dependencies = [
  "crc32fast",
  "ewf",
  "forensic-carve",
+ "inventory",
  "memmap2",
  "rayon",
  "serde",
