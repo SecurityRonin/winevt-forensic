@@ -663,6 +663,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
+name = "forensic-carve"
+version = "0.0.0"
+dependencies = [
+ "aho-corasick",
+ "inventory",
+]
+
+[[package]]
 name = "forensicnomicon"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -810,6 +818,15 @@ name = "indoc"
 version = "2.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79cf5c93f93228cf8efb3ba362535fb11199ac548a09ce117c9b1adc3030d706"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
+name = "inventory"
+version = "0.3.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4f0c30c76f2f4ccee3fe55a2435f691ca00c0e4bd87abe4f4a851b1d4dac39b"
 dependencies = [
  "rustversion",
 ]
@@ -1839,6 +1856,7 @@ version = "0.1.1"
 dependencies = [
  "crc32fast",
  "ewf",
+ "forensic-carve",
  "memmap2",
  "rayon",
  "serde",
@@ -1877,7 +1895,7 @@ dependencies = [
 
 [[package]]
 name = "winevt-extract"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "base64",
  "evtx",

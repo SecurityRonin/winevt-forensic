@@ -683,6 +683,52 @@ fn recover_records_aggressive(chunk_data: &[u8], _chunk_offset: u64) -> Vec<Reco
 mod tests {
     use super::*;
 
+    // ---- Fleet `forensic-carve::Carver` contract (ADR 0001 §4) ----
+
+    #[test]
+    fn evtx_chunk_carver_recovers_orphaned_chunk_echoing_ctx_method() {
+        use forensic_carve::{CarveContext, CarvedPayload, Carver, RecoveryMethod};
+
+        let off = 0x4000u64;
+        let chunk = make_chunk_with_one_record();
+
+        // An unallocated sweep: method must be ECHOED from ctx, never hardcoded.
+        let ctx = CarveContext::at(off).with_method(RecoveryMethod::UnallocatedCarve);
+        let items = EvtxChunkCarver.carve(&chunk, &ctx);
+        assert!(
+            !items.is_empty(),
+            "expected >=1 carved item for a valid chunk"
+        );
+        assert_eq!(items[0].format(), "evtx-chunk");
+        assert_eq!(items[0].recovery_method(), RecoveryMethod::UnallocatedCarve);
+        assert_eq!(
+            items[0].image_offset(),
+            off,
+            "image_offset echoes ctx.base_offset()"
+        );
+        assert_eq!(*items[0].payload(), CarvedPayload::Records);
+
+        // Same carver over a memory sweep must echo MemoryCarve (proves no hardcode).
+        let mem_ctx = CarveContext::at(off).with_method(RecoveryMethod::MemoryCarve);
+        let mem_items = EvtxChunkCarver.carve(&chunk, &mem_ctx);
+        assert_eq!(mem_items[0].recovery_method(), RecoveryMethod::MemoryCarve);
+
+        // A window with no valid ElfChnk chunk yields nothing.
+        let empty = EvtxChunkCarver.carve(&[0u8; 0x10000], &ctx);
+        assert!(empty.is_empty(), "no ElfChnk magic => no carved items");
+    }
+
+    #[test]
+    fn evtx_chunk_carver_contract_metadata() {
+        use forensic_carve::Carver;
+        assert_eq!(EvtxChunkCarver.format(), "evtx-chunk");
+        assert_eq!(EvtxChunkCarver.max_window(), CHUNK_SIZE);
+        let sigs = EvtxChunkCarver.signatures();
+        assert_eq!(sigs.len(), 1);
+        assert_eq!(sigs[0].magic(), b"ElfChnk\x00");
+        assert_eq!(sigs[0].offset(), 0);
+    }
+
     fn make_minimal_chunk() -> Vec<u8> {
         let mut chunk = vec![0u8; 0x10000];
         chunk[0..8].copy_from_slice(b"ElfChnk\0");
