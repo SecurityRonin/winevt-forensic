@@ -1854,7 +1854,7 @@ dependencies = [
 
 [[package]]
 name = "winevt-carver"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "crc32fast",
  "ewf",
@@ -1942,7 +1942,7 @@ dependencies = [
 
 [[package]]
 name = "winevt-triage"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ewf",
  "ntfs",
@@ -1955,7 +1955,7 @@ dependencies = [
 
 [[package]]
 name = "winevt-writer"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "crc32fast",
  "winevt-carver",
