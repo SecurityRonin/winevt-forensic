@@ -31,8 +31,8 @@ tempfile = "3"
 sha2 = "0.10"
 rayon = "1"
 ewf = "0.2"
-# Fleet carving contract + single-pass sweep engine (unpublished — path dep). ADR 0001.
-forensic-carve = { path = "../forensic-carve" }
+# Fleet carving contract + single-pass sweep engine. ADR 0001.
+forensic-carve = "0.1"
 inventory = "0.3"
 # Canonical mixed-endian GUID rendering — reuse the vetted crate rather than
 # hand-roll the format string (from_bytes_le is the exact form; cf. dpapi).
