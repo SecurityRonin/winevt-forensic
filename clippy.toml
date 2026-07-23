@@ -1,0 +1,11 @@
+# Allow `unwrap()`/`expect()` inside test functions and `#[cfg(test)]` modules.
+# Production code keeps `clippy::unwrap_used = deny` (see workspace Cargo.toml);
+# tests legitimately unwrap to fail loudly, so this is the upstream-recommended
+# exception rather than scattering `#[allow]` across every test module.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+
+# Product/format names that look like code identifiers to doc_markdown.
+# ".." extends clippy's built-in default list (KiB/MiB/GiB, etc.) rather than
+# replacing it — omitting it would drop the defaults and re-flag common units.
+doc-valid-idents = ["..", "EVTX", "BinXML", "ElfChnk", "ElfFile", "GUID", "GUIDs", "MITRE", "SID", "RVA", "UTF-16", "UTF-8", "SecurityRonin", "WEVT_TEMPLATE"]
