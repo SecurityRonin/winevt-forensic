@@ -939,9 +939,8 @@ fn walkdir_evtx(dir: &PathBuf) -> Vec<PathBuf> {
 }
 
 fn walkdir_inner(dir: &PathBuf, out: &mut Vec<PathBuf>) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
     };
     for entry in entries.flatten() {
         let path = entry.path();

@@ -48,10 +48,6 @@ fn which_hayabusa() -> Option<std::path::PathBuf> {
     None
 }
 
-/// Returns the hayabusa rules directory.
-///
-/// Resolution order:
-/// 1. `HAYABUSA_RULES` env var
 /// Build a temp EVTX file containing N records via winevt-writer.
 fn write_evtx_fixture(label: &str, records: &[WriteRecord]) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();

@@ -225,7 +225,7 @@ mod tests {
             buffer_count: 4,
             buffer_size: 64,
             events_lost: 0,
-            log_mode: 0x00000101,
+            log_mode: 0x0000_0101,
             buffer_events: vec![],
         };
         assert_eq!(session.logger_id, 7);
@@ -298,7 +298,7 @@ mod tests {
             buffer_count: 4,
             buffer_size: 64,
             events_lost: 1001,
-            log_mode: 0x00000101,
+            log_mode: 0x0000_0101,
             buffer_events: vec![],
         }];
         let indicators = detect_etw_tampering(&sessions);
@@ -323,7 +323,7 @@ mod tests {
                 buffer_count: 4,
                 buffer_size: 64,
                 events_lost: 100,
-                log_mode: 0x00000101,
+                log_mode: 0x0000_0101,
                 buffer_events: vec![],
             },
             RecoveredEtwSession {
@@ -333,7 +333,7 @@ mod tests {
                 buffer_count: 4,
                 buffer_size: 64,
                 events_lost: 0,
-                log_mode: 0x00000101,
+                log_mode: 0x0000_0101,
                 buffer_events: vec![],
             },
             RecoveredEtwSession {
@@ -343,7 +343,7 @@ mod tests {
                 buffer_count: 4,
                 buffer_size: 64,
                 events_lost: 0,
-                log_mode: 0x00000101,
+                log_mode: 0x0000_0101,
                 buffer_events: vec![],
             },
         ];
@@ -390,7 +390,7 @@ mod tests {
                 buffer_count: 4,
                 buffer_size: 64,
                 events_lost: 5,
-                log_mode: 0x00000101,
+                log_mode: 0x0000_0101,
                 buffer_events: vec![],
             },
             RecoveredEtwSession {
@@ -400,7 +400,7 @@ mod tests {
                 buffer_count: 4,
                 buffer_size: 64,
                 events_lost: 0,
-                log_mode: 0x00000101,
+                log_mode: 0x0000_0101,
                 buffer_events: vec![],
             },
             RecoveredEtwSession {
@@ -410,7 +410,7 @@ mod tests {
                 buffer_count: 4,
                 buffer_size: 64,
                 events_lost: 0,
-                log_mode: 0x00000101,
+                log_mode: 0x0000_0101,
                 buffer_events: vec![],
             },
         ];

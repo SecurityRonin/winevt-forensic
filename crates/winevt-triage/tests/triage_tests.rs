@@ -65,8 +65,8 @@ fn parse_mbr_finds_ntfs_type_17() {
 
 #[test]
 fn parse_mbr_finds_ntfs_type_27() {
-    let sector = make_mbr(0x27, 1026048);
-    assert_eq!(parse_mbr_ntfs_offset(&sector), Some(1026048));
+    let sector = make_mbr(0x27, 1_026_048);
+    assert_eq!(parse_mbr_ntfs_offset(&sector), Some(1_026_048));
 }
 
 #[test]
@@ -89,10 +89,10 @@ fn parse_mbr_skips_fat_finds_ntfs_in_second_slot() {
     // First entry: FAT32 (0x0B)
     sector[0x1BE + 4] = 0x0B;
     sector[0x1BE + 8..0x1BE + 12].copy_from_slice(&63u32.to_le_bytes());
-    // Second entry: NTFS (0x07) at LBA 1026048
+    // Second entry: NTFS (0x07) at LBA 1_026_048
     sector[0x1CE + 4] = 0x07;
-    sector[0x1CE + 8..0x1CE + 12].copy_from_slice(&1026048u32.to_le_bytes());
-    assert_eq!(parse_mbr_ntfs_offset(&sector), Some(1026048));
+    sector[0x1CE + 8..0x1CE + 12].copy_from_slice(&1_026_048u32.to_le_bytes());
+    assert_eq!(parse_mbr_ntfs_offset(&sector), Some(1_026_048));
 }
 
 // ── extract_evtx_from_e01 integration tests ──────────────────────────────────
@@ -155,13 +155,13 @@ fn extract_evtx_finds_system_evtx() {
 
 #[test]
 fn extract_evtx_files_have_evtx_magic() {
+    // Every extracted file must start with the EVTX magic bytes.
+    const EVTX_MAGIC: &[u8] = b"ElfFile\x00";
+
     let e01 = require_maxpowers!();
     let out = tempfile::tempdir().expect("tempdir");
     let report =
         extract_evtx_from_e01(&e01, out.path()).expect("extract_evtx_from_e01 should succeed");
-
-    // Every extracted file must start with the EVTX magic bytes.
-    const EVTX_MAGIC: &[u8] = b"ElfFile\x00";
     for evtx in &report.evtx_files {
         let bytes = std::fs::read(&evtx.path).expect("read extracted evtx");
         assert!(

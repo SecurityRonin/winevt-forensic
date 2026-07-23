@@ -3120,17 +3120,15 @@ mod ioc_tests {
             return;
         }
         let mut parser = evtx::EvtxParser::from_path(&path).unwrap();
-        for result in parser.records_json_value() {
-            if let Ok(r) = result {
-                let system = r.data.get("Event").and_then(|e| e.get("System"));
-                if system.and_then(event_id_from_system) == Some(4104) {
-                    let ed = r.data.get("Event").and_then(|e| e.get("EventData"));
-                    eprintln!(
-                        "EID 4104 EventData: {}",
-                        serde_json::to_string_pretty(&ed).unwrap()
-                    );
-                    return;
-                }
+        for r in parser.records_json_value().flatten() {
+            let system = r.data.get("Event").and_then(|e| e.get("System"));
+            if system.and_then(event_id_from_system) == Some(4104) {
+                let ed = r.data.get("Event").and_then(|e| e.get("EventData"));
+                eprintln!(
+                    "EID 4104 EventData: {}",
+                    serde_json::to_string_pretty(&ed).unwrap()
+                );
+                return;
             }
         }
         panic!("No EID 4104 found");
@@ -3146,14 +3144,12 @@ mod ioc_tests {
             return;
         }
         let mut parser = evtx::EvtxParser::from_path(&path).unwrap();
-        for result in parser.records_json_value() {
-            if let Ok(r) = result {
-                let system = r.data.get("Event").and_then(|e| e.get("System"));
-                if system.and_then(event_id_from_system) == Some(1) {
-                    let ed = r.data.get("Event").and_then(|e| e.get("EventData"));
-                    eprintln!("EventData: {}", serde_json::to_string_pretty(&ed).unwrap());
-                    return;
-                }
+        for r in parser.records_json_value().flatten() {
+            let system = r.data.get("Event").and_then(|e| e.get("System"));
+            if system.and_then(event_id_from_system) == Some(1) {
+                let ed = r.data.get("Event").and_then(|e| e.get("EventData"));
+                eprintln!("EventData: {}", serde_json::to_string_pretty(&ed).unwrap());
+                return;
             }
         }
         panic!("No EID 1 found");

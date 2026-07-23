@@ -55,7 +55,7 @@ fn write_tampered_evtx() -> std::path::PathBuf {
     chunk[48..52].copy_from_slice(&0x200u32.to_le_bytes());
     chunk[52..56].copy_from_slice(&0u32.to_le_bytes());
     // WRONG checksum
-    chunk[0x78..0x7C].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+    chunk[0x78..0x7C].copy_from_slice(&0xDEAD_BEEF_u32.to_le_bytes());
 
     let mut path = std::env::temp_dir();
     path.push(format!(

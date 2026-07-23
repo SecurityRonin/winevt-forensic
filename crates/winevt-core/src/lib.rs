@@ -120,20 +120,20 @@ mod tests {
             timestamp_ns: 1_700_000_000_000_000_000,
             computer: "DC01".into(),
             user_sid: Some("S-1-5-21-1234".into()),
-            logon_id: Some(0x456789),
+            logon_id: Some(0x0045_6789),
             process_id: Some(500),
             thread_id: Some(504),
             data,
         };
         assert_eq!(event.data.get("TargetUserName").unwrap(), "admin");
         assert_eq!(event.data.get("LogonType").unwrap(), "10");
-        assert!(event.data.get("NonExistent").is_none());
+        assert!(!event.data.contains_key("NonExistent"));
     }
 
     #[test]
     fn logon_session_duration_none_when_no_logoff() {
         let session = LogonSession {
-            logon_id: 0x123456,
+            logon_id: 0x0012_3456,
             logon_type: 10,
             username: "analyst".into(),
             domain: "CORP".into(),
@@ -172,10 +172,10 @@ mod tests {
             parent_pid: Some(456),
             image_path: r"C:\Windows\System32\cmd.exe".into(),
             command_line: Some("cmd.exe /c whoami".into()),
-            logon_id: Some(0xABCDEF),
+            logon_id: Some(0x00AB_CDEF),
             user: Some("CORP\\analyst".into()),
         };
-        assert_eq!(pe.logon_id, Some(0xABCDEF));
+        assert_eq!(pe.logon_id, Some(0x00AB_CDEF));
         assert_eq!(pe.process_id, 1234);
     }
 
@@ -251,14 +251,14 @@ mod tests {
         buf[40..44].copy_from_slice(&0x80u32.to_le_bytes()); // header_size
         buf[44..48].copy_from_slice(&0x500u32.to_le_bytes()); // last_event_record_data_offset
         buf[48..52].copy_from_slice(&0x800u32.to_le_bytes()); // free_space_offset
-        buf[52..56].copy_from_slice(&0xDEADBEEFu32.to_le_bytes()); // event_records_checksum
-        buf[0x78..0x7C].copy_from_slice(&0xCAFEBABEu32.to_le_bytes()); // header_checksum
+        buf[52..56].copy_from_slice(&0xDEAD_BEEF_u32.to_le_bytes()); // event_records_checksum
+        buf[0x78..0x7C].copy_from_slice(&0xCAFE_BABE_u32.to_le_bytes()); // header_checksum
         let h = EvtxChunkHeader::parse(&buf).expect("should parse");
         assert_eq!(h.first_event_record_number, 10);
         assert_eq!(h.last_event_record_number, 19);
         assert_eq!(h.header_size, 0x80);
-        assert_eq!(h.event_records_checksum, 0xDEADBEEF);
-        assert_eq!(h.header_checksum, 0xCAFEBABE);
+        assert_eq!(h.event_records_checksum, 0xDEAD_BEEF);
+        assert_eq!(h.header_checksum, 0xCAFE_BABE);
     }
 
     #[test]
