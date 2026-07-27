@@ -10,7 +10,7 @@ description = "Provider manifest resolver for Windows Event Log records: maps an
 name = "winevt_manifest"
 
 [dependencies]
-quick-xml = { version = "0.37", features = ["encoding"] }
+quick-xml = { version = "0.41", features = ["encoding"] }
 thiserror.workspace = true
 
 [dev-dependencies]
