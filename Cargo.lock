@@ -615,15 +615,17 @@ dependencies = [
 
 [[package]]
 name = "ewf"
-version = "0.2.1"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "731348c5f878c1186d226c8d4f4f76934064f675a93714a049a7aa4087121be9"
+checksum = "f9f0aae36d49a5b16a1353b4b80f7d0090666ca19dd910aed7b0ab1d35bf8f60"
 dependencies = [
+ "adler2",
  "flate2",
  "glob",
  "log",
  "lru",
  "md-5",
+ "rayon",
  "sha-1",
  "thiserror 2.0.18",
 ]
