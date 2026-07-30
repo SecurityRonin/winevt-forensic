@@ -269,7 +269,7 @@ mod tests {
         // Fragment header (4 bytes) + MAX_STEPS repetitions of a 1-byte token (0x02 = CloseStartElement)
         // without an EndOfStream terminator.
         let mut bytes = vec![0x0F, 0x01, 0x01, 0x00]; // fragment header
-        bytes.extend(std::iter::repeat(0x02u8).take(65_537)); // one past the limit
+        bytes.extend(std::iter::repeat_n(0x02u8, 65_537)); // one past the limit
         let result = validate_binxml(&bytes);
         assert!(matches!(
             result,

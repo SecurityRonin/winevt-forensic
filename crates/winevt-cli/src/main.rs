@@ -554,8 +554,8 @@ fn main() {
             let filtered: Vec<_> = all_entries
                 .into_iter()
                 .filter(|e| filter_eid.is_empty() || filter_eid.contains(&e.event_id))
-                .filter(|e| after.as_deref().map_or(true, |a| e.timestamp.as_str() >= a))
-                .filter(|e| before.as_deref().map_or(true, |b| e.timestamp.as_str() < b))
+                .filter(|e| after.as_deref().is_none_or(|a| e.timestamp.as_str() >= a))
+                .filter(|e| before.as_deref().is_none_or(|b| e.timestamp.as_str() < b))
                 .take(limit.unwrap_or(usize::MAX))
                 .collect();
             if stream {
@@ -622,7 +622,7 @@ fn main() {
                     Ok(all_sessions) => {
                         let filtered: Vec<_> = all_sessions
                             .into_iter()
-                            .filter(|s| logon_type.map_or(true, |lt| s.logon_type == lt))
+                            .filter(|s| logon_type.is_none_or(|lt| s.logon_type == lt))
                             .collect();
                         if stream {
                             for s in &filtered {

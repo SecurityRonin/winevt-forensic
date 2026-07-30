@@ -424,7 +424,7 @@ fn cmdline_batch_lolbin_sysmon_files_all_nonempty() {
         }
         let json: serde_json::Value =
             serde_json::from_slice(&output.stdout).unwrap_or(serde_json::Value::Array(vec![]));
-        if json.as_array().map_or(true, std::vec::Vec::is_empty) {
+        if json.as_array().is_none_or(std::vec::Vec::is_empty) {
             empties.push(path.display().to_string());
         }
     }
