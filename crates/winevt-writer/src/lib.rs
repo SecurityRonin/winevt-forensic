@@ -11,6 +11,8 @@
 //!
 //! Each layer is independently testable, making regressions easy to localise.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 // ── EVTX binary layout constants ─────────────────────────────────────────────
 
 /// Total size of the `ElfFile` header block (4 KiB).
@@ -19,6 +21,12 @@ pub const FILE_HEADER_SIZE: usize = 0x1000;
 pub const CHUNK_SIZE: usize = 0x1_0000;
 /// Byte offset where records start within a chunk.
 pub const RECORDS_OFFSET: usize = 0x200;
+/// `RECORDS_OFFSET` as the `u32` the chunk header stores. The const assertion
+/// makes an out-of-range value a compile error instead of a runtime unwrap.
+const RECORDS_OFFSET_U32: u32 = {
+    assert!(RECORDS_OFFSET <= u32::MAX as usize);
+    RECORDS_OFFSET as u32
+};
 /// Maximum bytes available for record data in one chunk.
 pub const MAX_RECORDS_AREA: usize = CHUNK_SIZE - RECORDS_OFFSET;
 
@@ -190,7 +198,7 @@ pub fn build_chunk(records: &[WriteRecord], chunk_number: u64) -> [u8; CHUNK_SIZ
             off as u32
         }
     } else {
-        u32::try_from(RECORDS_OFFSET).expect("RECORDS_OFFSET fits u32")
+        RECORDS_OFFSET_U32
     };
     buf[CH_LAST_REC_DATA_OFF..CH_LAST_REC_DATA_OFF + 4]
         .copy_from_slice(&last_data_offset.to_le_bytes());

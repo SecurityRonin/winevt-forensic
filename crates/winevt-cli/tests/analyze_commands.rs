@@ -1,6 +1,8 @@
 //! Integration tests for new analysis subcommands:
 //! pivot, diff, process-tree, logon-graph, rare-process, hunt.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::path::PathBuf;
 use std::process::Command;
 

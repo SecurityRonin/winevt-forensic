@@ -1,5 +1,7 @@
 //! Core types and lookup tables for Windows Event Log forensic analysis.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 pub mod binary;
 
 use std::collections::HashMap;

@@ -1,5 +1,7 @@
 //! ProviderAnomaly normalizes onto the canonical `forensicnomicon::report` model.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use forensicnomicon::report::{Observation, Severity, Source};
 use winevt_integrity::ProviderAnomaly;
 

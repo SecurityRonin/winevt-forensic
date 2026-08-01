@@ -1,6 +1,8 @@
 //! winevt-core integrity anomalies normalize onto the canonical
 //! `forensicnomicon::report` model via the `Observation` producer trait.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use forensicnomicon::report::{Observation, Source};
 use winevt_core::binary::IntegrityAnomaly;
 

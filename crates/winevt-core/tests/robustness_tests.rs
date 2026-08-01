@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use forensicnomicon::evtx::CHUNK_SIZE;
 use winevt_core::binary::{EvtxChunkHeader, EvtxRecordHeader, ELFCHNK_MAGIC, RECORD_MAGIC};
 
