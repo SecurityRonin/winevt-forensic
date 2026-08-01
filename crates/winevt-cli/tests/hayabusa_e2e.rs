@@ -13,6 +13,8 @@
 //! cargo test --test hayabusa_e2e
 //! ```
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::process::Command;
 use winevt_writer::{records_to_evtx, WriteRecord};
 

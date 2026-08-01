@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 // winevt-memory: types and analysis functions for EVTX/ETW data recovered from memory dumps.
 // No dependency on memory readers — provides types that memf-windows populates.
 

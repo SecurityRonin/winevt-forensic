@@ -9,6 +9,8 @@
 //! 4. Stream each EVTX file out to a caller-supplied output directory.
 //! 5. (CLI layer) Run Hayabusa on that directory and emit a combined JSON report.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 use std::path::{Path, PathBuf};
 
 pub use error::TriageError;

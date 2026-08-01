@@ -38,7 +38,13 @@ pub fn detect_service_stop_avset(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
             .collect();
         if window.len() >= RANSOMWARE_SERVICE_STOP_CLUSTER_THRESHOLD {
             let services: Vec<String> = window.iter().map(|(_, s, _)| (*s).to_string()).collect();
-            let last_ev = window.last().unwrap().2;
+            // The length check above already implies a last element; bind it
+            // rather than assert it again.
+            let Some(last) = window.last() else {
+                i += 1;
+                continue;
+            };
+            let last_ev = last.2;
             detections.push(EvtxDetection {
                 kind: EvtxDetectionKind::ServiceStopAvSet,
                 mitre_technique_id: "T1489",
@@ -46,7 +52,7 @@ pub fn detect_service_stop_avset(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                 description: format!(
                     "Ransomware AV/backup service-stop cluster: {} stops in {}ms — [{}]",
                     window.len(),
-                    (window.last().unwrap().0 - window_start) / 1_000_000,
+                    (last.0 - window_start) / 1_000_000,
                     services.join(", ")
                 ),
                 evidence: services.iter().map(|s| format!("stopped={s}")).collect(),

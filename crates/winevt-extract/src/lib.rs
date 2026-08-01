@@ -1304,6 +1304,14 @@ struct IocPatterns {
 
 static IOC_PATTERNS: OnceLock<IocPatterns> = OnceLock::new();
 
+/// Every pattern below is a literal fixed at compile time, so a `Regex::new`
+/// failure would be a malformed constant in this file — a build-time programmer
+/// error, not a condition any input can produce. Returning an error would make
+/// every caller handle an unreachable case, and degrading to `None` would
+/// silently switch IOC extraction off, which is the worse failure for an
+/// analyzer. The control is `all_ioc_patterns_compile` below, which fails CI if
+/// any pattern stops compiling. Scoped to this one function.
+#[allow(clippy::unwrap_used)]
 fn ioc_patterns() -> &'static IocPatterns {
     IOC_PATTERNS.get_or_init(|| IocPatterns {
         // IPv4 — four dotted octets (0-255 each); reject private-only 127.0.0.1 style
@@ -3546,5 +3554,34 @@ mod ioc_tests {
         );
         let source6 = resolve_logon_source(10, "DEST-MACHINE", "::1");
         assert!(source6.is_none(), "IPv6 loopback must also be filtered");
+    }
+}
+
+#[cfg(test)]
+mod ioc_pattern_tests {
+    use super::{ioc_patterns, scan_for_iocs, IocKind};
+
+    /// The control backing the scoped `unwrap_used` allow on `ioc_patterns()`:
+    /// if any literal pattern stops compiling, this fails in CI rather than at
+    /// an examiner's first scan.
+    #[test]
+    fn all_ioc_patterns_compile() {
+        let p = ioc_patterns();
+        assert!(p.ipv4.is_match("203.0.113.7"));
+        assert!(p.sha256.is_match(&"a".repeat(64)));
+        assert!(p.sha1.is_match(&"b".repeat(40)));
+        assert!(p.md5.is_match(&"c".repeat(32)));
+        assert!(p.filepath.is_match(r"C:\Windows\System32\cmd.exe"));
+    }
+
+    #[test]
+    fn hex_patterns_do_not_cross_match_on_length() {
+        // A 64-char digest must be reported as SHA-256 only: the \b anchors
+        // prevent the 40- and 32-char patterns matching a prefix of it.
+        let kinds: Vec<IocKind> = scan_for_iocs(&"d".repeat(64))
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
+        assert_eq!(kinds, vec![IocKind::Sha256], "got {kinds:?}");
     }
 }

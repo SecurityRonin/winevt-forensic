@@ -6,6 +6,7 @@
 //! Call [`detect_all`] to run every detector and get results sorted by
 //! timestamp then MITRE technique ID.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,

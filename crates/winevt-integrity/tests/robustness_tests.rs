@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use winevt_core::binary::{IntegrityAnomaly, Severity};
 use winevt_integrity::{detect_phantom_records, phantom_alerts_to_anomalies, WinevtIntegrity};
 

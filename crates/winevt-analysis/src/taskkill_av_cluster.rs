@@ -39,7 +39,13 @@ pub fn detect_taskkill_av_cluster(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
             .collect();
         if window.len() >= RANSOMWARE_KILL_CLUSTER_THRESHOLD {
             let processes: Vec<String> = window.iter().map(|(_, p, _)| (*p).to_string()).collect();
-            let last_ev = window.last().unwrap().2;
+            // The length check above already implies a last element; bind it
+            // rather than assert it again.
+            let Some(last) = window.last() else {
+                i += 1;
+                continue;
+            };
+            let last_ev = last.2;
             detections.push(EvtxDetection {
                 kind: EvtxDetectionKind::TaskkillAvCluster,
                 mitre_technique_id: "T1562.001",
@@ -47,7 +53,7 @@ pub fn detect_taskkill_av_cluster(events: &[EvtxEvent]) -> Vec<EvtxDetection> {
                 description: format!(
                     "Ransomware AV/SQL process-kill cluster: {} kills in {}ms — [{}]",
                     window.len(),
-                    (window.last().unwrap().0 - window_start) / 1_000_000,
+                    (last.0 - window_start) / 1_000_000,
                     processes.join(", ")
                 ),
                 evidence: processes.iter().map(|p| format!("killed={p}")).collect(),

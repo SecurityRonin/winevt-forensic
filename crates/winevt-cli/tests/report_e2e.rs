@@ -11,6 +11,8 @@
 //! Tests that require the MaxPowersCDrive.E01 image or the fox-it corpus skip
 //! gracefully when the files are absent.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::process::Command;
 
 fn wt_bin() -> std::path::PathBuf {

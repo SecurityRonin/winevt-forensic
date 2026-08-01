@@ -18,6 +18,8 @@
 //!   GREEN — `corpus_robustness_attack_samples`        (stability/no-panic)
 //!   GREEN — `extract_ioc_c2_corpus`                  (C2 files have IPs)
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::path::PathBuf;
 use std::process::Command;
 

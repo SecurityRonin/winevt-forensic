@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -10,7 +11,8 @@ fn compute_sha256(data: &[u8]) -> String {
     use std::fmt::Write as _;
     let mut s = String::with_capacity(64);
     for b in hash {
-        write!(s, "{b:02x}").unwrap();
+        // Writing to a String is infallible; the Result only satisfies fmt::Write.
+        let _ = write!(s, "{b:02x}");
     }
     s
 }

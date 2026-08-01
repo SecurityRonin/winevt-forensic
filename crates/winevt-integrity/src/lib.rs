@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 use winevt_core::binary::{
     EvtxChunkHeader, EvtxFileHeader, EvtxRecordHeader, IntegrityAnomaly, Severity,
     CHUNK_RECORDS_OFFSET, CHUNK_SIZE, ELFCHNK_MAGIC, ELFFILE_MAGIC, RECORD_MAGIC,

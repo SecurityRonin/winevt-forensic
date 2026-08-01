@@ -6,6 +6,8 @@
 //! symlinked at `tests/data/DEF CON DFIR CTF 2018/MaxPowersCDrive.E01`.
 //! They skip gracefully when the file is absent.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use winevt_triage::{extract_evtx_from_e01, parse_mbr_ntfs_offset};
 
 // ── helpers ───────────────────────────────────────────────────────────────────

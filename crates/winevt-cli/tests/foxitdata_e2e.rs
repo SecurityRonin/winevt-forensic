@@ -21,6 +21,8 @@
 //! "Detection and recovery of NSA's covered up tracks"
 //! <https://blog.fox-it.com/2017/12/08/detection-and-recovery-of-nsas-covered-up-tracks/>
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use winevt_carver::{carve_from_file, verify_integrity, IntegrityAnomaly};
 
 fn workspace_root() -> std::path::PathBuf {
