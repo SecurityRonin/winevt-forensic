@@ -19,6 +19,36 @@ const EXIT_NOT_FOUND: i32 = 3;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Neutralize spreadsheet formula lead-ins in every string leaf of a value
+/// bound for a CSV cell.
+///
+/// `jsonguard` owns the decision — which characters are lead-ins, and that a
+/// lead-in hidden behind leading whitespace still counts — so that rule lives
+/// in one place for the whole fleet. The apostrophe is the standard
+/// neutralization. RFC 4180 quoting stays with the `csv` writer, which is why
+/// `jsonguard::csv_field` is not used here: it quotes as well as guards, and
+/// the writer would then quote the result a second time.
+fn guard_csv_value(v: &serde_json::Value) -> serde_json::Value {
+    match v {
+        serde_json::Value::String(s) => {
+            if jsonguard::inspect(s.as_str()).has_formula() {
+                serde_json::Value::String(format!("'{s}"))
+            } else {
+                v.clone()
+            }
+        }
+        serde_json::Value::Object(m) => serde_json::Value::Object(
+            m.iter()
+                .map(|(k, val)| (k.clone(), guard_csv_value(val)))
+                .collect(),
+        ),
+        serde_json::Value::Array(a) => {
+            serde_json::Value::Array(a.iter().map(guard_csv_value).collect())
+        }
+        _ => v.clone(),
+    }
+}
+
 /// Output format for `wt extract`.
 #[derive(clap::ValueEnum, Clone, Copy, PartialEq, Eq)]
 enum OutputFormat {
@@ -929,11 +959,12 @@ fn main() {
                 }
             }
 
-            // Emit a serializable slice as CSV (header from field names).
-            fn emit_csv<T: serde::Serialize>(items: &[T]) {
+            // Emit a slice as CSV (header from field names). Every string leaf
+            // is formula-guarded first; the writer still owns RFC 4180 quoting.
+            fn emit_csv(items: &[serde_json::Value]) {
                 let mut wtr = csv::Writer::from_writer(std::io::stdout());
                 for item in items {
-                    if let Err(e) = wtr.serialize(item) {
+                    if let Err(e) = wtr.serialize(guard_csv_value(item)) {
                         eprintln!("error: {e}");
                         std::process::exit(EXIT_ERROR);
                     }
@@ -1351,10 +1382,7 @@ mod csv_guard_tests {
             let guarded = guard_csv_value(&v);
             for (key, val) in guarded.as_object().unwrap() {
                 if let Some(s) = val.as_str() {
-                    assert!(
-                        !s.starts_with(lead),
-                        "field {key} left unguarded: {s:?}"
-                    );
+                    assert!(!s.starts_with(lead), "field {key} left unguarded: {s:?}");
                 }
             }
             assert_eq!(guarded["event_id"], 4698, "non-string fields unchanged");
