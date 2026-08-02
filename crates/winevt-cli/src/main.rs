@@ -1328,3 +1328,50 @@ fn main() {
     };
     std::process::exit(code);
 }
+
+#[cfg(test)]
+mod csv_guard_tests {
+    use super::*;
+
+    /// Every string an EVTX record carries is written by whatever produced the
+    /// event — a scheduled-task action, a process command line, a WMI consumer
+    /// script. A cell beginning `=`, `+`, `-` or `@` executes as a formula the
+    /// moment the examiner opens the CSV. The `csv` writer handles delimiters
+    /// and quotes; it has no opinion about formulas, so the value must be
+    /// guarded before it reaches the writer.
+    #[test]
+    fn guard_csv_value_neutralizes_formula_lead_ins() {
+        for lead in ['=', '+', '-', '@'] {
+            let payload = format!("{lead}cmd|'/c calc'!A1");
+            let v = serde_json::json!({
+                "task_name": payload.clone(),
+                "command": payload.clone(),
+                "event_id": 4698,
+            });
+            let guarded = guard_csv_value(&v);
+            for (key, val) in guarded.as_object().unwrap() {
+                if let Some(s) = val.as_str() {
+                    assert!(
+                        !s.starts_with(lead),
+                        "field {key} left unguarded: {s:?}"
+                    );
+                }
+            }
+            assert_eq!(guarded["event_id"], 4698, "non-string fields unchanged");
+        }
+    }
+
+    /// Nested objects and arrays serialize into cells too, so the guard must
+    /// reach every string leaf rather than only the top level.
+    #[test]
+    fn guard_csv_value_reaches_nested_leaves() {
+        let v = serde_json::json!({
+            "outer": { "inner": "=SUM(A1)" },
+            "list": ["@risky", "safe"],
+        });
+        let guarded = guard_csv_value(&v);
+        assert_eq!(guarded["outer"]["inner"], "'=SUM(A1)");
+        assert_eq!(guarded["list"][0], "'@risky");
+        assert_eq!(guarded["list"][1], "safe");
+    }
+}
