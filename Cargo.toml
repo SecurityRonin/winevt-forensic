@@ -40,7 +40,7 @@ uuid = "1"
 
 # Internal (version + path: path drives local dev, version is used on publish)
 winevt-core = { version = "0.3.0", path = "crates/winevt-core" }
-winevt-binxml = { version = "0.1.2", path = "crates/winevt-binxml" }
+winevt-binxml = { version = "0.1.3", path = "crates/winevt-binxml" }
 winevt-integrity = { version = "0.3.0", path = "crates/winevt-integrity" }
 winevt-carver = { version = "0.1.2", path = "crates/winevt-carver" }
 winevt-memory = { version = "0.1.1", path = "crates/winevt-memory" }
