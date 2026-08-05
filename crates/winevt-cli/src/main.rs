@@ -17,6 +17,7 @@ const EXIT_ERROR: i32 = 2;
 const EXIT_NOT_FOUND: i32 = 3;
 
 use clap::{Parser, Subcommand};
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 /// Neutralize spreadsheet formula lead-ins in every string leaf of a value
@@ -47,13 +48,6 @@ fn guard_csv_value(v: &serde_json::Value) -> serde_json::Value {
         }
         _ => v.clone(),
     }
-}
-
-/// Output format for `wt extract`.
-#[derive(clap::ValueEnum, Clone, Copy, PartialEq, Eq)]
-enum OutputFormat {
-    Json,
-    Csv,
 }
 
 /// Minimum anomaly severity filter for `wt verify --min-severity`.
@@ -99,7 +93,10 @@ impl SeverityFilter {
     }
 }
 
+mod output;
 mod report;
+
+use output::OutputFormat;
 
 /// EVTX forensic analysis tool.
 ///
@@ -316,9 +313,10 @@ enum Cmd {
         /// Extract Windows Defender detections (EID 1116/1117/1006).
         #[arg(long, conflicts_with_all = &["ioc", "powershell", "wmi", "scheduled_task", "cmdline", "lateral", "rdp", "smb"])]
         defender: bool,
-        /// Output format: json (default) or csv.
-        #[arg(long, value_enum, default_value = "json")]
-        format: OutputFormat,
+        /// Output format. Defaults to `table` on a terminal and `json` when
+        /// stdout is piped or redirected.
+        #[arg(long, value_enum)]
+        format: Option<OutputFormat>,
         /// Emit one JSON object per line (NDJSON) instead of a JSON array.
         #[arg(long)]
         stream: bool,
@@ -940,18 +938,45 @@ fn main() {
             format,
             stream,
         } => {
-            // Emit a serializable slice as JSON (array or NDJSON).
-            fn emit_json<T: serde::Serialize>(items: &[T], ndjson: bool) {
-                if ndjson {
-                    for item in items {
-                        if let Ok(line) = serde_json::to_string(item) {
-                            println!("{line}");
+            // Emit a serializable slice in the resolved format.
+            fn emit<T: serde::Serialize>(items: &[T], format: OutputFormat) {
+                match format {
+                    OutputFormat::Table => {
+                        let values: Vec<serde_json::Value> = items
+                            .iter()
+                            .map(|i| serde_json::to_value(i).unwrap_or(serde_json::Value::Null))
+                            .collect();
+                        print!("{}", output::render_table(&values));
+                    }
+                    OutputFormat::Jsonl => {
+                        for item in items {
+                            if let Ok(line) = serde_json::to_string(item) {
+                                println!("{line}");
+                            }
                         }
                     }
-                } else {
-                    match serde_json::to_string_pretty(items) {
+                    OutputFormat::Json => match serde_json::to_string_pretty(items) {
                         Ok(json) => println!("{json}"),
                         Err(e) => {
+                            eprintln!("error: {e}");
+                            std::process::exit(EXIT_ERROR);
+                        }
+                    },
+                    OutputFormat::Csv => {
+                        // Every string leaf is formula-guarded before it reaches a
+                        // cell; the writer still owns RFC 4180 quoting. The guard
+                        // works on `serde_json::Value`, so a generic `T` is taken
+                        // through `to_value` first — the same conversion the table
+                        // arm above already does.
+                        let mut wtr = csv::Writer::from_writer(std::io::stdout());
+                        for item in items {
+                            let v = serde_json::to_value(item).unwrap_or(serde_json::Value::Null);
+                            if let Err(e) = wtr.serialize(guard_csv_value(&v)) {
+                                eprintln!("error: {e}");
+                                std::process::exit(EXIT_ERROR);
+                            }
+                        }
+                        if let Err(e) = wtr.flush() {
                             eprintln!("error: {e}");
                             std::process::exit(EXIT_ERROR);
                         }
@@ -959,21 +984,16 @@ fn main() {
                 }
             }
 
-            // Emit a slice as CSV (header from field names). Every string leaf
-            // is formula-guarded first; the writer still owns RFC 4180 quoting.
-            fn emit_csv(items: &[serde_json::Value]) {
-                let mut wtr = csv::Writer::from_writer(std::io::stdout());
-                for item in items {
-                    if let Err(e) = wtr.serialize(guard_csv_value(item)) {
-                        eprintln!("error: {e}");
-                        std::process::exit(EXIT_ERROR);
-                    }
-                }
-                if let Err(e) = wtr.flush() {
-                    eprintln!("error: {e}");
-                    std::process::exit(EXIT_ERROR);
-                }
-            }
+            // No --format on a terminal renders the human table; on a pipe it
+            // stays JSON, so existing `| jq` invocations are untouched. An
+            // explicit --format always wins. `--stream` remains the flag
+            // spelling of `--format jsonl` and upgrades JSON to one-per-line.
+            let resolved = output::resolve(format, std::io::stdout().is_terminal());
+            let resolved = if stream && resolved == OutputFormat::Json {
+                OutputFormat::Jsonl
+            } else {
+                resolved
+            };
 
             for p in &paths {
                 if !p.exists() {
@@ -1047,7 +1067,7 @@ fn main() {
                         }
                     }
                 }
-                emit_json(&all_blocks, stream);
+                emit(&all_blocks, resolved);
                 EXIT_CLEAN
             } else if wmi {
                 let mut all_events: Vec<serde_json::Value> = Vec::new();
@@ -1060,7 +1080,7 @@ fn main() {
                         }
                     }
                 }
-                emit_json(&all_events, stream);
+                emit(&all_events, resolved);
                 EXIT_CLEAN
             } else if scheduled_task {
                 let mut all_tasks: Vec<serde_json::Value> = Vec::new();
@@ -1073,11 +1093,7 @@ fn main() {
                         }
                     }
                 }
-                if format == OutputFormat::Csv {
-                    emit_csv(&all_tasks);
-                } else {
-                    emit_json(&all_tasks, stream);
-                }
+                emit(&all_tasks, resolved);
                 EXIT_CLEAN
             } else if cmdline {
                 let mut all_execs: Vec<serde_json::Value> = Vec::new();
@@ -1090,11 +1106,7 @@ fn main() {
                         }
                     }
                 }
-                if format == OutputFormat::Csv {
-                    emit_csv(&all_execs);
-                } else {
-                    emit_json(&all_execs, stream);
-                }
+                emit(&all_execs, resolved);
                 EXIT_CLEAN
             } else if lateral {
                 let mut all_events: Vec<serde_json::Value> = Vec::new();
@@ -1107,11 +1119,7 @@ fn main() {
                         }
                     }
                 }
-                if format == OutputFormat::Csv {
-                    emit_csv(&all_events);
-                } else {
-                    emit_json(&all_events, stream);
-                }
+                emit(&all_events, resolved);
                 EXIT_CLEAN
             } else if rdp {
                 let mut all_events: Vec<serde_json::Value> = Vec::new();
@@ -1124,11 +1132,7 @@ fn main() {
                         }
                     }
                 }
-                if format == OutputFormat::Csv {
-                    emit_csv(&all_events);
-                } else {
-                    emit_json(&all_events, stream);
-                }
+                emit(&all_events, resolved);
                 EXIT_CLEAN
             } else if smb {
                 let mut all_events: Vec<serde_json::Value> = Vec::new();
@@ -1141,11 +1145,7 @@ fn main() {
                         }
                     }
                 }
-                if format == OutputFormat::Csv {
-                    emit_csv(&all_events);
-                } else {
-                    emit_json(&all_events, stream);
-                }
+                emit(&all_events, resolved);
                 EXIT_CLEAN
             } else if defender {
                 let mut all_events: Vec<serde_json::Value> = Vec::new();
@@ -1158,11 +1158,7 @@ fn main() {
                         }
                     }
                 }
-                if format == OutputFormat::Csv {
-                    emit_csv(&all_events);
-                } else {
-                    emit_json(&all_events, stream);
-                }
+                emit(&all_events, resolved);
                 EXIT_CLEAN
             } else {
                 let field_name = field.as_deref().unwrap_or("");
@@ -1176,11 +1172,7 @@ fn main() {
                         }
                     }
                 }
-                if format == OutputFormat::Csv {
-                    emit_csv(&all_values);
-                } else {
-                    emit_json(&all_values, stream);
-                }
+                emit(&all_values, resolved);
                 EXIT_CLEAN
             }
         }
