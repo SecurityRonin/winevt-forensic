@@ -109,7 +109,7 @@ ev4n6 info /evidence/Security.evtx
 ev4n6 timeline /evidence/Security.evtx
 ev4n6 timeline --filter-eid 4624 --after 2024-01-01T00:00:00Z --before 2024-02-01T00:00:00Z /evidence/
 ev4n6 timeline --limit 100 /evidence/Security.evtx
-ev4n6 timeline --stream /evidence/Security.evtx   # NDJSON, one event per line
+ev4n6 timeline --stream /evidence/Security.evtx   # JSONL, one event per line
 ```
 
 Flags:
@@ -117,7 +117,7 @@ Flags:
 - `--after <RFC3339>` — exclude events before this timestamp
 - `--before <RFC3339>` — exclude events at or after this timestamp
 - `--limit <N>` — return at most N events
-- `--stream` — NDJSON output (one JSON object per line, no wrapping array)
+- `--stream` — JSONL output (one JSON object per line, no wrapping array)
 
 ---
 
@@ -159,6 +159,31 @@ Default order is **least-frequent-first (LFO)** — rare events surface first, w
 ### `ev4n6 extract` — targeted indicator extraction
 
 All modes are mutually exclusive.
+
+#### Output formats
+
+`--format` picks the rendering. It defaults to the **human** `table` on a terminal
+and to the **machine** `json` when stdout is piped or redirected, so a run you
+read is aligned columns and a run you pipe is unchanged JSON:
+
+| `--format` | View | Notes |
+|---|---|---|
+| `table` | human | Aligned columns; long cells elided char-safely (`…`), control and bidi characters neutralized. Default on a terminal. |
+| `json` | machine | Pretty-printed JSON array. Default when piped. |
+| `jsonl` | machine | Newline-delimited JSON, one object per line — for Splunk HEC, the Elasticsearch bulk API, and `jq`. Same encoding as `--stream`. |
+| `csv` | machine | Header row plus one row per record. |
+
+Machine views carry every value verbatim and never truncate; only the `table`
+view elides for width.
+
+```bash
+ev4n6 extract --cmdline /evidence/Security.evtx                  # piped → json
+ev4n6 extract --cmdline --format table /evidence/Security.evtx   # aligned columns
+ev4n6 extract --cmdline --format jsonl /evidence/Security.evtx | jq .image
+```
+
+`--format ndjson` is accepted as a hidden alias of `jsonl`, so anything already
+written against that spelling keeps working.
 
 #### IOC extraction
 
@@ -327,7 +352,7 @@ This is not a detection-rule engine. [Hayabusa](https://github.com/Yamato-Securi
 | LFO threat hunting | ✅ | — | — | — | — |
 | One-click triage report | ✅ | — | — | — | — |
 | JSON output | ✅ | ✅ | — | ✅ | — |
-| NDJSON streaming | ✅ | — | — | — | — |
+| JSONL streaming | ✅ | — | — | — | — |
 | SQL query interface | — | — | — | — | ✅ |
 | Sigma-based detection rules | — | — | — | ✅ | — |
 | MITRE ATT&CK tagging | ✅ | — | — | ✅ | — |
@@ -350,7 +375,7 @@ This is not a detection-rule engine. [Hayabusa](https://github.com/Yamato-Securi
 | [`winevt-analyze`](crates/winevt-analyze/) | Higher-level analysis — `timeline()`, `sessions()`, `frequency()`, `ioc_extract()`, `wmi_events()`, `scheduled_tasks()`, `process_cmdlines()`, `search()`, `diff()`, `process_tree()`. |
 | [`winevt-binxml`](crates/winevt-binxml/) | BinXML decode and validation utilities. |
 | [`winevt-triage`](crates/winevt-triage/) | E01/EVTX extraction pipeline for `ev4n6 report`. |
-| [`winevt-cli`](crates/winevt-cli/) | `ev4n6` binary — all subcommands, JSON/NDJSON output. |
+| [`winevt-cli`](crates/winevt-cli/) | `ev4n6` binary — all subcommands; table / JSON / JSONL / CSV output. |
 
 </details>
 
