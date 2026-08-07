@@ -16,9 +16,12 @@
 use std::process::Command;
 
 fn wt_bin() -> std::path::PathBuf {
-    let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.push("../../target/debug/ev4n6");
-    p
+    // `CARGO_BIN_EXE_<name>` is set by cargo for integration tests and points at
+    // the binary ACTUALLY built for this run. A hardcoded ../../target/debug path
+    // breaks under any target-dir redirection — notably `cargo llvm-cov`, which
+    // builds into target/llvm-cov-target/ and left these tests panicking on a
+    // missing file while passing fine under plain `cargo test`.
+    std::path::PathBuf::from(env!("CARGO_BIN_EXE_ev4n6"))
 }
 
 fn workspace_root() -> std::path::PathBuf {
