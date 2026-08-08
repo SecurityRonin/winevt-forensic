@@ -1,3 +1,8 @@
+// An integration test is its own crate, so the workspace's cfg(test)-scoped
+// allow does not reach it and the attribute must be repeated here. In these
+// tests the unwrap/expect IS the assertion.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! Output-format vocabulary for `ev4n6 extract`.
 //!
 //! `--format` accepted only `json` and `csv`, so this CLI shipped **no
@@ -19,8 +24,10 @@ use std::process::Command;
 use winevt_writer::{records_to_evtx, WriteRecord};
 
 fn ev4n6() -> Command {
-    let mut bin = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    bin.push("../../target/debug/ev4n6");
+    // CARGO_BIN_EXE_<name> points at the binary actually built for this run;
+    // a hardcoded target/debug path breaks under cargo llvm-cov's redirected
+    // target dir.
+    let bin = std::path::PathBuf::from(env!("CARGO_BIN_EXE_ev4n6"));
     Command::new(bin)
 }
 
