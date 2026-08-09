@@ -1,4 +1,4 @@
-/target
+target/
 /tests/data/
 fuzz/target/
 
