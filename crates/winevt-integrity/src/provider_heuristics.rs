@@ -203,7 +203,13 @@ impl forensicnomicon::report::Observation for ProviderAnomaly {
             value,
             location: None,
         };
-        let hex = |g: &[u8; 16]| g.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let hex = |g: &[u8; 16]| {
+            use std::fmt::Write as _;
+            g.iter().fold(String::with_capacity(32), |mut out, b| {
+                let _ = write!(out, "{b:02x}");
+                out
+            })
+        };
         match self {
             ProviderAnomaly::UnexpectedEventId {
                 provider_name,

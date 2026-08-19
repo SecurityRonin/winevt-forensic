@@ -22,3 +22,9 @@ inventory = { workspace = true }
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+
+# `deny`, not `forbid`: this crate memory-maps evidence files, and `forbid`
+# cannot be relaxed at the call site. The single `unsafe` is annotated below
+# and is the complete audit surface (`rg 'allow\(unsafe_code\)'`).
+[lints.rust]
+unsafe_code = "deny"
