@@ -4,6 +4,12 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
+# Required by cargo-fuzz: without it `cargo fuzz build` refuses the manifest
+# outright ("does not look like a cargo-fuzz manifest"). Eight targets were
+# declared here and none had ever been built, because nothing in CI ran them.
+[package.metadata]
+cargo-fuzz = true
+
 [workspace]
 
 [dependencies]
