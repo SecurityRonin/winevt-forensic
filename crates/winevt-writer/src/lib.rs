@@ -66,7 +66,7 @@ const REC_PAYLOAD: usize = 0x18; //                         variable
 
 /// Minimal record representation accepted by the writer.
 ///
-/// Callers convert from [`winevt_carver::RecoveredRecord`] or construct
+/// Callers convert from `winevt_carver::RecoveredRecord` or construct
 /// directly for testing. Keeping this type in `winevt-writer` (not
 /// `winevt-carver`) avoids a circular dependency.
 #[derive(Debug, Clone)]
