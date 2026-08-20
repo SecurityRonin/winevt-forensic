@@ -308,7 +308,22 @@ pub fn carve_from_file(path: &Path) -> Result<CarveResult, CarveError> {
         result.source_hash = Some(compute_sha256(&[]));
         return Ok(result);
     }
-    // SAFETY: we never write to this mapping; file is opened read-only
+    // The crate denies `unsafe_code`; this is the one allowed site, and the
+    // complete audit surface is `rg 'allow\(unsafe_code\)' crates/winevt-carver`.
+    //
+    // BENEFIT: carving scans whole evidence files, frequently multi-gigabyte.
+    // Mapping avoids reading the image into resident memory, which is the
+    // difference between carving a large EVTX corpus and exhausting RAM.
+    // ALTERNATIVE REJECTED: buffered reads would work but force either a full
+    // read into memory or a windowing layer that re-implements what the kernel
+    // already does; neither removes the dependency's own unsafe.
+    // INVARIANT: the mapping is read-only and never written through, the file
+    // is opened read-only above, and `mmap` is dropped before this function
+    // returns, so no reference outlives the mapping. Undefined behaviour would
+    // still follow if the underlying file were truncated by another process
+    // while mapped -- inherent to mmap, and accepted for read-only evidence
+    // that is not modified during examination.
+    #[allow(unsafe_code)]
     let mmap = unsafe { memmap2::Mmap::map(&file)? };
     let mut result = carve_from_bytes(&mmap);
     result.source_hash = Some(compute_sha256(&mmap));

@@ -13,6 +13,10 @@ pub struct WinevtIntegrity;
 impl WinevtIntegrity {
     /// Analyse `data` (raw EVTX bytes) and return all detected anomalies,
     /// sorted from highest severity to lowest.
+    // Six lines over the threshold. This is the dispatcher that runs every
+    // integrity check in sequence; splitting it would relocate lines without
+    // making the sequence easier to read or to audit.
+    #[allow(clippy::too_many_lines)]
     pub fn analyse(data: &[u8]) -> Vec<IntegrityAnomaly> {
         let mut out: Vec<IntegrityAnomaly> = Vec::new();
 
@@ -186,7 +190,7 @@ impl WinevtIntegrity {
 pub mod provider_heuristics;
 pub use provider_heuristics::{check_provider_consistency, ProviderAnomaly};
 
-/// Given (first_record_number, last_record_number) per chunk in order,
+/// Given (`first_record_number`, `last_record_number`) per chunk in order,
 /// detect gaps between adjacent chunks.
 pub fn detect_record_id_gaps(chunks: &[(u64, u64)]) -> Vec<IntegrityAnomaly> {
     let mut out = Vec::new();
@@ -213,18 +217,18 @@ pub fn verify_chunk_header_checksum(buf: &[u8], chunk_offset: u64) -> Vec<Integr
     }
     let stored = u32::from_le_bytes(buf[0x78..0x7C].try_into().unwrap_or([0; 4]));
     let computed = crc32fast::hash(&buf[0..0x78]);
-    if stored != computed {
+    if stored == computed {
+        vec![]
+    } else {
         vec![IntegrityAnomaly::ChunkChecksumMismatch {
             chunk_offset,
             computed,
             stored,
         }]
-    } else {
-        vec![]
     }
 }
 
-/// Check that (record_id, timestamp) pairs are monotonically non-decreasing in timestamp.
+/// Check that (`record_id`, timestamp) pairs are monotonically non-decreasing in timestamp.
 pub fn check_timestamp_monotonicity(
     records: &[(u64, u64)],
     chunk_offset: u64,
@@ -253,10 +257,10 @@ pub fn verify_file_header_checksum(buf: &[u8]) -> Vec<IntegrityAnomaly> {
     }
     let stored = u32::from_le_bytes(buf[0x7C..0x80].try_into().unwrap_or([0; 4]));
     let computed = crc32fast::hash(&buf[0..0x78]);
-    if stored != computed {
-        vec![IntegrityAnomaly::FileHeaderChecksumMismatch { computed, stored }]
-    } else {
+    if stored == computed {
         vec![]
+    } else {
+        vec![IntegrityAnomaly::FileHeaderChecksumMismatch { computed, stored }]
     }
 }
 
@@ -275,13 +279,13 @@ pub fn check_file_flags(flags: u32) -> Vec<IntegrityAnomaly> {
 
 /// Check that the chunk count in the file header matches the number of chunks found.
 pub fn check_chunk_count(header_count: u16, actual_count: usize) -> Vec<IntegrityAnomaly> {
-    if header_count as usize != actual_count {
+    if header_count as usize == actual_count {
+        vec![]
+    } else {
         vec![IntegrityAnomaly::ChunkCountMismatch {
             header_count,
             actual_count,
         }]
-    } else {
-        vec![]
     }
 }
 
@@ -300,18 +304,18 @@ pub fn verify_records_area_checksum(chunk_data: &[u8], chunk_offset: u64) -> Vec
         return vec![];
     }
     let computed = crc32fast::hash(&chunk_data[records_start..free_space_offset]);
-    if stored != computed {
+    if stored == computed {
+        vec![]
+    } else {
         vec![IntegrityAnomaly::RecordChecksumMismatch {
             chunk_offset,
             computed,
             stored,
         }]
-    } else {
-        vec![]
     }
 }
 
-/// Check file header consistency: next_record_id should be > actual_highest_record_id.
+/// Check file header consistency: `next_record_id` should be > `actual_highest_record_id`.
 pub fn check_file_header_consistency(
     header_next: u64,
     actual_highest: u64,
@@ -330,10 +334,10 @@ pub fn check_file_header_consistency(
 ///
 /// Chunk data lengths outside this range indicate a structurally corrupt or hand-crafted chunk.
 pub fn check_chunk_data_length(length: u32) -> Vec<IntegrityAnomaly> {
-    if !(512..=65536).contains(&length) {
-        vec![IntegrityAnomaly::InvalidChunkDataLength(length)]
-    } else {
+    if (512..=65536).contains(&length) {
         vec![]
+    } else {
+        vec![IntegrityAnomaly::InvalidChunkDataLength(length)]
     }
 }
 
@@ -381,7 +385,7 @@ pub struct PhantomAlert {
 /// `records` is a slice of `(record_id, timestamp_ns)` pairs sorted by `record_id`.
 ///
 /// A record-ID gap where the elapsed nanoseconds per missing record is less than 1 ms
-/// (1_000_000 ns) is flagged as suspicious — real log activity cannot normally produce
+/// (`1_000_000` ns) is flagged as suspicious — real log activity cannot normally produce
 /// millions of events per second.  A large timestamp jump alongside the gap (≥ 1 ms per
 /// missing ID) is treated as a normal cleared-log or ring-buffer rollover period.
 pub fn detect_phantom_records(records: &[(u64, i64)]) -> Vec<PhantomAlert> {
@@ -429,7 +433,7 @@ pub fn phantom_alerts_to_anomalies(alerts: &[PhantomAlert]) -> Vec<IntegrityAnom
 /// Detect the wevtutil / Event Viewer export timestamp corruption described by Fox-IT.
 ///
 /// When `wevtutil epl` or "Save As…" exports an EVTX, each record's header timestamp is
-/// replaced with the **previous** record's BinXml timestamp.  The first record in the export
+/// replaced with the **previous** record's `BinXml` timestamp.  The first record in the export
 /// therefore receives no predecessor and gets timestamp = 0.
 ///
 /// This function returns one [`IntegrityAnomaly::ExportTimestampCorruption`] for every
@@ -453,7 +457,7 @@ pub fn detect_export_timestamp_corruption(records: &[(u64, u64, u64)]) -> Vec<In
         .collect()
 }
 
-/// Detect surgical record deletion consistent with the NSA DanderSpritz `eventlogedit` tool.
+/// Detect surgical record deletion consistent with the NSA `DanderSpritz` `eventlogedit` tool.
 ///
 /// The tool absorbs a deleted record into the preceding record's size field: the absorbing
 /// record's `size` is inflated to span the bytes of the deleted record, whose magic bytes
@@ -705,14 +709,14 @@ mod tests {
     fn verify_file_header_checksum_corrupt_returns_indicator() {
         let mut buf = make_valid_file_header_128();
         // Corrupt the checksum
-        buf[0x7C..0x80].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+        buf[0x7C..0x80].copy_from_slice(&0xDEAD_BEEFu32.to_le_bytes());
         let indicators = verify_file_header_checksum(&buf);
         assert_eq!(indicators.len(), 1);
         assert!(
             matches!(
                 &indicators[0],
                 IntegrityAnomaly::FileHeaderChecksumMismatch { stored, .. }
-                    if *stored == 0xDEADBEEF
+                    if *stored == 0xDEAD_BEEF
             ),
             "expected FileHeaderChecksumMismatch, got: {indicators:?}"
         );
@@ -839,7 +843,7 @@ mod tests {
         // Set free_space_offset to 0x210 so records area is 0x200..0x210
         chunk[48..52].copy_from_slice(&0x210u32.to_le_bytes());
         // Store wrong checksum at bytes 52..56
-        chunk[52..56].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+        chunk[52..56].copy_from_slice(&0xDEAD_BEEFu32.to_le_bytes());
         // Recompute header checksum so it's valid
         let crc = crc32fast::hash(&chunk[0..0x78]);
         chunk[0x78..0x7C].copy_from_slice(&crc.to_le_bytes());
@@ -1168,7 +1172,7 @@ mod tests {
         } = &indicators[0]
         {
             assert_eq!(*chunk_offset, 0x20000);
-            assert_eq!(*ghost_offset_in_chunk, 0x200 + sz1 as u64);
+            assert_eq!(*ghost_offset_in_chunk, 0x200 + u64::from(sz1));
         } else {
             panic!("wrong variant: {:?}", indicators[0]);
         }

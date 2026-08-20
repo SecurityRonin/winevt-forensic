@@ -35,8 +35,13 @@ impl ManifestDb {
         let mut db = ManifestDb::new();
         for (guid, event_id, fields) in bundled::ENTRIES {
             let key = (normalize_guid(guid), *event_id);
-            db.templates
-                .insert(key, fields.iter().map(|s| s.to_string()).collect());
+            db.templates.insert(
+                key,
+                fields
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect(),
+            );
         }
         db
     }

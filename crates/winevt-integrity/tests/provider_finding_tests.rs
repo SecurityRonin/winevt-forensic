@@ -1,4 +1,4 @@
-//! ProviderAnomaly normalizes onto the canonical `forensicnomicon::report` model.
+//! `ProviderAnomaly` normalizes onto the canonical `forensicnomicon::report` model.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
