@@ -1,6 +1,6 @@
 //! Structured field analysis of Windows Event Log records.
 //!
-//! Builds on the `evtx` crate (full BinXml parser) to extract per-event
+//! Builds on the `evtx` crate (full `BinXml` parser) to extract per-event
 //! fields — event ID, logon session LUIDs, PowerShell script block text,
 //! event frequency distributions — from intact or reconstructed EVTX files.
 //!
@@ -42,7 +42,7 @@ pub struct TimelineEntry {
     pub timestamp: String,
     /// Windows Event ID (the numeric code in `<System><EventID>`).
     pub event_id: u32,
-    /// Severity level (0 = LogAlways, 1 = Critical, 2 = Error, 3 = Warning,
+    /// Severity level (0 = `LogAlways`, 1 = Critical, 2 = Error, 3 = Warning,
     /// 4 = Information, 5 = Verbose). `None` when the field cannot be parsed.
     pub level: Option<u8>,
     /// Log channel name, e.g. `"Security"`.
@@ -82,7 +82,7 @@ pub struct ScriptBlock {
     /// GUID that groups all parts of this script block, e.g.
     /// `"12345678-abcd-ef01-2345-6789abcdef01"`.
     pub script_block_id: String,
-    /// Fully reassembled script text (parts joined in MessageNumber order).
+    /// Fully reassembled script text (parts joined in `MessageNumber` order).
     pub text: String,
     /// `<Path>` field from the event, when a script file path is logged.
     pub path: Option<String>,
@@ -110,7 +110,7 @@ pub struct FrequencyReport {
 
 // ── Helper: extract EventID from evtx JSON value ──────────────────────────────
 
-/// Extract the integer EventID from the `Event.System.EventID` field.
+/// Extract the integer `EventID` from the `Event.System.EventID` field.
 ///
 /// The `evtx` crate may represent this as:
 /// - `4624` (bare integer)
@@ -127,7 +127,7 @@ fn event_id_from_system(system: &serde_json::Value) -> Option<u32> {
 }
 
 /// Extract a string field from `EventData` by name.
-/// Read a string field from EventData, handling both EVTX serialization shapes:
+/// Read a string field from `EventData`, handling both EVTX serialization shapes:
 ///
 /// 1. Named-attribute format (Security log, most audit events):
 ///    `{"Data": [{"@Name": "key", "#text": "value"}, ...]}`
@@ -154,7 +154,7 @@ fn event_data_str<'a>(event_data: &'a serde_json::Value, key: &str) -> Option<&'
     event_data.get(key)?.as_str()
 }
 
-/// Read a numeric EventData field by name, across both serialization shapes and whether
+/// Read a numeric `EventData` field by name, across both serialization shapes and whether
 /// the value is a JSON number or a numeric string. Partition/Diagnostic emits `BusType`,
 /// `Capacity`, and `DiskNumber` as JSON numbers, which [`event_data_str`] cannot read.
 /// Returns `None` when the field is absent or not numeric — never panics.
@@ -176,14 +176,17 @@ fn event_data_num(event_data: &serde_json::Value, key: &str) -> Option<u64> {
     event_data.get(key).and_then(as_num)
 }
 
-/// Read a string field from Sysmon EventData (flat object format).
+/// Read a string field from Sysmon `EventData` (flat object format).
 fn sysmon_str<'a>(event_data: &'a serde_json::Value, key: &str) -> Option<&'a str> {
     event_data.get(key)?.as_str()
 }
 
-/// Read an integer PID from Sysmon EventData (stored as JSON number, not hex).
+/// Read an integer PID from Sysmon `EventData` (stored as JSON number, not hex).
 fn sysmon_pid(event_data: &serde_json::Value, key: &str) -> u64 {
-    event_data.get(key).and_then(|v| v.as_u64()).unwrap_or(0)
+    event_data
+        .get(key)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
 }
 
 // ── Public functions ──────────────────────────────────────────────────────────
@@ -307,10 +310,7 @@ pub fn timeline(path: &Path) -> Result<Vec<TimelineEntry>, AnalyzeError> {
 
     let mut entries: Vec<TimelineEntry> = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue, // skip unparseable records
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
 
         let event_id = system.and_then(event_id_from_system).unwrap_or(0);
@@ -375,18 +375,13 @@ pub fn sessions(path: &Path) -> Result<Vec<LogonSession>, AnalyzeError> {
     let mut insertion_order: Vec<String> = Vec::new();
 
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let event = &record.data;
-        let system = match event.get("Event").and_then(|e| e.get("System")) {
-            Some(s) => s,
-            None => continue,
+        let Some(system) = event.get("Event").and_then(|e| e.get("System")) else {
+            continue;
         };
-        let event_id = match event_id_from_system(system) {
-            Some(id) => id,
-            None => continue,
+        let Some(event_id) = event_id_from_system(system) else {
+            continue;
         };
         let ts = record.timestamp.to_string();
         let event_data = event.get("Event").and_then(|e| e.get("EventData"));
@@ -394,10 +389,7 @@ pub fn sessions(path: &Path) -> Result<Vec<LogonSession>, AnalyzeError> {
         match event_id {
             // EID 4624 — An account was successfully logged on
             4624 => {
-                let ed = match event_data {
-                    Some(d) => d,
-                    None => continue,
-                };
+                let Some(ed) = event_data else { continue };
                 let logon_id = event_data_str(ed, "TargetLogonId")
                     .unwrap_or("-")
                     .to_owned();
@@ -431,10 +423,7 @@ pub fn sessions(path: &Path) -> Result<Vec<LogonSession>, AnalyzeError> {
             // EID 4634 — An account was logged off
             // EID 4647 — User initiated logoff
             4634 | 4647 => {
-                let ed = match event_data {
-                    Some(d) => d,
-                    None => continue,
-                };
+                let Some(ed) = event_data else { continue };
                 let logon_id = match event_data_str(ed, "TargetLogonId") {
                     Some(id) => id.to_owned(),
                     None => continue,
@@ -485,11 +474,11 @@ pub fn sessions(path: &Path) -> Result<Vec<LogonSession>, AnalyzeError> {
 /// abort the entire scan.
 ///
 /// Passing an empty slice returns `Ok(vec![])`.
+// Three lines over the threshold. It reads every file, then correlates logon
+// and logoff events across all of them; the correlation needs the whole set
+// in scope, so a split would pass most of the state straight back in.
+#[allow(clippy::too_many_lines)]
 pub fn sessions_multi(paths: &[&Path]) -> Result<Vec<LogonSession>, AnalyzeError> {
-    if paths.is_empty() {
-        return Ok(Vec::new());
-    }
-
     // Collect (timestamp_str, event_id, event_data_json) triples from all files.
     struct RawEvent {
         timestamp: String,
@@ -497,31 +486,30 @@ pub fn sessions_multi(paths: &[&Path]) -> Result<Vec<LogonSession>, AnalyzeError
         data: serde_json::Value,
     }
 
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let mut all_raw: Vec<RawEvent> = Vec::new();
     let mut any_ok = false;
 
     for &path in paths {
-        match evtx::EvtxParser::from_path(path) {
-            Err(_) => continue,
-            Ok(mut parser) => {
-                any_ok = true;
-                for result in parser.records_json_value() {
-                    let record = match result {
-                        Ok(r) => r,
-                        Err(_) => continue,
-                    };
-                    let system = record.data.get("Event").and_then(|e| e.get("System"));
-                    let event_id = match system.and_then(event_id_from_system) {
-                        Some(id) if matches!(id, 4624 | 4634 | 4647) => id,
-                        _ => continue,
-                    };
-                    all_raw.push(RawEvent {
-                        timestamp: record.timestamp.to_string(),
-                        event_id,
-                        data: record.data,
-                    });
-                }
-            }
+        let Ok(mut parser) = evtx::EvtxParser::from_path(path) else {
+            continue;
+        };
+        any_ok = true;
+        for result in parser.records_json_value() {
+            let Ok(record) = result else { continue };
+            let system = record.data.get("Event").and_then(|e| e.get("System"));
+            let event_id = match system.and_then(event_id_from_system) {
+                Some(id) if matches!(id, 4624 | 4634 | 4647) => id,
+                _ => continue,
+            };
+            all_raw.push(RawEvent {
+                timestamp: record.timestamp.to_string(),
+                event_id,
+                data: record.data,
+            });
         }
     }
 
@@ -541,9 +529,8 @@ pub fn sessions_multi(paths: &[&Path]) -> Result<Vec<LogonSession>, AnalyzeError
     let mut insertion_order: Vec<String> = Vec::new();
 
     for raw in &all_raw {
-        let ed = match raw.data.get("Event").and_then(|e| e.get("EventData")) {
-            Some(d) => d,
-            None => continue,
+        let Some(ed) = raw.data.get("Event").and_then(|e| e.get("EventData")) else {
+            continue;
         };
         match raw.event_id {
             4624 => {
@@ -658,32 +645,27 @@ pub fn logon_graph_multi(paths: &[&Path]) -> Result<LogonGraph, AnalyzeError> {
 /// and concatenates `ScriptBlockText` values.  Returns one `ScriptBlock`
 /// per unique GUID, in the order the first fragment was observed.
 pub fn powershell_blocks(path: &Path) -> Result<Vec<ScriptBlock>, AnalyzeError> {
+    // script_block_id → (path, Vec<(message_number, text)>)
+    type BlockEntry = (Option<String>, Vec<(u32, String)>);
     let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
 
     let mut parser =
         evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
 
-    // script_block_id → (path, Vec<(message_number, text)>)
-    type BlockEntry = (Option<String>, Vec<(u32, String)>);
     let mut blocks: HashMap<String, BlockEntry> = HashMap::new();
     let mut insertion_order: Vec<String> = Vec::new();
 
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let event = &record.data;
-        let system = match event.get("Event").and_then(|e| e.get("System")) {
-            Some(s) => s,
-            None => continue,
+        let Some(system) = event.get("Event").and_then(|e| e.get("System")) else {
+            continue;
         };
         if event_id_from_system(system) != Some(4104) {
             continue;
         }
-        let event_data = match event.get("Event").and_then(|e| e.get("EventData")) {
-            Some(d) => d,
-            None => continue,
+        let Some(event_data) = event.get("Event").and_then(|e| e.get("EventData")) else {
+            continue;
         };
 
         let script_id = match event_data_str(event_data, "ScriptBlockId") {
@@ -712,11 +694,7 @@ pub fn powershell_blocks(path: &Path) -> Result<Vec<ScriptBlock>, AnalyzeError> 
         if let Some((path_val, mut parts)) = blocks.remove(&id) {
             parts.sort_by_key(|(n, _)| *n);
             let count = parts.len() as u32;
-            let text = parts
-                .into_iter()
-                .map(|(_, t)| t)
-                .collect::<Vec<_>>()
-                .join("");
+            let text = parts.into_iter().map(|(_, t)| t).collect::<String>();
             result.push(ScriptBlock {
                 script_block_id: id,
                 text,
@@ -742,10 +720,7 @@ pub fn frequency(path: &Path) -> Result<FrequencyReport, AnalyzeError> {
     let mut total = 0usize;
 
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         total += 1;
         let event_id = record
             .data
@@ -838,7 +813,10 @@ mod tests {
             return;
         }
         let events = extract_all(&path).expect("extract_all should succeed");
-        let timestamps: Vec<&str> = events.iter().map(|e| e.timestamp()).collect();
+        let timestamps: Vec<&str> = events
+            .iter()
+            .map(forensicnomicon::evtx::EvtxEvent::timestamp)
+            .collect();
         let mut sorted = timestamps.clone();
         sorted.sort_unstable();
         assert_eq!(
@@ -1366,21 +1344,18 @@ fn scan_for_iocs(text: &str) -> Vec<(IocKind, String)> {
 /// file paths from every event.  Results are deduplicated and sorted
 /// by observation count (descending).
 pub fn ioc_extract(path: &Path) -> Result<IocReport, AnalyzeError> {
+    // (kind, value) → (count, first_ts, last_ts, record_ids)
+    type Meta = (usize, Option<String>, Option<String>, Vec<u64>);
     let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
 
     let mut parser =
         evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
 
-    // (kind, value) → (count, first_ts, last_ts, record_ids)
-    type Meta = (usize, Option<String>, Option<String>, Vec<u64>);
     let mut seen: HashMap<(IocKind, String), Meta> = HashMap::new();
     let mut total = 0usize;
 
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         total += 1;
         let ts = record.timestamp.to_string();
         let record_id = record.event_record_id;
@@ -1453,6 +1428,9 @@ fn tag(technique_id: &str, technique_name: &str, tactic: &str) -> AttackTag {
     }
 }
 
+// A flat ATT&CK lookup table. The length is the data, not control flow;
+// splitting it into chunks would scatter one mapping across several places.
+#[allow(clippy::too_many_lines)]
 fn build_attack_map() -> HashMap<u32, Vec<AttackTag>> {
     let mut m: HashMap<u32, Vec<AttackTag>> = HashMap::new();
 
@@ -1612,7 +1590,7 @@ fn build_attack_map() -> HashMap<u32, Vec<AttackTag>> {
 /// This is a static lookup — no file I/O is performed.
 pub fn attack_tags_for_event_id(event_id: u32) -> &'static [AttackTag] {
     let map = ATTACK_MAP.get_or_init(build_attack_map);
-    map.get(&event_id).map(Vec::as_slice).unwrap_or(&[])
+    map.get(&event_id).map_or(&[], Vec::as_slice)
 }
 
 // ── Pivot / Diff / Process-tree / Logon-graph / Rare-process / Hunt ──────────
@@ -1670,10 +1648,7 @@ pub fn pivot(path: &Path, query: &str) -> Result<Vec<TimelineEntry>, AnalyzeErro
 
     let mut entries = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         if !value_contains_str(&record.data, &query_lower) {
             continue;
         }
@@ -1745,10 +1720,7 @@ pub fn search(
         evtx::EvtxParser::from_path(path).map_err(|e| AnalyzeError::Parse(e.to_string()))?;
     let mut entries = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         if !value_matches_regex(&record.data, &re) {
             continue;
         }
@@ -1806,38 +1778,34 @@ pub fn process_tree(path: &Path) -> Result<Vec<ProcessNode>, AnalyzeError> {
 
     let mut nodes = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
         let event_id = system.and_then(event_id_from_system).unwrap_or(0);
         if event_id != 4688 && event_id != 1 {
             continue;
         }
-        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
-            Some(d) => d,
-            None => continue,
+        let Some(ed) = record.data.get("Event").and_then(|e| e.get("EventData")) else {
+            continue;
         };
         let (pid, parent_pid, image, command_line) = if event_id == 4688 {
             let pid = event_data_str(ed, "NewProcessId")
                 .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
                 .unwrap_or(0);
-            let ppid = event_data_str(ed, "ProcessId")
+            let parent_pid = event_data_str(ed, "ProcessId")
                 .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
                 .unwrap_or(0);
             let image = event_data_str(ed, "NewProcessName")
                 .unwrap_or("-")
                 .to_owned();
             let cmdline = event_data_str(ed, "CommandLine").unwrap_or("").to_owned();
-            (pid, ppid, image, cmdline)
+            (pid, parent_pid, image, cmdline)
         } else {
             // Sysmon EID 1 — flat JSON object format, integer PIDs
             let pid = sysmon_pid(ed, "ProcessId");
-            let ppid = sysmon_pid(ed, "ParentProcessId");
+            let parent_pid = sysmon_pid(ed, "ParentProcessId");
             let image = sysmon_str(ed, "Image").unwrap_or("-").to_owned();
             let cmdline = sysmon_str(ed, "CommandLine").unwrap_or("").to_owned();
-            (pid, ppid, image, cmdline)
+            (pid, parent_pid, image, cmdline)
         };
         nodes.push(ProcessNode {
             pid,
@@ -1854,7 +1822,7 @@ pub fn process_tree(path: &Path) -> Result<Vec<ProcessNode>, AnalyzeError> {
 ///
 /// For Logon Type 10 (RDP with NLA disabled), `WorkstationName` is written by
 /// Windows as the *destination* (the machine being accessed), not the source.
-/// `IpAddress` (SourceNetworkAddress) is the reliable source for all logon types.
+/// `IpAddress` (`SourceNetworkAddress`) is the reliable source for all logon types.
 /// For all other logon types, `WorkstationName` is the source and is preferred
 /// over the IP because it gives the hostname.
 ///
@@ -1889,17 +1857,13 @@ pub fn logon_graph(path: &Path) -> Result<LogonGraph, AnalyzeError> {
     let mut edge_map: HashMap<(String, String, u32), usize> = HashMap::new();
 
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
         if system.and_then(event_id_from_system) != Some(4624) {
             continue;
         }
-        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
-            Some(d) => d,
-            None => continue,
+        let Some(ed) = record.data.get("Event").and_then(|e| e.get("EventData")) else {
+            continue;
         };
         let computer = system
             .and_then(|s| s.get("Computer"))
@@ -1914,9 +1878,8 @@ pub fn logon_graph(path: &Path) -> Result<LogonGraph, AnalyzeError> {
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
 
-        let source = match resolve_logon_source(logon_type, &workstation, &ip) {
-            Some(s) => s,
-            None => continue,
+        let Some(source) = resolve_logon_source(logon_type, &workstation, &ip) else {
+            continue;
         };
 
         *edge_map.entry((source, computer, logon_type)).or_insert(0) += 1;
@@ -1952,18 +1915,14 @@ pub fn rare_processes(path: &Path, threshold: usize) -> Result<Vec<RareProcess>,
     let mut freq: HashMap<String, (usize, String, String)> = HashMap::new();
 
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
         let event_id = system.and_then(event_id_from_system).unwrap_or(0);
         if event_id != 4688 && event_id != 1 {
             continue;
         }
-        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
-            Some(d) => d,
-            None => continue,
+        let Some(ed) = record.data.get("Event").and_then(|e| e.get("EventData")) else {
+            continue;
         };
         let image_opt: Option<&str> = if event_id == 4688 {
             event_data_str(ed, "NewProcessName")
@@ -1978,7 +1937,7 @@ pub fn rare_processes(path: &Path, threshold: usize) -> Result<Vec<RareProcess>,
                 .or_insert_with(|| (0, ts.clone(), ts.clone()));
             entry.0 += 1;
             if ts < entry.1 {
-                entry.1 = ts.clone();
+                entry.1.clone_from(&ts);
             }
             if ts > entry.2 {
                 entry.2 = ts;
@@ -2026,14 +1985,10 @@ pub fn hunt(path: &Path, name: &str) -> Result<Vec<TimelineEntry>, AnalyzeError>
 
     let mut hits = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
-        let event_id = match system.and_then(event_id_from_system) {
-            Some(id) => id,
-            None => continue,
+        let Some(event_id) = system.and_then(event_id_from_system) else {
+            continue;
         };
         if !hunt_eids.contains(&event_id) {
             continue;
@@ -2043,30 +1998,24 @@ pub fn hunt(path: &Path, name: &str) -> Result<Vec<TimelineEntry>, AnalyzeError>
         let matches = match name {
             "kerberoast" => ed
                 .and_then(|d| event_data_str(d, "TicketEncryptionType"))
-                .map(|enc| enc == "0x17" || enc == "0x12" || enc == "23" || enc == "18")
-                .unwrap_or(false),
+                .is_some_and(|enc| enc == "0x17" || enc == "0x12" || enc == "23" || enc == "18"),
             "asrep" => ed
                 .and_then(|d| event_data_str(d, "PreAuthType"))
-                .map(|t| t == "0")
-                .unwrap_or(false),
-            "dcsync" => ed
-                .map(|d| {
-                    let access = event_data_str(d, "AccessMask").unwrap_or("");
-                    let obj_server = event_data_str(d, "ObjectServer").unwrap_or("");
-                    obj_server.contains("Directory Service") || access.contains("0x100")
-                })
-                .unwrap_or(false),
+                .is_some_and(|t| t == "0"),
+            "dcsync" => ed.is_some_and(|d| {
+                let access = event_data_str(d, "AccessMask").unwrap_or("");
+                let obj_server = event_data_str(d, "ObjectServer").unwrap_or("");
+                obj_server.contains("Directory Service") || access.contains("0x100")
+            }),
             "lateral-smb" => ed
                 .and_then(|d| event_data_str(d, "ShareName"))
-                .map(|share| {
+                .is_some_and(|share| {
                     let s = share.to_ascii_uppercase();
                     s.contains("ADMIN$") || s.contains("\\C$") || s.contains("IPC$")
-                })
-                .unwrap_or(false),
+                }),
             "lsass-access" => ed
                 .and_then(|d| event_data_str(d, "TargetImage"))
-                .map(|img| img.to_ascii_lowercase().contains("lsass"))
-                .unwrap_or(false),
+                .is_some_and(|img| img.to_ascii_lowercase().contains("lsass")),
             // EID match is sufficient for these hunts
             "wmi-persistence" | "scheduled-task" | "defender-tamper" => true,
             _ => false,
@@ -2246,18 +2195,14 @@ pub fn lateral_movement(path: &Path) -> Result<Vec<LateralMovementEvent>, Analyz
 
     let mut events = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
         let event_id = match system.and_then(event_id_from_system) {
             Some(id) if matches!(id, 4648 | 4769 | 4776) => id,
             _ => continue,
         };
-        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
-            Some(e) => e,
-            None => continue,
+        let Some(ed) = record.data.get("Event").and_then(|e| e.get("EventData")) else {
+            continue;
         };
 
         let ev = match event_id {
@@ -2288,8 +2233,8 @@ pub fn lateral_movement(path: &Path) -> Result<Vec<LateralMovementEvent>, Analyz
                     };
                     match n {
                         Some(0x17) => "RC4".to_owned(),
-                        Some(0x01) | Some(0x03) => "DES".to_owned(),
-                        Some(0x11) | Some(0x12) => "AES".to_owned(),
+                        Some(0x01 | 0x03) => "DES".to_owned(),
+                        Some(0x11 | 0x12) => "AES".to_owned(),
                         _ => s.to_owned(),
                     }
                 });
@@ -2334,18 +2279,14 @@ pub fn rdp_sessions(path: &Path) -> Result<Vec<RdpSessionEvent>, AnalyzeError> {
 
     let mut events = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
         let event_id = match system.and_then(event_id_from_system) {
             Some(id) if matches!(id, 4778 | 4779) => id,
             _ => continue,
         };
-        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
-            Some(e) => e,
-            None => continue,
+        let Some(ed) = record.data.get("Event").and_then(|e| e.get("EventData")) else {
+            continue;
         };
         let session_id = event_data_str(ed, "SessionID").and_then(|s| s.parse::<u32>().ok());
         events.push(RdpSessionEvent {
@@ -2370,18 +2311,14 @@ pub fn smb_access(path: &Path) -> Result<Vec<SmbAccessEvent>, AnalyzeError> {
 
     let mut events = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
         let event_id = match system.and_then(event_id_from_system) {
             Some(id) if matches!(id, 5140 | 5145) => id,
             _ => continue,
         };
-        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
-            Some(e) => e,
-            None => continue,
+        let Some(ed) = record.data.get("Event").and_then(|e| e.get("EventData")) else {
+            continue;
         };
         events.push(SmbAccessEvent {
             timestamp: record.timestamp.to_string(),
@@ -2407,18 +2344,14 @@ pub fn defender_events(path: &Path) -> Result<Vec<DefenderEvent>, AnalyzeError> 
 
     let mut events = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
         let event_id = match system.and_then(event_id_from_system) {
             Some(id) if matches!(id, 1006 | 1116 | 1117) => id,
             _ => continue,
         };
-        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
-            Some(e) => e,
-            None => continue,
+        let Some(ed) = record.data.get("Event").and_then(|e| e.get("EventData")) else {
+            continue;
         };
         // Defender logs use both named-attribute array AND flat-object formats
         // depending on the Windows version; event_data_str handles both shapes.
@@ -2447,7 +2380,7 @@ pub fn defender_events(path: &Path) -> Result<Vec<DefenderEvent>, AnalyzeError> 
 
 /// A Windows Partition/Diagnostic disk-arrival event (`Microsoft-Windows-Partition`,
 /// EID 1006). The kernel logs one record per physical disk observed at partition-scan
-/// time, carrying the disk's bus/model/serial identity, its PnP parent lineage, and the
+/// time, carrying the disk's bus/model/serial identity, its `PnP` parent lineage, and the
 /// raw boot sectors captured at that moment.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PartitionDiagEvent {
@@ -2457,7 +2390,7 @@ pub struct PartitionDiagEvent {
     pub event_id: u32,
     /// OS disk number (`DiskNumber`).
     pub disk_number: Option<u32>,
-    /// Storage bus type: `3`=ATA, `7`=USB, `8`=RAID, `17`=NVMe, ….
+    /// Storage bus type: `3`=ATA, `7`=USB, `8`=RAID, `17`=`NVMe`, ….
     pub bus_type: Option<u32>,
     /// Device model string (identifying field when the serial is absent).
     pub model: Option<String>,
@@ -2467,10 +2400,10 @@ pub struct PartitionDiagEvent {
     pub disk_id: Option<String>,
     /// Capacity in bytes.
     pub capacity: Option<u64>,
-    /// PnP enumerator path (`ParentId`) — the USB/PCI lineage of the device.
+    /// `PnP` enumerator path (`ParentId`) — the USB/PCI lineage of the device.
     pub parent_id: Option<String>,
     /// First VBR boot sector as a hex string (the `evtx` crate hex-encodes binary
-    /// EventData). The raw source of the volume serials below; `None` when empty.
+    /// `EventData`). The raw source of the volume serials below; `None` when empty.
     pub vbr0_hex: Option<String>,
     /// FAT 4-byte volume serial (`BS_VolID`), decoded from `Vbr0` for FAT12/16/32
     /// volumes. This is the value a Shell Link's `DriveSerialNumber` records, so it is
@@ -2494,10 +2427,7 @@ pub fn partition_diag(path: &Path) -> Result<Vec<PartitionDiagEvent>, AnalyzeErr
 
     let mut events = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
         // Disambiguate from the unrelated Defender EID 1006 by provider name.
         let is_partition = system
@@ -2513,9 +2443,8 @@ pub fn partition_diag(path: &Path) -> Result<Vec<PartitionDiagEvent>, AnalyzeErr
             Some(1006) => 1006,
             _ => continue,
         };
-        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
-            Some(e) => e,
-            None => continue,
+        let Some(ed) = record.data.get("Event").and_then(|e| e.get("EventData")) else {
+            continue;
         };
         let vbr0_hex = event_data_str(ed, "Vbr0")
             .filter(|s| !s.is_empty())
@@ -2561,8 +2490,8 @@ fn ntfs_volume_serial(vbr: &[u8]) -> Option<u64> {
     Some(u64::from_le_bytes(vbr.get(0x48..0x50)?.try_into().ok()?))
 }
 
-/// Read the FAT 4-byte volume serial (`BS_VolID`): FAT32 at `0x43` (BS_FilSysType
-/// `FAT32   ` at `0x52`), FAT12/16 at `0x27` (BS_FilSysType begins `FAT` at `0x36`).
+/// Read the FAT 4-byte volume serial (`BS_VolID`): FAT32 at `0x43` (`BS_FilSysType`
+/// `FAT32   ` at `0x52`), FAT12/16 at `0x27` (`BS_FilSysType` begins `FAT` at `0x36`).
 /// `None` for a non-FAT or too-short boot sector.
 fn fat_volume_serial(vbr: &[u8]) -> Option<u32> {
     if vbr.get(0x52..0x5A) == Some(b"FAT32   ") {
@@ -2584,10 +2513,7 @@ pub fn wmi_events(path: &Path) -> Result<Vec<WmiEvent>, AnalyzeError> {
 
     let mut events = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
         let event_id = match system.and_then(event_id_from_system) {
             // 5857/5858/5860/5861 = WMI-Activity operational log
@@ -2665,18 +2591,14 @@ pub fn scheduled_tasks(path: &Path) -> Result<Vec<ScheduledTask>, AnalyzeError> 
 
     let mut tasks = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
         let event_id = match system.and_then(event_id_from_system) {
             Some(id) if id == 4698 || id == 4702 => id,
             _ => continue,
         };
-        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
-            Some(d) => d,
-            None => continue,
+        let Some(ed) = record.data.get("Event").and_then(|e| e.get("EventData")) else {
+            continue;
         };
         tasks.push(ScheduledTask {
             timestamp: record.timestamp.to_string(),
@@ -2711,7 +2633,7 @@ fn is_lolbin(image: &str) -> bool {
 }
 
 /// Extract process command lines from Security EID 4688 and Sysmon EID 1,
-/// with LOLBin tagging.
+/// with `LOLBin` tagging.
 pub fn process_cmdlines(path: &Path) -> Result<Vec<ProcessExecution>, AnalyzeError> {
     let _ = std::fs::metadata(path).map_err(AnalyzeError::Io)?;
     let mut parser =
@@ -2719,18 +2641,13 @@ pub fn process_cmdlines(path: &Path) -> Result<Vec<ProcessExecution>, AnalyzeErr
 
     let mut execs = Vec::new();
     for result in parser.records_json_value() {
-        let record = match result {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
+        let Ok(record) = result else { continue };
         let system = record.data.get("Event").and_then(|e| e.get("System"));
-        let event_id = match system.and_then(event_id_from_system) {
-            Some(id @ (4688 | 1)) => id,
-            _ => continue,
+        let Some(event_id @ (4688 | 1)) = system.and_then(event_id_from_system) else {
+            continue;
         };
-        let ed = match record.data.get("Event").and_then(|e| e.get("EventData")) {
-            Some(d) => d,
-            None => continue,
+        let Some(ed) = record.data.get("Event").and_then(|e| e.get("EventData")) else {
+            continue;
         };
         let (image, command_line, pid, parent_pid, parent_image) = if event_id == 4688 {
             let image = event_data_str(ed, "NewProcessName")
@@ -2740,19 +2657,19 @@ pub fn process_cmdlines(path: &Path) -> Result<Vec<ProcessExecution>, AnalyzeErr
             let pid = event_data_str(ed, "NewProcessId")
                 .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
                 .unwrap_or(0);
-            let ppid = event_data_str(ed, "ProcessId")
+            let parent_pid = event_data_str(ed, "ProcessId")
                 .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
                 .unwrap_or(0);
             let parent_image = event_data_str(ed, "ParentProcessName").map(str::to_owned);
-            (image, cmdline, pid, ppid, parent_image)
+            (image, cmdline, pid, parent_pid, parent_image)
         } else {
             // Sysmon EID 1 — flat JSON object format, integer PIDs
             let image = sysmon_str(ed, "Image").unwrap_or("-").to_owned();
             let cmdline = sysmon_str(ed, "CommandLine").unwrap_or("").to_owned();
             let pid = sysmon_pid(ed, "ProcessId");
-            let ppid = sysmon_pid(ed, "ParentProcessId");
+            let parent_pid = sysmon_pid(ed, "ParentProcessId");
             let parent_image = sysmon_str(ed, "ParentImage").map(str::to_owned);
-            (image, cmdline, pid, ppid, parent_image)
+            (image, cmdline, pid, parent_pid, parent_image)
         };
         let lolbin = is_lolbin(&image);
 

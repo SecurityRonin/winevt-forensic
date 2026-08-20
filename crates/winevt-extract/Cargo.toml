@@ -22,10 +22,5 @@ forensicnomicon.workspace = true
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 
-# Narrow on purpose. Adopting the full workspace lint set here surfaces 54
-# pedantic findings (40 of them `manual_let_else`) whose cleanup is a style
-# refactor unrelated to unsafe enforcement, and which clippy cannot apply
-# automatically. This closes the unsafe gap now; the clippy adoption is
-# tracked separately.
-[lints.rust]
-unsafe_code = "forbid"
+[lints]
+workspace = true
