@@ -62,7 +62,7 @@ enum SeverityFilter {
 }
 
 impl SeverityFilter {
-    /// Classify an [`IntegrityAnomaly`] into a [`SeverityFilter`] band.
+    /// Classify an [`winevt_carver::IntegrityAnomaly`] into a [`SeverityFilter`] band.
     fn from_anomaly(a: &winevt_carver::IntegrityAnomaly) -> Self {
         use winevt_carver::IntegrityAnomaly as A;
         match a {

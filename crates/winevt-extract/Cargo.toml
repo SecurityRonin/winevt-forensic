@@ -2,6 +2,7 @@
 name = "winevt-extract"
 version = "0.4.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "EID-aware typed extraction of Windows Event Log records: timeline, session reconstruction, PowerShell block reassembly, and frequency analysis."

@@ -1,4 +1,4 @@
-//! The BinXml token-loop deserializer: a token stream → an [`ir`] tree.
+//! The BinXml token-loop deserializer: a token stream → an [`crate::ir`] tree.
 //!
 //! Element nesting is tracked with an explicit work-stack (not native
 //! recursion), so adversarial nesting hits a depth cap rather than overflowing
