@@ -1,6 +1,6 @@
 [package]
 name = "winevt-writer"
-version = "0.1.2"
+version = "0.1.3"
 description = "Reconstruct valid EVTX files from carved records"
 edition.workspace = true
 rust-version.workspace = true
